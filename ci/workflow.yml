@@ -1,0 +1,22 @@
+# Move this file to .github/workflows/ci.yml to enable GitHub Actions.
+# Pushing that path requires a token with the workflow scope.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install lint and test tools
+        run: python -m pip install --upgrade pip && python -m pip install pytest ruff
+      - name: Lint
+        run: ruff check .
+      - name: Test
+        run: pytest

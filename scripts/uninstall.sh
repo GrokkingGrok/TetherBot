@@ -39,7 +39,7 @@ CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
 STATE_HOME="${XDG_STATE_HOME:-$HOME/.local/state}"
 APP_DIR="${DATA_HOME}/tetherbot"
 UNIT_PATH="${CONFIG_HOME}/systemd/user/tetherbot.service"
-DBUS_PATH="${DATA_HOME}/dbus-1/services/org.tetherbot.Bridge1.service"
+DBUS_PATH="${DATA_HOME}/dbus-1/services/io.github.grokkinggrok.TetherBot1.service"
 CONFIG_DIR="${CONFIG_HOME}/tetherbot"
 STATE_DIR="${STATE_HOME}/tetherbot"
 

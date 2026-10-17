@@ -20,3 +20,15 @@ ruff check .
 ```
 
 Anything marked **TBD, verify** in the spec is an open checkbox in the roadmap. Verify it before relying on it.
+
+## Names
+
+These are decided. Do not rename them in passing.
+
+- D-Bus bus name and interface: `io.github.grokkinggrok.TetherBot1`
+- Object path: `/io/github/grokkinggrok/TetherBot1`
+- Schema string: `tetherbot/1`
+- Extension UUID: `tetherbot@grokkinggrok.github.io`
+- Libsecret schema: `io.github.grokkinggrok.TetherBot.Secret`
+- The README and `extension/metadata.json` say the project is unofficial and not affiliated with xAI.
+- A concrete legacy inbox format stays out of this public repository. `bridge/tetherbot/sinks/legacy_todo.py` stays a generic sink.

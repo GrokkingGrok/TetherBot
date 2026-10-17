@@ -20,6 +20,14 @@ ruff check .
 
 The package metadata targets Python 3.13. The scaffold tests use only the standard library.
 
+## CI
+
+`ci/workflow.yml` is the GitHub Actions definition. It is not under `.github/workflows/` because a push credential without the `workflow` scope cannot write that path. The owner enables CI locally with:
+
+```bash
+git mv ci/workflow.yml .github/workflows/ci.yml && git commit -m 'Enable CI' && git push
+```
+
 ## Changes
 
 Prefer a small pull request that finishes one roadmap item and leaves the tests green. If something in the spec is marked **TBD, verify**, check it against the live system and record the result in the roadmap instead of guessing.

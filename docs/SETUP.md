@@ -12,7 +12,7 @@ The daemon and CLI do not exist yet. You can read this checklist and run `script
 4. Open that routine on the desktop (bot name, Details, Routines, the routine). In **Webhook**, copy **POST to** and **key**. Store both with `tetherbotctl secret set <bot>-actions`, or with "Set up keys..." in the extension preferences once that button exists. Paste them into that prompt, not into a chat and not into `config.toml`.
 5. Optional, for bot-to-desktop updates: create a private repository from `template-repo/` once that directory exists. Create a fine-grained token for that one repository (Contents read and write, Metadata read, about 90 days). Store it with `tetherbotctl secret set github-token`. Give the bot write access to the same repository through whatever Grok Bot already supports for git hosting. The recommended credential shape is **TBD, verify** (roadmap).
 6. Enable adapters: `tetherbotctl enable webhook` and, if you configured a repository, `tetherbotctl enable repo`. Then `systemctl --user enable --now tetherbot`.
-7. Install the extension, **log out and back in** (Wayland reloads shell code that way), then enable UUID `tetherbot@example.invalid`. That UUID is a placeholder. Confirm it before you publish the extension.
+7. Install the extension, **log out and back in** (Wayland reloads shell code that way), then enable UUID `tetherbot@grokkinggrok.github.io`.
 8. Check `tetherbotctl status`, then `tetherbotctl webhook test <bot>` only when you mean to spend one bot run.
 9. If the webhook key changes, use the re-paste flow. The bridge opens its own dialog. The extension never receives the key.
 
@@ -33,14 +33,14 @@ The daemon and CLI do not exist yet. You can read this checklist and run `script
 | State, queue, logs | `~/.local/state/tetherbot/` (`queue/`, `items.json`, `bridge.log`, `backups/`) |
 | Repository clones | `~/.local/share/tetherbot/repos/<name>/` |
 | User unit | `~/.config/systemd/user/tetherbot.service` |
-| D-Bus activation | `~/.local/share/dbus-1/services/org.tetherbot.Bridge1.service` |
+| D-Bus activation | `~/.local/share/dbus-1/services/io.github.grokkinggrok.TetherBot1.service` |
 | Secrets | Desktop secret service only (GNOME Keyring via libsecret) |
 
 `~` here means the installing user's home, resolved through the XDG base directories when those variables are set. The bridge does not hard-code a particular home directory.
 
 ## Secrets
 
-- Webhook slots store `{url, key}` under libsecret schema `org.tetherbot.Secret`, attributes `{kind: "webhook", slot: "<slot>"}`.
+- Webhook slots store `{url, key}` under libsecret schema `io.github.grokkinggrok.TetherBot.Secret`, attributes `{kind: "webhook", slot: "<slot>"}`.
 - A git token uses `{kind: "github-token", slot: "<slot>"}`.
 - The extension preferences window only requests that the bridge open its own dialog (`RequestSecretEntry`). The secret never crosses D-Bus.
 - A terminal fallback, `tetherbotctl secret set <slot>`, reads with `getpass` and does not echo.

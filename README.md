@@ -4,6 +4,8 @@ Keep your GNOME desktop tethered to your AI bots.
 
 **Status: pre-alpha, under construction.** This repository is a scaffold. The bridge daemon, the queue, and the extension UI are stubs. Nothing here connects to the network.
 
+**Unofficial, not affiliated with xAI.**
+
 TetherBot is a local bridge between a GNOME desktop and [Grok Bot](https://grok.com). A user-level daemon holds secrets and talks to the network. A GNOME Shell extension shows status in the top bar and sends button clicks back. The extension speaks only D-Bus.
 
 The bridge is generic inside: transport adapters are plugins, so a later official API can be added without rewriting the extension. It is not a general-purpose AI hub. It shows what your own bots wrote, and it sends only the actions you click.
@@ -22,7 +24,7 @@ flowchart LR
       WH[webhook-sender]
       GR[github-poller]
       OF[official stub]
-      DB["D-Bus org.tetherbot.Bridge1"]
+      DB["D-Bus io.github.grokkinggrok.TetherBot1"]
     end
     KR[(Secret service)]
     EXT[GNOME Shell extension]
@@ -69,7 +71,7 @@ The scaffold does not complete this setup. The list is the target, written out i
 | `data/` | D-Bus XML and example config |
 | `tests/` | Pytest smoke test using the fake adapter |
 
-The extension UUID `tetherbot@example.invalid` is a placeholder. Confirm it before publishing. See the roadmap.
+The extension UUID is `tetherbot@grokkinggrok.github.io`. The D-Bus bus name and interface are `io.github.grokkinggrok.TetherBot1`, and the object path is `/io/github/grokkinggrok/TetherBot1`. The schema string stays `tetherbot/1`. The libsecret schema is `io.github.grokkinggrok.TetherBot.Secret`.
 
 ## Develop
 
@@ -79,7 +81,11 @@ pytest
 ruff check .
 ```
 
-Runtime Python dependencies are none. PyGObject, libsecret, and git come from the operating system. The same lint and tests are described in [ci/workflow.yml](ci/workflow.yml) for Python 3.13. Move that file to `.github/workflows/ci.yml` to turn GitHub Actions on. Creating that path needs a credential with the `workflow` scope.
+Runtime Python dependencies are none. PyGObject, libsecret, and git come from the operating system. The same lint and tests are described in [ci/workflow.yml](ci/workflow.yml) for Python 3.13. That file stays at `ci/workflow.yml` because writing `.github/workflows/` needs a credential with the `workflow` scope. The owner enables Actions locally with:
+
+```bash
+git mv ci/workflow.yml .github/workflows/ci.yml && git commit -m 'Enable CI' && git push
+```
 
 `scripts/install.sh` only copies templates into your user directories. It does not enable the service. The unit's `ExecStart` is `/bin/false` until the daemon exists. `scripts/uninstall.sh` removes those templates and leaves the secret service alone.
 

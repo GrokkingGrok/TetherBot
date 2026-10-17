@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
   Session bus interface for TetherBot.
-  This file is the source of truth. Bump to Bridge2 only for a breaking change.
-  TODO: confirm the bus name before v0.2, then leave it stable.
+  This file is the source of truth. The bus name is frozen.
+  Bump the interface to io.github.grokkinggrok.TetherBot2 only for a breaking change.
   Lists of items are JSON strings so the item model can grow.
   Secrets are never passed through this interface.
 -->
 <node>
-  <interface name="org.tetherbot.Bridge1">
+  <interface name="io.github.grokkinggrok.TetherBot1">
     <property name="Version" type="s" access="read"/>
     <property name="ProtocolVersions" type="as" access="read"/>
     <property name="State" type="s" access="read"/>

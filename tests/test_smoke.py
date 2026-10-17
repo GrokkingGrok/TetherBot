@@ -7,7 +7,13 @@ from pathlib import Path
 
 from tetherbot import SCHEMA_VERSION
 from tetherbot.adapters.fake import FakeAdapter
-from tetherbot.dbus_service import INTERFACE, interface_xml
+from tetherbot.dbus_service import (
+    BUS_NAME,
+    INTERFACE,
+    OBJECT_PATH,
+    interface_xml,
+    interface_xml_path,
+)
 from tetherbot.model import ActionEnvelope
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "fake"
@@ -73,6 +79,10 @@ def test_fake_adapter_fails_closed_on_unknown_major(tmp_path: Path):
 
 
 def test_dbus_interface_xml_names_the_bus():
+    assert BUS_NAME == "io.github.grokkinggrok.TetherBot1"
+    assert INTERFACE == BUS_NAME
+    assert OBJECT_PATH == "/io/github/grokkinggrok/TetherBot1"
+    assert interface_xml_path().name == "io.github.grokkinggrok.TetherBot1.xml"
     root = ET.fromstring(interface_xml())
     interface = root.find("interface")
     assert interface is not None

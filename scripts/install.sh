@@ -40,8 +40,8 @@ CONFIG_DIR="${CONFIG_HOME}/tetherbot"
 
 install -d "${BIN_DIR}" "${APP_DIR}" "${UNIT_DIR}" "${DBUS_DIR}" "${CONFIG_DIR}"
 install -m 0644 "${ROOT}/systemd/tetherbot.service" "${UNIT_DIR}/tetherbot.service"
-install -m 0644 "${ROOT}/systemd/org.tetherbot.Bridge1.service" \
-  "${DBUS_DIR}/org.tetherbot.Bridge1.service"
+install -m 0644 "${ROOT}/systemd/io.github.grokkinggrok.TetherBot1.service" \
+  "${DBUS_DIR}/io.github.grokkinggrok.TetherBot1.service"
 printf '%s\n' 'TetherBot scaffold. The daemon is not installed yet.' \
   > "${APP_DIR}/SCAFFOLD"
 

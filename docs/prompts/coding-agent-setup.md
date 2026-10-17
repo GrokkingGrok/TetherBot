@@ -35,7 +35,7 @@ Steps:
 6. Ask before running `tetherbotctl webhook test <bot>`, since it starts a real
    bot run.
 7. Install the extension, then tell me to log out and back in (Wayland needs that)
-   and enable it. The UUID in metadata.json is a placeholder until it is confirmed.
+   and enable UUID tetherbot@grokkinggrok.github.io.
 8. Finish with a short summary: what is enabled, where config lives, and how to undo
    it (scripts/uninstall.sh).
 ```

@@ -2,7 +2,7 @@
 
 Target machine: Fedora 44, GNOME Shell 50, Wayland, Python 3.13+. Other distributions with the same shell and Python can work. The checks below say so when they only warn.
 
-`python -m tetherbot` from a checkout loads config and state, then waits in a main loop. It does not export D-Bus, and `tetherbotctl` does not exist yet. You can run `scripts/install.sh` to copy inactive templates. Wait for the rest of the v0.1 roadmap before pointing a real webhook at this tree.
+`python -m tetherbot` from a checkout loads config and state, exports the session bus, and waits in a main loop. `python -m tetherbot.ctl` is `tetherbotctl`: status, enable, secret set, and webhook test. The installer still does not place `~/.local/bin/tetherbotctl`, and the unit `ExecStart` is `/bin/false`. `tetherbotctl repo setup` is not implemented. You can run `scripts/install.sh` to copy inactive templates. Wait for the rest of the v0.1 roadmap before pointing a real webhook at this tree.
 
 ## What you need
 

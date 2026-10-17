@@ -2,9 +2,10 @@
 """TetherBot bridge package.
 
 Pre-alpha. Config loading, redacting logs, the item store, the action
-queue, the daemon process, the session bus service, and secret-service
-storage are implemented. The process does not open the network. The key
-dialog and ``tetherbotctl`` are not built yet.
+queue, the daemon process, the session bus service, secret-service
+storage, and ``tetherbotctl`` are implemented. The bridge process does
+not open the network. ``tetherbotctl webhook test`` can send one ping.
+The key dialog is not built yet.
 """
 
 __version__ = "0.0.0"

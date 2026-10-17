@@ -2,7 +2,7 @@
 
 Keep your GNOME desktop tethered to your AI bots.
 
-**Status: pre-alpha, under construction.** Config, the item store, the action queue, the bridge process, the session bus service, and secret-service storage are in place. The process does not open the network. The key dialog, `tetherbotctl`, and the extension UI are still stubs.
+**Status: pre-alpha, under construction.** Config, the item store, the action queue, the bridge process, the session bus service, secret-service storage, and `tetherbotctl` (status, enable, secret set, webhook test) are in place. The bridge process does not open the network. `tetherbotctl webhook test` is the one path that sends a ping. The key dialog, `repo setup`, and the extension UI are still stubs.
 
 **Unofficial, not affiliated with xAI.**
 
@@ -53,7 +53,7 @@ The scaffold does not complete this setup. The list is the target, written out i
 5. Optional, for bot-to-desktop updates: a private repository created from the future `template-repo/`, and a fine-grained token stored the same way.
 6. Opt in per adapter, then enable the user service. Log out and back in before enabling the extension on Wayland.
 
-[docs/prompts/coding-agent-setup.md](docs/prompts/coding-agent-setup.md) is the prompt for a coding agent that walks through install on your machine. It is written for the day the daemon exists. Against this scaffold it should stop when a command is missing.
+[docs/prompts/coding-agent-setup.md](docs/prompts/coding-agent-setup.md) is the prompt for a coding agent that walks through install on your machine. `tetherbotctl repo setup` is not implemented, and the installer still does not place a launcher. The agent should stop when a command is missing.
 
 ## Repository map
 
@@ -83,7 +83,7 @@ ruff check .
 
 Runtime Python dependencies are none. PyGObject, libsecret, and git come from the operating system. GitHub Actions runs the same lint and tests on Python 3.13 from [.github/workflows/ci.yml](.github/workflows/ci.yml).
 
-`scripts/install.sh` only copies templates into your user directories. It does not enable the service. The unit's `ExecStart` is still `/bin/false`; the installer does not place `~/.local/bin/tetherbot` yet. `scripts/uninstall.sh` removes those templates and leaves the secret service alone. From a checkout, `python -m tetherbot` loads config and state and then waits in the main loop.
+`scripts/install.sh` only copies templates into your user directories. It does not enable the service. The unit's `ExecStart` is still `/bin/false`; the installer does not place `~/.local/bin/tetherbot` or `~/.local/bin/tetherbotctl` yet. `scripts/uninstall.sh` removes those templates and leaves the secret service alone. From a checkout, `python -m tetherbot` loads config and state and then waits in the main loop. `python -m tetherbot.ctl` is the status, enable, secret set, and webhook test command.
 
 ## License
 

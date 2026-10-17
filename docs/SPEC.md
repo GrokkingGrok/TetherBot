@@ -120,6 +120,7 @@ bridge/tetherbot/               Python package
   queue.py                      on-disk action queue
   files.py                      private JSON writes with fsync
   dbus_service.py               bus name and session export
+  ctl.py                        tetherbotctl: status, enable, secret set, webhook test
   adapters/base.py              adapter interface
   adapters/fake.py              fixture-backed test adapter
   adapters/webhook_sender.py    outbound stub
@@ -137,13 +138,15 @@ scripts/install.sh  uninstall.sh
 docs/
   SPEC.md  PROTOCOL.md  SETUP.md  ROADMAP.md
   prompts/bot-setup.md  prompts/coding-agent-setup.md
-tests/                          pytest, including store, queue, config, daemon, and D-Bus
+tests/                          pytest, including store, queue, config, daemon, D-Bus, secrets, and ctl
 .github/workflows/ci.yml        ruff and pytest on Python 3.13
 ```
 
 `python -m tetherbot` loads `config.toml`, opens the item cache and the action queue under the state directory, and runs a GLib main loop until SIGINT or SIGTERM. On that loop it owns `io.github.grokkinggrok.TetherBot1` on the session bus. A missing config leaves the state `unconfigured`. A refused config leaves the state `failed_closed` and the process keeps running. The log line names the state and the reason, never a secret. Enabled adapters and sinks are not started yet, so that state is `degraded`. D-Bus activation still does not start the process: the unit `ExecStart` is `/bin/false` until the installer places a launcher.
 
-Later milestones add, and should not be invented early: `tools/ctl.py`, `tools/credential_helper.py`, `tools/keys_dialog.py`, `template-repo/`, extension modules for the popup, notifications, and Quick Settings, plus `docs/privacy.md`.
+`python -m tetherbot.ctl` is `tetherbotctl`. It reports status from the running bridge when the bus name is owned, and otherwise from the local config. `enable` and `disable` call `SetAdapterEnabled` when the bridge is on the bus, and otherwise rewrite that adapter's `enabled` line. `secret set` reads with `getpass`. `webhook test <bot>` prints only the HTTP status. `repo setup` is not part of this command yet. The installer does not place `~/.local/bin/tetherbotctl` yet.
+
+Later milestones add, and should not be invented early: `tools/credential_helper.py`, `tools/keys_dialog.py`, `template-repo/`, extension modules for the popup, notifications, and Quick Settings, plus `docs/privacy.md`.
 
 The extension UUID is `tetherbot@grokkinggrok.github.io`. The README and `extension/metadata.json` label the project unofficial and not affiliated with xAI.
 
@@ -308,7 +311,7 @@ Behavior to implement in v0.1:
 | Timeout after the request was sent | Ambiguous: the run may have started. Retry once after backoff with the same `action_id`, so the bot can drop the duplicate. |
 
 6. **Re-paste key.** The notification action calls `RequestSecretEntry("<slot>")`. The dialog names where the key lives ("Bot details, Routines, the routine, Webhook, key") and has two fields (URL and key). After saving, the bridge sends a `{"type":"ping"}` test only if the user ticks "Send a test now", because a test spends usage.
-7. **Test path.** `tetherbotctl webhook test <bot>` sends a ping and prints the status code, never the key.
+7. **Test path.** `tetherbotctl webhook test <bot>` POSTs `{"schema":"tetherbot/1","type":"ping"}` with `Authorization: Bearer` and `Content-Type: application/json`. It prints the status code, never the key or the URL, and does not follow redirects.
 
 The routine on the bot side (prompt A) treats the body as data: it acts only on known `action` values for items it owns, and treats `note` text as a message from the user, not as instructions that widen what the routine may do.
 
@@ -354,7 +357,7 @@ Generic module only. See section 11. Off by default. A concrete legacy inbox for
 
 ### 8.3 Key entry outside the shell
 
-`RequestSecretEntry(slot)` makes the bridge spawn a small GTK4 and libadwaita window owned by the bridge process tree. It writes straight to libsecret and exits. The extension's prefs window only has a "Set up keys..." button that calls this method. That keeps secrets out of `gnome-shell` and out of the prefs process. A terminal fallback exists: `tetherbotctl secret set <slot>` reads with `getpass` and does not echo.
+`RequestSecretEntry(slot)` makes the bridge spawn a small GTK4 and libadwaita window owned by the bridge process tree. It writes straight to libsecret and exits. The extension's prefs window only has a "Set up keys..." button that calls this method. That keeps secrets out of `gnome-shell` and out of the prefs process. Until that dialog exists, `RequestSecretEntry` returns false. A terminal fallback exists: `tetherbotctl secret set <slot>` reads with `getpass` and does not echo. A slot named `github-token` asks for the token. Any other slot asks for the webhook URL and key. Success prints `stored <slot>` and nothing else.
 
 ## 9. Extension UI
 
@@ -435,6 +438,7 @@ Already present:
 - Daemon: a missing config is `unconfigured`, a refused config is `failed_closed` and the secret is not logged, an enabled adapter is not started, the queue resumes, startup applies `expires_at`, and stop ends the loop. Importing the module does not import GLib.
 - D-Bus API: filters, enqueue, snooze, queue retry and drop, adapter enable saved back to `config.toml`, and secret methods refused without echoing a secret. When `dbus-run-session` and PyGObject are installed, a private bus test calls `GetItems`, introspection, a property, and the not-found error.
 - Secret store: webhook `{url, key}` and a github token under `io.github.grokkinggrok.TetherBot.Secret`, attributes `kind` and `slot`. A locked or missing service raises and writes no file. The log filter learns the exact stored values.
+- CLI: a missing config prints `unconfigured` first. Enable rewrites that adapter's flag. Secret set stores the value and does not print it. Webhook test prints only the status code. Importing `tetherbot.ctl` does not import GLib.
 
 Still to write, with the milestones that need them:
 

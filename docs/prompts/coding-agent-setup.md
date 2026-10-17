@@ -1,6 +1,6 @@
 # Prompt B: paste into a coding agent on your machine
 
-Use this when the daemon and `tetherbotctl` exist. On the pre-alpha scaffold the agent should stop at the first missing command instead of inventing one.
+`tetherbotctl` can show status, enable an adapter, store a secret, and send a webhook ping. From a checkout the command is `python -m tetherbot.ctl`. `tetherbotctl repo setup` is not implemented, and the installer does not place `~/.local/bin/tetherbotctl` yet. The agent should stop at the first missing command instead of inventing one.
 
 ```text
 Help me install TetherBot on this Fedora 44 / GNOME 50 machine. Rules: never print,

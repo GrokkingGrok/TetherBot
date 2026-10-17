@@ -135,6 +135,11 @@ class ActionQueue:
             return tuple(action.clone() for action in sorted(pending, key=lambda row: row.created))
         return None
 
+    def pending_count(self) -> int:
+        """Pending outbound actions. Parked actions are not included."""
+
+        return sum(action.state == "pending" for action in self._actions.values())
+
     def mark_attempt(self, bot: str, action_ids: list[str], *, now: datetime) -> None:
         """Record one POST for ``bot``. Each listed action gains one attempt."""
 

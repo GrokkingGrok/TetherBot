@@ -107,7 +107,8 @@ AGENTS.md                       instructions for coding agents
 pyproject.toml                  no runtime pip dependencies
 bridge/tetherbot/               Python package
   __init__.py                   SCHEMA_VERSION, package version
-  __main__.py                   refuses to start a daemon
+  __main__.py                   starts the bridge process
+  daemon.py                     config, store, queue, and the GLib main loop
   model.py                      item and action envelope, secret guard
   version_gate.py               fail closed on an unknown major
   config.py                     config.toml loader
@@ -134,11 +135,13 @@ scripts/install.sh  uninstall.sh
 docs/
   SPEC.md  PROTOCOL.md  SETUP.md  ROADMAP.md
   prompts/bot-setup.md  prompts/coding-agent-setup.md
-tests/                          pytest, including store, queue, and config
+tests/                          pytest, including store, queue, config, and daemon
 .github/workflows/ci.yml        ruff and pytest on Python 3.13
 ```
 
-Later milestones add, and should not be invented early: `daemon.py`, `secrets.py`, `tools/ctl.py`, `tools/credential_helper.py`, `tools/keys_dialog.py`, `template-repo/`, extension modules for the popup, notifications, and Quick Settings, plus `docs/privacy.md`.
+`python -m tetherbot` loads `config.toml`, opens the item cache and the action queue under the state directory, and runs a GLib main loop until SIGINT or SIGTERM. A missing config leaves the state `unconfigured`. A refused config leaves the state `failed_closed` and the process keeps running. The log line names the state and the reason, never a secret. Enabled adapters and sinks are not started yet, so that state is `degraded`. The process does not own the bus name yet.
+
+Later milestones add, and should not be invented early: `secrets.py`, `tools/ctl.py`, `tools/credential_helper.py`, `tools/keys_dialog.py`, `template-repo/`, extension modules for the popup, notifications, and Quick Settings, plus `docs/privacy.md`.
 
 The extension UUID is `tetherbot@grokkinggrok.github.io`. The README and `extension/metadata.json` label the project unofficial and not affiliated with xAI.
 
@@ -342,7 +345,7 @@ Generic module only. See section 11. Off by default. A concrete legacy inbox for
 ### 8.2 Process and permissions
 
 - The extension holds no secrets and makes no network calls. Reviewers can check that by searching it for `Soup`, `Gio.SocketClient`, `fetch`, and `GLib.spawn`. The only imports it needs are `Gio` (D-Bus proxy), `GLib`, `St`, `Clutter`, and Shell UI modules.
-- Unit hardening that works for user services: `NoNewPrivileges=yes`, `LockPersonality=yes`, `RestrictRealtime=yes`, `RestrictSUIDSGID=yes`, `UMask=0077`. Test each one on Fedora 44. Some sandboxing options need user namespaces in user units (**TBD, verify** whether `ProtectSystem=strict` with `ReadWritePaths=` works there). The scaffold unit already sets the options in the first sentence. `ExecStart` is `/bin/false` until the daemon exists.
+- Unit hardening that works for user services: `NoNewPrivileges=yes`, `LockPersonality=yes`, `RestrictRealtime=yes`, `RestrictSUIDSGID=yes`, `UMask=0077`. Test each one on Fedora 44. Some sandboxing options need user namespaces in user units (**TBD, verify** whether `ProtectSystem=strict` with `ReadWritePaths=` works there). The scaffold unit already sets the options in the first sentence. The bridge process exists, but `ExecStart` stays `/bin/false` until `scripts/install.sh` installs a launcher (v0.2). D-Bus activation stays `/bin/false` until the service is exported.
 - Network destinations are fixed: the webhook host from the stored URL (scheme `https`), plus `github.com` and `api.github.com` for the git adapter. The adapter refuses any other host for a git-hosting route.
 
 ### 8.3 Key entry outside the shell
@@ -384,7 +387,7 @@ Missing: bot status, counts, asks, todos, and notifications about bot-side event
 
 Human steps are in [SETUP.md](SETUP.md). Prompt A is [prompts/bot-setup.md](prompts/bot-setup.md). Prompt B is [prompts/coding-agent-setup.md](prompts/coding-agent-setup.md).
 
-`scripts/install.sh` matches the installer contract in SETUP.md. It is idempotent, refuses `--enable` while the daemon is unimplemented, and never reads a secret.
+`scripts/install.sh` matches the installer contract in SETUP.md. It is idempotent, refuses `--enable` while the unit's `ExecStart` is `/bin/false`, and never reads a secret.
 
 ## 11. Legacy single-repo todo sync (example)
 
@@ -425,6 +428,7 @@ Already present:
 - Store: added, updated, removed, notify dedupe, snooze expiry, `expires_at`.
 - Queue: mode-0600 files, fsync, restart resume, coalescing window, pacing, daily cap.
 - Config loader rejects an unknown schema major and secret-shaped values. The log filter masks secret-shaped spans.
+- Daemon: a missing config is `unconfigured`, a refused config is `failed_closed` and the secret is not logged, an enabled adapter is not started, the queue resumes, startup applies `expires_at`, and stop ends the loop. Importing the module does not import GLib.
 
 Still to write, with the milestones that need them:
 

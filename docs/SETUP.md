@@ -2,12 +2,12 @@
 
 Target machine: Fedora 44, GNOME Shell 50, Wayland, Python 3.13+. Other distributions with the same shell and Python can work. The checks below say so when they only warn.
 
-The daemon and CLI do not exist yet. You can read this checklist and run `scripts/install.sh` to copy inactive templates. Wait for the v0.1 roadmap items before pointing a real webhook at this tree.
+`python -m tetherbot` from a checkout loads config and state, then waits in a main loop. It does not export D-Bus, and `tetherbotctl` does not exist yet. You can run `scripts/install.sh` to copy inactive templates. Wait for the rest of the v0.1 roadmap before pointing a real webhook at this tree.
 
 ## What you need
 
 1. Install Grok Bot and sign in. Decide which bot receives desktop actions (usually the main one). In these docs that bot is called `primary`. Use your own bot id, lowercase, in config.
-2. Clone this repository and run `scripts/install.sh`. The installer copies files, installs the user unit and the D-Bus activation file, and enables nothing that touches the network. `--enable` is refused while the daemon is a stub.
+2. Clone this repository and run `scripts/install.sh`. The installer copies files, installs the user unit and the D-Bus activation file, and enables nothing that touches the network. `--enable` is refused while the unit's `ExecStart` is `/bin/false`.
 3. Paste [prompts/bot-setup.md](prompts/bot-setup.md) into that bot's chat. It asks the bot to create a routine named "Desktop actions" with a webhook trigger.
 4. Open that routine on the desktop (bot name, Details, Routines, the routine). In **Webhook**, copy **POST to** and **key**. Store both with `tetherbotctl secret set <bot>-actions`, or with "Set up keys..." in the extension preferences once that button exists. Paste them into that prompt, not into a chat and not into `config.toml`.
 5. Optional, for bot-to-desktop updates: create a private repository from `template-repo/` once that directory exists. Create a fine-grained token for that one repository (Contents read and write, Metadata read, about 90 days). Store it with `tetherbotctl secret set github-token`. Give the bot write access to the same repository through whatever Grok Bot already supports for git hosting. The recommended credential shape is **TBD, verify** (roadmap).

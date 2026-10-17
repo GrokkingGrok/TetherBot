@@ -2,7 +2,7 @@
 
 Keep your GNOME desktop tethered to your AI bots.
 
-**Status: pre-alpha, under construction.** This repository is a scaffold. The bridge daemon, the queue, and the extension UI are stubs. Nothing here connects to the network.
+**Status: pre-alpha, under construction.** Config, the item store, the action queue, and the bridge process are in place. The process does not own the D-Bus name, does not read the secret service, and does not open the network. The extension UI is still a stub.
 
 **Unofficial, not affiliated with xAI.**
 
@@ -83,7 +83,7 @@ ruff check .
 
 Runtime Python dependencies are none. PyGObject, libsecret, and git come from the operating system. GitHub Actions runs the same lint and tests on Python 3.13 from [.github/workflows/ci.yml](.github/workflows/ci.yml).
 
-`scripts/install.sh` only copies templates into your user directories. It does not enable the service. The unit's `ExecStart` is `/bin/false` until the daemon exists. `scripts/uninstall.sh` removes those templates and leaves the secret service alone.
+`scripts/install.sh` only copies templates into your user directories. It does not enable the service. The unit's `ExecStart` is still `/bin/false`; the installer does not place `~/.local/bin/tetherbot` yet. `scripts/uninstall.sh` removes those templates and leaves the secret service alone. From a checkout, `python -m tetherbot` loads config and state and then waits in the main loop.
 
 ## License
 

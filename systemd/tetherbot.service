@@ -4,8 +4,9 @@ After=graphical-session.target
 
 [Service]
 Type=simple
-# TODO(v0.1): ExecStart=%h/.local/bin/tetherbot
-# Fail closed until the daemon exists, so starting the unit cannot run a stub process.
+# The process is `python -m tetherbot`. ExecStart stays /bin/false until
+# scripts/install.sh installs %h/.local/bin/tetherbot. D-Bus activation
+# stays /bin/false until the service is exported.
 ExecStart=/bin/false
 Restart=no
 NoNewPrivileges=yes

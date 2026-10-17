@@ -10,8 +10,9 @@ Usage: scripts/install.sh
 Copy the user unit, D-Bus activation file, and example config into the
 per-user directories. Does not enable or start anything.
 
-This is a pre-alpha scaffold. The daemon is not implemented, so the unit
-ExecStart is /bin/false until that changes. --enable is refused.
+The bridge process exists, but this installer does not place a launcher.
+The unit ExecStart is still /bin/false, and D-Bus is not exported.
+--enable is refused.
 EOF
 }
 
@@ -20,7 +21,7 @@ if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   exit 0
 fi
 if [[ "${1:-}" == "--enable" ]]; then
-  echo "tetherbot: refusing --enable. The daemon is not implemented yet." >&2
+  echo "tetherbot: refusing --enable. The unit does not launch the bridge yet." >&2
   exit 1
 fi
 if [[ $# -gt 0 ]]; then
@@ -42,7 +43,7 @@ install -d "${BIN_DIR}" "${APP_DIR}" "${UNIT_DIR}" "${DBUS_DIR}" "${CONFIG_DIR}"
 install -m 0644 "${ROOT}/systemd/tetherbot.service" "${UNIT_DIR}/tetherbot.service"
 install -m 0644 "${ROOT}/systemd/io.github.grokkinggrok.TetherBot1.service" \
   "${DBUS_DIR}/io.github.grokkinggrok.TetherBot1.service"
-printf '%s\n' 'TetherBot scaffold. The daemon is not installed yet.' \
+printf '%s\n' 'TetherBot scaffold. The launcher is not installed yet.' \
   > "${APP_DIR}/SCAFFOLD"
 
 if [[ ! -e "${CONFIG_DIR}/config.toml" ]]; then

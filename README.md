@@ -71,7 +71,7 @@ The scaffold does not complete this setup. The list is the target, written out i
 | `data/` | D-Bus XML and example config |
 | `tests/` | Pytest smoke test using the fake adapter |
 
-The extension UUID is `tetherbot@grokkinggrok.github.io`. The D-Bus bus name and interface are `io.github.grokkinggrok.TetherBot1`, and the object path is `/io/github/grokkinggrok/TetherBot1`. The schema string stays `tetherbot/1`.
+The extension UUID is `tetherbot@grokkinggrok.github.io`. The D-Bus bus name and interface are `io.github.grokkinggrok.TetherBot1`, and the object path is `/io/github/grokkinggrok/TetherBot1`. The schema string stays `tetherbot/1`. The libsecret schema is `io.github.grokkinggrok.TetherBot.Secret`.
 
 ## Develop
 

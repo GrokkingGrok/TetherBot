@@ -5,7 +5,7 @@ Targets: GNOME Shell 50, Wayland, Fedora 44, Python 3.13+.
 
 Read this whole file before writing code. Anything marked **TBD, verify** is not confirmed. Check it before you rely on it, and do not fill the gap with a guess.
 
-Decided names: bus name and interface `io.github.grokkinggrok.TetherBot1`, object path `/io/github/grokkinggrok/TetherBot1`, schema `tetherbot/1`, extension UUID `tetherbot@grokkinggrok.github.io`. After release, the bus name and the schema major version stay stable. The project is unofficial and not affiliated with xAI. A concrete legacy inbox format stays out of this public repository. See section 16.
+Decided names: bus name and interface `io.github.grokkinggrok.TetherBot1`, object path `/io/github/grokkinggrok/TetherBot1`, schema `tetherbot/1`, extension UUID `tetherbot@grokkinggrok.github.io`, libsecret schema `io.github.grokkinggrok.TetherBot.Secret`. After release, the bus name and the schema major version stay stable. The project is unofficial and not affiliated with xAI. A concrete legacy inbox format stays out of this public repository. See section 16.
 
 Examples use the fictional bot id `primary`.
 
@@ -327,7 +327,7 @@ Generic module only. See section 11. Off by default. A concrete legacy inbox for
 ### 8.1 Rules
 
 - Secrets live only in libsecret (GNOME Keyring, login collection). They do not go in `config.toml`, gsettings, dconf, environment variables, unit files, logs, the queue, D-Bus messages, or the extension.
-- libsecret schema `org.tetherbot.Secret` with attributes `{kind: "webhook" | "github-token", slot: "<slot>"}`. Webhook items store a JSON blob `{url, key}`. Labels are readable in Seahorse, for example "tetherbot: primary actions webhook".
+- libsecret schema `io.github.grokkinggrok.TetherBot.Secret` with attributes `{kind: "webhook" | "github-token", slot: "<slot>"}`. Webhook items store a JSON blob `{url, key}`. Labels are readable in Seahorse, for example "tetherbot: primary actions webhook".
 - If the keyring is locked or missing, the affected adapters wait in state `degraded: keyring locked`, and the bridge shows one notification. It never falls back to a plain file.
 - The git token is optional, fine-grained, one repo, and the user picks the expiry. If REST mode sees the `github-authentication-token-expiration` header, warn 7 days ahead.
 - The token goes only through the git credential helper, never in a URL.
@@ -489,7 +489,7 @@ GNOME already has chat-style AI clients: Newelle (GTK4, MCP), Alpaca (Ollama), a
 
 ### Resolved
 
-- **Naming.** Bus name and interface `io.github.grokkinggrok.TetherBot1`. Object path `/io/github/grokkinggrok/TetherBot1`. Schema string stays `tetherbot/1`. Extension UUID `tetherbot@grokkinggrok.github.io`. Do not change the bus name after release.
+- **Naming.** Bus name and interface `io.github.grokkinggrok.TetherBot1`. Object path `/io/github/grokkinggrok/TetherBot1`. Schema string stays `tetherbot/1`. Extension UUID `tetherbot@grokkinggrok.github.io`. Libsecret schema `io.github.grokkinggrok.TetherBot.Secret`. Do not change the bus name after release.
 - **Unofficial labelling.** The README and `extension/metadata.json` say the project is unofficial and not affiliated with xAI.
 - **Legacy inbox format.** A concrete legacy inbox format stays out of this public repository. The `legacy-todo` sink stays generic and does not publish a field map.
 

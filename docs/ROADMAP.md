@@ -8,7 +8,7 @@ TetherBot is pre-alpha. Check items off as they land. Design detail is in [SPEC.
 - [ ] D-Bus service exporting `data/io.github.grokkinggrok.TetherBot1.xml` on the session bus
 - [ ] Item store, diff, and notify policy
 - [ ] On-disk action queue with `fsync`, restart resume, coalescing, and pacing
-- [ ] Secret-service read and write (`org.tetherbot.Secret`), no plain-file fallback
+- [ ] Secret-service read and write (`io.github.grokkinggrok.TetherBot.Secret`), no plain-file fallback
 - [ ] `tetherbotctl` for status, enable, secret set, and webhook test
 - [ ] `webhook-sender`: POST, bearer header, retry table in SPEC section 7.2, re-paste flow
 - [ ] `github-poller`: change check, schema gate, owned-path writes, fail closed on rebase conflicts
@@ -68,6 +68,6 @@ TetherBot is pre-alpha. Check items off as they land. Design detail is in [SPEC.
 
 ## Resolved
 
-- [x] Bus name and interface `io.github.grokkinggrok.TetherBot1`, object path `/io/github/grokkinggrok/TetherBot1`. Schema string stays `tetherbot/1`. Do not change the bus name after release.
+- [x] Bus name and interface `io.github.grokkinggrok.TetherBot1`, object path `/io/github/grokkinggrok/TetherBot1`. Schema string stays `tetherbot/1`. Libsecret schema `io.github.grokkinggrok.TetherBot.Secret`. Do not change the bus name after release.
 - [x] Extension UUID `tetherbot@grokkinggrok.github.io`. The README and the extension metadata description stay labelled unofficial, not affiliated with xAI.
 - [x] Concrete legacy inbox format stays out of this public repo. The `legacy-todo` sink stays generic.

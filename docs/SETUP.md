@@ -40,7 +40,7 @@ The daemon and CLI do not exist yet. You can read this checklist and run `script
 
 ## Secrets
 
-- Webhook slots store `{url, key}` under libsecret schema `org.tetherbot.Secret`, attributes `{kind: "webhook", slot: "<slot>"}`.
+- Webhook slots store `{url, key}` under libsecret schema `io.github.grokkinggrok.TetherBot.Secret`, attributes `{kind: "webhook", slot: "<slot>"}`.
 - A git token uses `{kind: "github-token", slot: "<slot>"}`.
 - The extension preferences window only requests that the bridge open its own dialog (`RequestSecretEntry`). The secret never crosses D-Bus.
 - A terminal fallback, `tetherbotctl secret set <slot>`, reads with `getpass` and does not echo.

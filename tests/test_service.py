@@ -191,9 +191,7 @@ def test_set_adapter_enabled_rewrites_config_and_state(tmp_path: Path):
     assert webhook["state"] == "not-started"
     with pytest.raises(ServiceError, match="unknown adapter"):
         daemon.api.call("SetAdapterEnabled", ("carrier-pigeon", True))
-    with pytest.raises(ServiceError, match="not available yet") as secret:
-        daemon.api.call("RequestSecretEntry", ("primary-actions",))
-    assert secret.value.error_name.endswith(".Error.Unavailable")
+    assert daemon.api.call("RequestSecretEntry", ("primary-actions",)) == (False,)
     with pytest.raises(ServiceError, match="slot is not a name") as leaked:
         daemon.api.call("ForgetSecret", ("ghp_abcdefghijklmnopqrstuvwxyz",))
     assert "ghp_" not in str(leaked.value)

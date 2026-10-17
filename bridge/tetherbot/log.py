@@ -21,6 +21,12 @@ class RedactingFilter(logging.Filter):
         super().__init__()
         self._extra = tuple(secret for secret in extra_secrets if secret)
 
+    def note(self, secret: str) -> None:
+        """Remember an exact secret so later lines mask it."""
+
+        if secret and secret not in self._extra:
+            self._extra = (*self._extra, secret)
+
     def filter(self, record: logging.LogRecord) -> bool:
         if record.args:
             record.msg = record.msg % record.args
@@ -56,6 +62,17 @@ def configure_logging(
         logger.addHandler(_handler(file_handler, extra_secrets))
     logger.propagate = False
     return logger
+
+
+def note_secrets(secrets: Sequence[str]) -> None:
+    """Add exact secrets to the filters already attached to the bridge logger."""
+
+    logger = logging.getLogger("tetherbot")
+    for handler in logger.handlers:
+        for filt in handler.filters:
+            if isinstance(filt, RedactingFilter):
+                for secret in secrets:
+                    filt.note(secret)
 
 
 def _handler(handler: logging.Handler, extra_secrets: Sequence[str]) -> logging.Handler:

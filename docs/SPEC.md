@@ -110,6 +110,7 @@ bridge/tetherbot/               Python package
   __main__.py                   starts the bridge process
   daemon.py                     config, store, queue, and the GLib main loop
   service.py                    session API on the store and queue
+  secrets.py                    libsecret read and write, no file fallback
   model.py                      item and action envelope, secret guard
   version_gate.py               fail closed on an unknown major
   config.py                     config.toml loader
@@ -142,7 +143,7 @@ tests/                          pytest, including store, queue, config, daemon, 
 
 `python -m tetherbot` loads `config.toml`, opens the item cache and the action queue under the state directory, and runs a GLib main loop until SIGINT or SIGTERM. On that loop it owns `io.github.grokkinggrok.TetherBot1` on the session bus. A missing config leaves the state `unconfigured`. A refused config leaves the state `failed_closed` and the process keeps running. The log line names the state and the reason, never a secret. Enabled adapters and sinks are not started yet, so that state is `degraded`. D-Bus activation still does not start the process: the unit `ExecStart` is `/bin/false` until the installer places a launcher.
 
-Later milestones add, and should not be invented early: `secrets.py`, `tools/ctl.py`, `tools/credential_helper.py`, `tools/keys_dialog.py`, `template-repo/`, extension modules for the popup, notifications, and Quick Settings, plus `docs/privacy.md`.
+Later milestones add, and should not be invented early: `tools/ctl.py`, `tools/credential_helper.py`, `tools/keys_dialog.py`, `template-repo/`, extension modules for the popup, notifications, and Quick Settings, plus `docs/privacy.md`.
 
 The extension UUID is `tetherbot@grokkinggrok.github.io`. The README and `extension/metadata.json` label the project unofficial and not affiliated with xAI.
 
@@ -254,7 +255,7 @@ Lists of items pass as JSON strings (`s`), so the item model can grow without br
 | `ActionResult(s action_id, s result, s detail)` | `result`: `accepted` (HTTP 200, run started), `queued_retry`, `parked`, `rejected_key`, `dropped` |
 | `StateChanged(s state, s reason)` | Mirrors the property for clients that do not watch properties |
 
-`RequestSecretEntry` and `ForgetSecret` return `io.github.grokkinggrok.TetherBot1.Error.Unavailable` until the secret-service milestone. `OpenChat` returns false until the Grok Bot desktop entry id is known. `SyncNow` is limited to once per 30 seconds and does not poll until an inbound adapter is running, so `LastSync` stays 0. `PerformAction` enqueues `approve`, `veto`, and `done` only. `snooze` stays on `Snooze`. `ActionResult` is emitted when a later sender finishes a post.
+`ForgetSecret` deletes that slot from libsecret and does not take the secret value. `RequestSecretEntry` returns false until the key dialog exists; the secret still does not cross D-Bus. A locked or missing keyring sets the bridge state to `degraded` with reason `keyring locked` and never writes a secret file. `OpenChat` returns false until the Grok Bot desktop entry id is known. `SyncNow` is limited to once per 30 seconds and does not poll until an inbound adapter is running, so `LastSync` stays 0. `PerformAction` enqueues `approve`, `veto`, and `done` only. `snooze` stays on `Snooze`. `ActionResult` is emitted when a later sender finishes a post.
 
 Access control: any process in the user session can call the bridge. That is the normal session-bus trust boundary. The bridge never exposes secrets over D-Bus, so the worst a hostile local app can do is queue actions. It already has the user's full privileges anyway. Write this down in `docs/privacy.md` when that file is added (v0.2).
 
@@ -433,6 +434,7 @@ Already present:
 - Config loader rejects an unknown schema major and secret-shaped values. The log filter masks secret-shaped spans.
 - Daemon: a missing config is `unconfigured`, a refused config is `failed_closed` and the secret is not logged, an enabled adapter is not started, the queue resumes, startup applies `expires_at`, and stop ends the loop. Importing the module does not import GLib.
 - D-Bus API: filters, enqueue, snooze, queue retry and drop, adapter enable saved back to `config.toml`, and secret methods refused without echoing a secret. When `dbus-run-session` and PyGObject are installed, a private bus test calls `GetItems`, introspection, a property, and the not-found error.
+- Secret store: webhook `{url, key}` and a github token under `io.github.grokkinggrok.TetherBot.Secret`, attributes `kind` and `slot`. A locked or missing service raises and writes no file. The log filter learns the exact stored values.
 
 Still to write, with the milestones that need them:
 

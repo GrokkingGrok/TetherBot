@@ -251,13 +251,29 @@ class BridgeApi:
         self._note_state()
         return None
 
+    def publish_state(self) -> None:
+        self._note_state()
+
     def _request_secret_entry(self, slot: str) -> tuple[bool]:
+        """The key dialog is a later milestone. False means it did not open."""
+
         _reject_slot(slot)
-        raise ServiceError(UNAVAILABLE, "secret service is not available yet")
+        return (False,)
 
     def _forget_secret(self, slot: str) -> None:
+        from tetherbot.secrets import SecretError, SecretLocked, SecretUnavailable, SecretValueError
+
         _reject_slot(slot)
-        raise ServiceError(UNAVAILABLE, "secret service is not available yet")
+        try:
+            self._daemon.secrets.forget(slot)
+        except SecretValueError as exc:
+            raise ServiceError(INVALID_ARGS, str(exc)) from exc
+        except SecretLocked as exc:
+            raise ServiceError(FAILED, str(exc)) from exc
+        except SecretUnavailable as exc:
+            raise ServiceError(UNAVAILABLE, str(exc)) from exc
+        except SecretError as exc:
+            raise ServiceError(FAILED, str(exc)) from exc
 
     def _get_queue(self) -> tuple[str]:
         rows = []

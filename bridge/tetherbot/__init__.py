@@ -2,8 +2,9 @@
 """TetherBot bridge package.
 
 Pre-alpha. Config loading, redacting logs, the item store, the action
-queue, the daemon process, and the session bus service are implemented.
-The process does not read the secret service and does not open the network.
+queue, the daemon process, the session bus service, and secret-service
+storage are implemented. The process does not open the network. The key
+dialog and ``tetherbotctl`` are not built yet.
 """
 
 __version__ = "0.0.0"

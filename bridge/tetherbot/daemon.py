@@ -2,8 +2,8 @@
 """Bridge process.
 
 Loads config, the item cache, and the action queue, then runs a main loop
-until asked to stop. A GLib loop also owns the session bus name. Enabled
-adapters and sinks are not started here.
+until asked to stop. A GLib loop also owns the session bus name and opens
+the secret service. Enabled adapters and sinks are not started here.
 """
 
 from __future__ import annotations
@@ -22,6 +22,7 @@ from tetherbot.dbus_service import STATES
 from tetherbot.files import ensure_private_dir
 from tetherbot.log import configure_logging
 from tetherbot.queue import ActionQueue
+from tetherbot.secrets import SecretStore, UnavailableBackend, open_secret_store
 from tetherbot.service import BridgeApi
 from tetherbot.store import ItemStore
 
@@ -61,6 +62,7 @@ class BridgeDaemon:
         loop: MainLoop | None = None,
         log_stream: TextIO | None = None,
         clock: Callable[[], datetime] | None = None,
+        secrets: SecretStore | None = None,
     ) -> None:
         self.config_path = default_config_path() if config_path is None else config_path
         self.state_dir = default_state_dir() if state_dir is None else state_dir
@@ -75,6 +77,8 @@ class BridgeDaemon:
         self.running = False
         self._started = False
         self.api: BridgeApi | None = None
+        self._secrets_explicit = secrets is not None
+        self.secrets = secrets if secrets is not None else SecretStore(UnavailableBackend())
 
     def start(self) -> DaemonStatus:
         """Open state files and mark the process running. Does not block."""
@@ -91,6 +95,19 @@ class BridgeDaemon:
 
     def now(self) -> datetime:
         return self._clock()
+
+    def _apply_keyring_state(self) -> None:
+        try:
+            status = self.secrets.status()
+        except Exception:
+            logging.getLogger("tetherbot").error("secret service is not available")
+            return
+        if status not in {"locked", "missing"} or self.state == "failed_closed":
+            return
+        self.state = "degraded"
+        self.reason = "keyring locked"
+        if self.api is not None:
+            self.api.publish_state()
 
     def reload_config(self) -> None:
         """Re-read ``config.toml`` and recompute the bridge state."""
@@ -129,6 +146,9 @@ class BridgeDaemon:
         code = 0
         try:
             if isinstance(self._loop, GLibMainLoop):
+                if not self._secrets_explicit:
+                    self.secrets = open_secret_store()
+                    self._apply_keyring_state()
                 from tetherbot.dbus_service import BusOwnershipError, SessionExport
 
                 export = SessionExport(self.api)

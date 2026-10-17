@@ -9,7 +9,7 @@ TetherBot is pre-alpha. Check items off as they land. Design detail is in [SPEC.
 - [x] D-Bus service exporting `data/io.github.grokkinggrok.TetherBot1.xml` on the session bus
 - [x] Item store, diff, and notify policy
 - [x] On-disk action queue with `fsync`, restart resume, coalescing, and pacing
-- [ ] Secret-service read and write (`io.github.grokkinggrok.TetherBot.Secret`), no plain-file fallback
+- [x] Secret-service read and write (`io.github.grokkinggrok.TetherBot.Secret`), no plain-file fallback
 - [ ] `tetherbotctl` for status, enable, secret set, and webhook test
 - [ ] `webhook-sender`: POST, bearer header, retry table in SPEC section 7.2, re-paste flow
 - [ ] `github-poller`: change check, schema gate, owned-path writes, fail closed on rebase conflicts

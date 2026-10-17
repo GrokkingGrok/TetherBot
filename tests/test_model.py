@@ -2,8 +2,8 @@
 """Field rules, the secret guard, and unknown kinds."""
 
 import pytest
-from tests.helpers import make_item
 
+from tests.helpers import make_item
 from tetherbot.model import SECRET_REPLACEMENT, Item, global_key
 
 

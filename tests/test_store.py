@@ -4,7 +4,6 @@
 from datetime import timedelta
 
 from tests.helpers import NOW, make_item
-
 from tetherbot.store import ItemStore
 
 

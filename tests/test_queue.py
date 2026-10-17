@@ -4,9 +4,9 @@
 from datetime import timedelta
 
 import pytest
-from tests.helpers import NOW
 
 import tetherbot.files as files
+from tests.helpers import NOW
 from tetherbot.queue import ActionQueue, QueueError, queue_file_mode
 
 

@@ -1,0 +1,25 @@
+{
+  "schema": "tetherbot/1",
+  "bot": "primary",
+  "updated_at": "2026-10-17T12:00:00+00:00",
+  "status": {
+    "state": "idle",
+    "summary": "Example feed for the fake adapter."
+  },
+  "items": [
+    {
+      "id": "primary-20261017-01",
+      "kind": "ask",
+      "title": "Approve the sample request or turn it down",
+      "body": "Fixture item. Not a real task.",
+      "status": "open",
+      "created": "2026-10-17T11:40:00+00:00",
+      "updated_at": "2026-10-17T11:40:00+00:00",
+      "priority": 2,
+      "actions": ["approve", "veto"],
+      "notify": true,
+      "source": {"bot": "primary", "routine": "example"},
+      "example_extra": true
+    }
+  ]
+}

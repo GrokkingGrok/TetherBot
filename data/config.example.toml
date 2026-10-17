@@ -1,0 +1,31 @@
+# TetherBot example config. Copy to ~/.config/tetherbot/config.toml.
+# Secrets do not belong in this file. URLs that identify a webhook slot
+# belong in the secret service together with the key.
+
+schema = "tetherbot/1"
+
+[bridge]
+# webhook-only, repo-only, or full
+mode = "webhook-only"
+
+[adapters.webhook-sender]
+enabled = false
+
+[adapters.github-poller]
+enabled = false
+# remote = "https://github.com/OWNER/tetherbot-data.git"
+# branch = "main"
+# poll_seconds = 120
+# auth = "https-token"   # or ssh-deploy-key
+
+[adapters.official]
+enabled = false
+
+[sinks.legacy-todo]
+enabled = false
+# mode = "shadow"        # shadow or live
+# todo_path = ""
+# previous_unit = ""
+
+# [bots.primary]
+# webhook_slot = "primary-actions"

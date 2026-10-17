@@ -1,0 +1,12 @@
+---
+description: How coding agents work in the TetherBot repository
+alwaysApply: true
+---
+
+Read `docs/SPEC.md` before changing behavior. Build one milestone at a time, using `docs/ROADMAP.md`. The wire contract is `docs/PROTOCOL.md`.
+
+The GNOME extension talks to the bridge over D-Bus only. It makes no network calls. Secrets stay in the desktop secret service, inside the bridge process. Keep secrets out of the shell process, the extension, gsettings, config, unit files, logs, the queue, D-Bus messages, environment variables, and git.
+
+Fail closed on an unknown protocol schema version. Keep the last good items, mark them stale, and report that TetherBot needs an update.
+
+PyGObject is an OS package. Do not add runtime pip dependencies. HTTP uses the standard library. Git uses the `git` CLI.

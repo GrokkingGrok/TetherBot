@@ -1,0 +1,8 @@
+{
+  "uuid": "tetherbot@example.invalid",
+  "name": "TetherBot",
+  "description": "Unofficial. Keeps the GNOME top bar tethered to your own bots through a local bridge. The extension uses D-Bus only: no network access and no secrets.",
+  "shell-version": ["50"],
+  "version": 1,
+  "session-modes": ["user"]
+}

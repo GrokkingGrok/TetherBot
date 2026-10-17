@@ -1,0 +1,18 @@
+[Unit]
+Description=TetherBot bridge
+After=graphical-session.target
+
+[Service]
+Type=simple
+# TODO(v0.1): ExecStart=%h/.local/bin/tetherbot
+# Fail closed until the daemon exists, so starting the unit cannot run a stub process.
+ExecStart=/bin/false
+Restart=no
+NoNewPrivileges=yes
+LockPersonality=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+UMask=0077
+
+[Install]
+WantedBy=default.target

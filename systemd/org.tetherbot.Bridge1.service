@@ -1,0 +1,6 @@
+[D-BUS Service]
+Name=org.tetherbot.Bridge1
+# TODO(v0.1): D-Bus activation should start tetherbot.service only.
+# /bin/false keeps a premature activation from launching a stub process.
+Exec=/bin/false
+SystemdService=tetherbot.service

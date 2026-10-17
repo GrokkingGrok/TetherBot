@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tetherbot"
+version = "0.0.0"
+description = "Local bridge that keeps a GNOME desktop tethered to Grok Bot."
+readme = "README.md"
+requires-python = ">=3.13"
+license = {text = "GPL-2.0-or-later"}
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Environment :: X11 Applications :: Gnome",
+    "License :: OSI Approved :: GNU General Public License v2 or later (GPLv2+)",
+    "Programming Language :: Python :: 3",
+    "Topic :: Desktop Environment :: Gnome",
+]
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[tool.setuptools.packages.find]
+where = ["bridge"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["bridge"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+src = ["bridge", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]

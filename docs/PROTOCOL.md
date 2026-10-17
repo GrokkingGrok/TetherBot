@@ -1,0 +1,129 @@
+# TetherBot protocol
+
+Normative wire contract for schema `tetherbot/1`. The architecture around it is [SPEC.md](SPEC.md). Examples use the fictional bot id `primary`.
+
+## Versioning
+
+- New files and payloads carry `"schema": "tetherbot/1"`.
+- Inside major version 1, changes are additive: new optional fields, and new enum values that readers may ignore. Readers ignore unknown fields.
+- An unknown major version fails closed for that source. The adapter stops reading that file, keeps the last good items, marks them stale, sets bridge `State` to `degraded`, and reports a message of the form `<source>: unsupported schema tetherbot/2, update tetherbot`. It does not guess.
+- A minor suffix on a known major is accepted (`tetherbot/1.2` is still major 1).
+- Unknown `kind` values stay in the store and are shown only as a generic notification. They are not actionable.
+- Each adapter declares the schemas it supports. `webhook-sender` declares the profile `routine-webhook-2026-10`. A response outside that profile pauses that route and is reported.
+
+The constant `tetherbot.SCHEMA_VERSION` is the schema string this tree speaks.
+
+## Feed file
+
+`feed/<bot>.json` is written only by that bot.
+
+```json
+{
+  "schema": "tetherbot/1",
+  "bot": "primary",
+  "updated_at": "2026-10-17T12:00:00+00:00",
+  "status": {
+    "state": "idle",
+    "summary": "2 open asks.",
+    "last_run": "2026-10-17T11:00:00+00:00",
+    "next_run": "2026-10-18T11:00:00+00:00"
+  },
+  "items": [
+    {
+      "id": "primary-20261017-01",
+      "kind": "ask",
+      "title": "Approve the sample request or turn it down",
+      "body": "Example text only.",
+      "status": "open",
+      "created": "2026-10-17T11:40:00+00:00",
+      "updated_at": "2026-10-17T11:40:00+00:00",
+      "priority": 2,
+      "due": "2026-11-09",
+      "actions": ["approve", "veto", "snooze", "open_chat"],
+      "notify": true,
+      "source": {"bot": "primary", "routine": "daily"}
+    }
+  ]
+}
+```
+
+`status.state` is `idle`, `working`, `needs_you`, or `error`.
+
+## Item model
+
+One model covers every kind.
+
+| Field | Type | Rule |
+|---|---|---|
+| `id` | string | Required. Unique within the bot. `[a-z0-9-]{3,64}`. Never reused. |
+| `kind` | enum | `ask` (needs a yes or no), `todo`, `watch` (money or status being watched), `notification` (FYI), `status` (a bot-level state line) |
+| `title` | string | Required, single line, 1 to 120 characters |
+| `body` | string | Optional, up to 1000 characters, plain text |
+| `status` | enum | `open`, `done`, `dropped`, `expired`. Snoozed is desktop-local, not a feed value. |
+| `created`, `updated_at` | ISO 8601 with offset | Required |
+| `priority` | 1 to 3 or null | 1 is highest |
+| `due` | `YYYY-MM-DD` or `YYYY-MM-DD HH:MM` local | Optional |
+| `owner` | string | Optional. The desktop user or a bot name |
+| `waiting` | `{on, check_back}` or null | Optional. `on` up to 40 characters, `check_back` `YYYY-MM-DD` |
+| `estimate_min` | int 1 to 480 | Optional |
+| `todo_kind` | `task` or `bill` | Optional, `todo` items only |
+| `amount` | string, up to 20 characters | Bills and watch items only. Display text such as `"~$10"`. Never an account number. |
+| `actions` | array | Subset of `approve`, `veto`, `done`, `snooze`, `open_chat`. The extension shows only these. |
+| `notify` | bool | The bot asks the desktop to notify on first sight or on change |
+| `expires_at` | ISO 8601 | Optional. After it, the bridge marks the item `expired` locally |
+| `source` | `{bot, routine?}` | Required. `bot` matches the feed file's `bot` |
+| `links` | array of `{label, url}` | Optional, `https` only, maximum 3 |
+
+Inside the bridge and on D-Bus, the global key is `<bot>/<id>`, for example `primary/primary-20261017-01`. The bridge adds `origin` (`feed`, `legacy-inbox`, `fake`, and so on) and `local` (`{snoozed_until, seen, done_locally}`).
+
+### Secret guard
+
+The bridge treats an item as sensitive when `title`, `body`, `amount`, or `waiting.on` matches a secret-shaped pattern: token prefixes `ghp_`, `github_pat_`, `sk-`, or `AKIA`; a run of 9 or more digits; or a long base64 or hex blob. The stored text becomes `[redacted: looked like a secret]`. The original is logged as a redaction event and is never written to a todo file or a notification.
+
+The scaffold does not implement this guard yet. v0.1 does.
+
+## Action envelope
+
+This JSON is the webhook POST body. The key travels only in the `Authorization` header.
+
+```json
+{
+  "schema": "tetherbot/1",
+  "type": "actions",
+  "batch_id": "b-20261017-1a2b3c",
+  "sent_at": "2026-10-17T18:20:05+00:00",
+  "client": {"name": "tetherbot", "version": "0.1.0", "host": "fedora"},
+  "actions": [
+    {
+      "action_id": "a-7f3e9c10",
+      "item": "primary/primary-20261017-01",
+      "action": "approve",
+      "args": {},
+      "created": "2026-10-17T18:19:51+00:00"
+    }
+  ]
+}
+```
+
+- `action` is one of `approve`, `veto`, `done`, `reopen`, `run_now`, `note`. `note` carries `args.text` (up to 500 characters). It is the only free-text field.
+- `snooze` stays on the machine by default, in `local.snoozed_until`.
+- `action_id` is stable so the bot can drop a duplicate after a timeout retry.
+- A ping batch is `{"schema": "tetherbot/1", "type": "ping"}`. A test ping spends a bot run, so it happens only when the user asks for it.
+
+## Legacy inbox
+
+A pre-existing single-repo inbox is not part of this public schema. The example sink in `bridge/tetherbot/sinks/legacy_todo.py` may define its own integer schema and map it into items. An unknown legacy schema fails closed. The concrete field map stays with that sink, and it is published only when that format is meant to be public.
+
+## Private data repository
+
+Users create a **private** repository from `template-repo/` (added in v0.2). Each path has one writer.
+
+| Path | Written by | Read by |
+|---|---|---|
+| `bridge.json` | user | everyone |
+| `feed/<bot>.json`, `log/feed/<bot>/` | that bot | bridge |
+| `desktop/**`, `log/desktop/` | bridge | bots |
+
+`bridge.json` holds the schema, the bot list, and the timezone. `desktop/state.json` is the bridge's view of item state. `desktop/outbox/YYYY-MM.jsonl` carries action envelopes when a bot has no webhook. `log/desktop/YYYY-MM.jsonl` is an append-only bridge log.
+
+The bridge refuses to stage a path it does not own.

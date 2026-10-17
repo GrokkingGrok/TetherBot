@@ -112,7 +112,7 @@ This JSON is the webhook POST body. The key travels only in the `Authorization` 
 
 ## Legacy inbox
 
-A pre-existing single-repo inbox is not part of this public schema. The example sink in `bridge/tetherbot/sinks/legacy_todo.py` may define its own integer schema and map it into items. An unknown legacy schema fails closed. The concrete field map stays with that sink, and it is published only when that format is meant to be public.
+Decided: a concrete legacy inbox format stays out of this public repository. It is not part of schema `tetherbot/1`. The sink in `bridge/tetherbot/sinks/legacy_todo.py` is a generic seam and does not define a field map. A private sink that implements the seam fails closed on an unknown legacy schema and does not publish that field map here.
 
 ## Private data repository
 

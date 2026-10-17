@@ -10,3 +10,5 @@ The GNOME extension talks to the bridge over D-Bus only. It makes no network cal
 Fail closed on an unknown protocol schema version. Keep the last good items, mark them stale, and report that TetherBot needs an update.
 
 PyGObject is an OS package. Do not add runtime pip dependencies. HTTP uses the standard library. Git uses the `git` CLI.
+
+Decided names: D-Bus bus and interface `io.github.grokkinggrok.TetherBot1`, object path `/io/github/grokkinggrok/TetherBot1`, schema `tetherbot/1`, extension UUID `tetherbot@grokkinggrok.github.io`. The project is unofficial and not affiliated with xAI. A concrete legacy inbox format stays out of this public repository; keep the legacy sink generic.

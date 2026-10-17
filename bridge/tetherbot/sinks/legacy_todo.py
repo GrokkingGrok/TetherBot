@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
-"""Example module: legacy single-repo todo sync.
+"""Generic seam for an older single-repo todo sync.
 
-This sink is a placeholder for replacing an older todo sync that already
-reads one private repo and writes a local todo file. It is off until
-enabled. See docs/SPEC.md section 11.
+A concrete legacy inbox format stays out of this public repository.
+This module does not define a field map. It is off until enabled.
+See docs/SPEC.md section 11.
 
-When it is implemented:
+When a sink outside this repo implements the seam:
 
 - An unknown inbox schema fails closed and leaves the todo file untouched.
 - Live mode refuses to run while the previous sync unit is still active.

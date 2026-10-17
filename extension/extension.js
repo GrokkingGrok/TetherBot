@@ -1,8 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 //
-// UUID placeholder: tetherbot@example.invalid
-// TODO: confirm this UUID before the extension is published.
-//
 // GNOME Shell 50, ESM. This file may talk to the bridge only through the
 // session bus. Do not import Soup, open a socket, spawn a network process,
 // or store a secret here.

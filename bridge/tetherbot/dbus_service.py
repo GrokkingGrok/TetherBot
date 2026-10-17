@@ -1,17 +1,18 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 """D-Bus session API constants.
 
-``data/org.tetherbot.Bridge1.xml`` is the interface source of truth.
+``data/io.github.grokkinggrok.TetherBot1.xml`` is the interface source of truth.
 The service is not exported yet. Secrets never go on this bus.
 
-TODO: confirm ``BUS_NAME`` before v0.2. Leave it unchanged after release.
+The bus name, object path, and interface are frozen. Leave them unchanged
+after release. A breaking change bumps the interface to TetherBot2.
 """
 
 from pathlib import Path
 
-BUS_NAME = "org.tetherbot.Bridge1"
-OBJECT_PATH = "/org/tetherbot/Bridge1"
-INTERFACE = "org.tetherbot.Bridge1"
+BUS_NAME = "io.github.grokkinggrok.TetherBot1"
+OBJECT_PATH = "/io/github/grokkinggrok/TetherBot1"
+INTERFACE = "io.github.grokkinggrok.TetherBot1"
 
 STATES = (
     "unconfigured",
@@ -26,7 +27,7 @@ STATES = (
 def interface_xml_path() -> Path:
     """Return the introspection XML path in a source checkout."""
 
-    return Path(__file__).resolve().parents[2] / "data" / "org.tetherbot.Bridge1.xml"
+    return Path(__file__).resolve().parents[2] / "data" / "io.github.grokkinggrok.TetherBot1.xml"
 
 
 def interface_xml() -> str:

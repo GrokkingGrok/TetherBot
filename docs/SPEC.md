@@ -5,7 +5,7 @@ Targets: GNOME Shell 50, Wayland, Fedora 44, Python 3.13+.
 
 Read this whole file before writing code. Anything marked **TBD, verify** is not confirmed. Check it before you rely on it, and do not fill the gap with a guess.
 
-Provisional names in this document (`tetherbot`, bus name `org.tetherbot.Bridge1`, schema `tetherbot/1`, extension UUID `tetherbot@example.invalid`) stay in place until section 16 is decided. After release, the bus name and the schema major version stay stable.
+Decided names: bus name and interface `io.github.grokkinggrok.TetherBot1`, object path `/io/github/grokkinggrok/TetherBot1`, schema `tetherbot/1`, extension UUID `tetherbot@grokkinggrok.github.io`. After release, the bus name and the schema major version stay stable. The project is unofficial and not affiliated with xAI. A concrete legacy inbox format stays out of this public repository. See section 16.
 
 Examples use the fictional bot id `primary`.
 
@@ -13,7 +13,7 @@ Examples use the fictional bot id `primary`.
 
 The project has two deliverables:
 
-1. **tetherbot**: a local `systemd --user` daemon. It owns the D-Bus name `org.tetherbot.Bridge1` on the session bus. It holds all secrets and does all network I/O through pluggable **transport adapters**. Local consumers are **sinks**.
+1. **tetherbot**: a local `systemd --user` daemon. It owns the D-Bus name `io.github.grokkinggrok.TetherBot1` on the session bus. It holds all secrets and does all network I/O through pluggable **transport adapters**. Local consumers are **sinks**.
 2. **TetherBot for GNOME** (the extension): a top-bar indicator, notifications with actions, a small popup, and later a Quick Settings tile. It talks only to the bridge over D-Bus. It makes no network calls, holds no secrets, and never talks to Git hosting itself.
 
 There are two traffic directions:
@@ -72,7 +72,7 @@ flowchart LR
       OF[Adapter: official<br/>stub]
       FK[Adapter: fake<br/>tests]
       LG[Sink: legacy-todo<br/>example]
-      DB[D-Bus service<br/>org.tetherbot.Bridge1]
+      DB[D-Bus service<br/>io.github.grokkinggrok.TetherBot1]
     end
     KR[(Secret service)]
     EXT[TetherBot GNOME extension<br/>top bar, popup, notifications]
@@ -119,7 +119,7 @@ bridge/tetherbot/               Python package
   sinks/base.py                 sink interface
   sinks/legacy_todo.py          example legacy todo sync
 data/
-  org.tetherbot.Bridge1.xml     D-Bus introspection XML (source of truth)
+  io.github.grokkinggrok.TetherBot1.xml     D-Bus introspection XML (source of truth)
   config.example.toml
 extension/                      GNOME 50 ESM skeleton
   metadata.json  extension.js  prefs.js  stylesheet.css
@@ -129,12 +129,12 @@ docs/
   SPEC.md  PROTOCOL.md  SETUP.md  ROADMAP.md
   prompts/bot-setup.md  prompts/coding-agent-setup.md
 tests/                          pytest smoke test and fake fixtures
-.github/workflows/ci.yml
+ci/workflow.yml                GitHub Actions definition, not yet enabled
 ```
 
 Later milestones add, and should not be invented early: `daemon.py`, `config.py`, `store.py`, `notify_policy.py`, `queue.py`, `secrets.py`, `log.py`, `tools/ctl.py`, `tools/credential_helper.py`, `tools/keys_dialog.py`, `template-repo/`, extension modules for the popup, notifications, and Quick Settings, plus `docs/privacy.md`.
 
-The extension UUID `tetherbot@example.invalid` is a placeholder. **TBD, verify** naming against extensions.gnome.org rules and Grok Bot trademark use (section 16).
+The extension UUID is `tetherbot@grokkinggrok.github.io`. The README and `extension/metadata.json` label the project unofficial and not affiliated with xAI.
 
 ### 4.2 Installed locations
 
@@ -145,7 +145,7 @@ The extension UUID `tetherbot@example.invalid` is a placeholder. **TBD, verify**
 | State, queue, logs | `$XDG_STATE_HOME/tetherbot/` (default `~/.local/state/tetherbot/`): `queue/`, `items.json` cache, `bridge.log`, `backups/` |
 | Repo clones | `$XDG_DATA_HOME/tetherbot/repos/<name>/` |
 | Unit | `$XDG_CONFIG_HOME/systemd/user/tetherbot.service` |
-| D-Bus activation | `$XDG_DATA_HOME/dbus-1/services/org.tetherbot.Bridge1.service` with `SystemdService=tetherbot.service` |
+| D-Bus activation | `$XDG_DATA_HOME/dbus-1/services/io.github.grokkinggrok.TetherBot1.service` with `SystemdService=tetherbot.service` |
 | Secrets | Desktop secret service (GNOME Keyring via libsecret) only |
 
 ### 4.3 Template private repository: `tetherbot-data`
@@ -189,18 +189,18 @@ The normative field tables, JSON examples, and repository ownership rules are in
 
 ### 5.3 Legacy inbox mapping
 
-A legacy inbox format is adapter-specific. This public spec does not freeze one. The example sink must:
+Decided: a concrete legacy inbox format stays out of this public repository. The in-tree sink stays generic and does not publish a field map. A sink maintained outside this repo must:
 
 - Be read-only toward the bot-owned inbox file.
 - Map entries into the item model in PROTOCOL.md.
 - Fail closed when the legacy schema version is unknown, leaving the local todo file untouched.
-- Publish its field map in-tree only when that format is intended to be public.
+- Keep its field map out of this repository.
 
 ## 6. D-Bus interface
 
-Bus: session. Name: `org.tetherbot.Bridge1`. Object: `/org/tetherbot/Bridge1`. Interface: `org.tetherbot.Bridge1`.
+Bus: session. Name: `io.github.grokkinggrok.TetherBot1`. Object: `/io/github/grokkinggrok/TetherBot1`. Interface: `io.github.grokkinggrok.TetherBot1`.
 
-Lists of items pass as JSON strings (`s`), so the item model can grow without breaking the D-Bus signature. Small, hot values are typed properties. `data/org.tetherbot.Bridge1.xml` is the source of truth. Bump to `Bridge2` only for breaking changes.
+Lists of items pass as JSON strings (`s`), so the item model can grow without breaking the D-Bus signature. Small, hot values are typed properties. `data/io.github.grokkinggrok.TetherBot1.xml` is the source of truth. Bump the interface to `io.github.grokkinggrok.TetherBot2` only for breaking changes.
 
 ### 6.1 Properties (all read-only, with `PropertiesChanged`)
 
@@ -221,7 +221,7 @@ Lists of items pass as JSON strings (`s`), so the item model can grow without br
 | Signature | Behavior |
 |---|---|
 | `GetItems(s filter_json) -> s items_json` | Filter keys: `kinds`, `bots`, `status`, `include_snoozed`. Returns sorted items. |
-| `GetItem(s key) -> s item_json` | One item, or D-Bus error `org.tetherbot.Bridge1.Error.NotFound` |
+| `GetItem(s key) -> s item_json` | One item, or D-Bus error `io.github.grokkinggrok.TetherBot1.Error.NotFound` |
 | `PerformAction(s key, s action, s args_json) -> s action_id` | Validates that the action is listed on the item, enqueues it, returns at once. The result arrives later as `ActionResult`. |
 | `Snooze(s key, s until_iso) -> b` | Local only. Hides the item and suppresses notifications until then. |
 | `MarkSeen(as keys) -> ()` | Clears the "new" badge |
@@ -316,11 +316,11 @@ Present and disabled. It documents where an official Grok Bot API, SDK, outbound
 
 ### 7.5 `fake` (tests and demos)
 
-Reads JSON fixtures, as `tests/fixtures/fake/` does. Outbound `send()` records batches and can be told to answer a scripted status. A future local HTTP server, `tests/fake_webhook_server.py`, is for end-to-end tests of the real webhook adapter. A private D-Bus method `org.tetherbot.Bridge1.Debug.Inject` may exist only when the bridge runs with `--debug`.
+Reads JSON fixtures, as `tests/fixtures/fake/` does. Outbound `send()` records batches and can be told to answer a scripted status. A future local HTTP server, `tests/fake_webhook_server.py`, is for end-to-end tests of the real webhook adapter. A private D-Bus method `io.github.grokkinggrok.TetherBot1.Debug.Inject` may exist only when the bridge runs with `--debug`.
 
 ### 7.6 `legacy-todo` sink
 
-Example module only. See section 11. Off by default. v0.1 may implement it for one documented legacy format; the webhook milestone does not depend on it.
+Generic module only. See section 11. Off by default. A concrete legacy inbox format stays out of this public repository, so this tree does not implement one. The webhook milestone does not depend on this sink.
 
 ## 8. Security and secrets
 
@@ -382,9 +382,9 @@ Human steps are in [SETUP.md](SETUP.md). Prompt A is [prompts/bot-setup.md](prom
 
 ## 11. Legacy single-repo todo sync (example)
 
-Some desktops already sync a todo file from a single private repository on a timer. `bridge/tetherbot/sinks/legacy_todo.py` is the seam for moving that job into the bridge. The module in this scaffold raises `NotImplementedError`. The public protocol does not include that older file format.
+Some desktops already sync a todo file from a single private repository on a timer. `bridge/tetherbot/sinks/legacy_todo.py` is a generic seam for that kind of job. The module raises `NotImplementedError` and defines no field map. Decided: a concrete legacy inbox format stays out of this public repository.
 
-When someone implements it:
+When a sink outside this repository implements the seam:
 
 - Keep the consumer's output byte-compatible for the format the sink claims to support. The acceptance test is a frozen-clock comparison against the previous sync, not a redesign of the todo file.
 - Run inside the daemon after each successful repo poll, and on a short timer for date rollover. Do not add a second always-on timer unless the repo adapter is off.
@@ -398,7 +398,9 @@ When someone implements it:
 
 A later client may call `GetItems` over D-Bus instead of parsing the todo file. That choice is section 16.
 
-### 11.1 Tests, once a format is in-tree
+### 11.1 Tests, for a format kept outside this repo
+
+Do not add those fixtures or the field map to this repository. If a private sink exists, its own tests should cover:
 
 - Fixtures for that format, with no real personal data.
 - A golden test: previous implementation and new sink, frozen clock, same inputs. Assert byte-identical outputs aside from the documented timestamp lines, and identical staged paths.
@@ -426,7 +428,7 @@ Still to write, with the milestones that need them:
 ### 12.2 Manual checks
 
 - M1. `scripts/install.sh` on a clean user. Nothing is enabled. `tetherbotctl status` says `unconfigured`.
-- M2. `gdbus introspect --session --dest org.tetherbot.Bridge1 --object-path /org/tetherbot/Bridge1` matches the XML. D-Bus activation starts the unit.
+- M2. `gdbus introspect --session --dest io.github.grokkinggrok.TetherBot1 --object-path /io/github/grokkinggrok/TetherBot1` matches the XML. D-Bus activation starts the unit.
 - M3. Store a webhook key and run `webhook test <bot>`. Get 200 and a "Desktop bridge connected" reply in that bot's chat.
 - M4. Approve an ask from the popup. `ActionResult accepted` arrives, and the bot's chat shows the result.
 - M5. Click three actions within 10 seconds. Exactly one POST and one bot run.
@@ -453,7 +455,7 @@ Checklists live in [ROADMAP.md](ROADMAP.md).
 - `github-poller` for one private repo, with the owned-path guard.
 - `webhook-sender` for one bot, with coalescing, pacing, backoff, and re-paste key. A CLI prompt is enough if the GTK dialog slips.
 - Minimal extension: indicator with counts, popup (bots, todos, asks), notifications with actions.
-- `legacy-todo` only if a format is being cut over on that machine. Shadow mode and the comparison command come with it.
+- `legacy-todo` stays a generic sink here. A concrete inbox format is not part of this repository.
 - M1 through M8 and M10 through M16 pass for the features that are actually enabled.
 
 ### v0.2: early adopters
@@ -467,8 +469,8 @@ Checklists live in [ROADMAP.md](ROADMAP.md).
 
 - Review pass: no network or secrets in the extension, clean `disable()`, no spawned processes from the shell, GPL-compatible license, `shell-version: ["50"]`, translations (gettext), keyboard and screen-reader access.
 - Quick Settings tile. The `official` adapter if an official API exists by then.
-- Name, icon, and wording checked against Grok Bot brand rules. Clear "unofficial" labelling if needed.
-- Stable `org.tetherbot.Bridge1` and protocol `tetherbot/1` docs, with a deprecation policy.
+- Name, icon, and wording checked against Grok Bot brand rules. The README and the extension description say unofficial, not affiliated with xAI.
+- Stable `io.github.grokkinggrok.TetherBot1` and protocol `tetherbot/1` docs, with a deprecation policy.
 
 ## 14. Privacy
 
@@ -485,14 +487,21 @@ GNOME already has chat-style AI clients: Newelle (GTK4, MCP), Alpaca (Ollama), a
 
 ## 16. Open questions
 
+### Resolved
+
+- **Naming.** Bus name and interface `io.github.grokkinggrok.TetherBot1`. Object path `/io/github/grokkinggrok/TetherBot1`. Schema string stays `tetherbot/1`. Extension UUID `tetherbot@grokkinggrok.github.io`. Do not change the bus name after release.
+- **Unofficial labelling.** The README and `extension/metadata.json` say the project is unofficial and not affiliated with xAI.
+- **Legacy inbox format.** A concrete legacy inbox format stays out of this public repository. The `legacy-todo` sink stays generic and does not publish a field map.
+
+### Still open
+
 1. Webhook response details: exact status and body for the shared rate cap (reported as 400), bad key (401 or 403?), max body size, and whether a run id comes back. **TBD, verify** with a test routine during manual checks M3 and M7.
 2. Key rotation: is there a way to get a new key without recreating the routine? **TBD, verify.**
 3. Deep link to open a specific bot's chat in the Grok Bot Linux app, and its desktop entry id. **TBD, verify.** Fallback is launching the app.
 4. How should a bot hold write access to the data repo? **TBD, verify** what Grok Bot supports and recommends.
 5. Will Grok Bot ship outbound webhooks, status events, or a local hook that replaces the repo poller? Watch release notes. The `official` stub is the seam.
-6. Naming: `org.tetherbot.Bridge1`, schema `tetherbot/1`, and UUID `tetherbot@example.invalid` are provisional. Decide before v0.2 whether the extension must be labelled unofficial, and do not change the bus name after release.
-7. Should a local todo consumer move to D-Bus `GetItems`, or keep parsing its own file? Decide after v0.1.
-8. Should `done` on a legacy todo from the popup write the local todo file (one source of truth) or only send a webhook? Proposed: write the file when that sink is the source of truth.
-9. Git-over-HTTPS polling limits for `ls-remote` every 2 minutes. **TBD, verify.** Fall back to REST with ETag if throttled.
-10. GNOME 50 specifics: `MessageTray.Notification` action API and the nested devkit command on Fedora 44. **TBD, verify** before coding the extension UI.
-11. Which `systemd --user` sandboxing options work on Fedora 44 without breaking libsecret or git. **TBD, verify.**
+6. Should a local todo consumer move to D-Bus `GetItems`, or keep parsing its own file? Decide after v0.1.
+7. Should `done` on a legacy todo from the popup write the local todo file (one source of truth) or only send a webhook? Proposed: write the file when that sink is the source of truth.
+8. Git-over-HTTPS polling limits for `ls-remote` every 2 minutes. **TBD, verify.** Fall back to REST with ETag if throttled.
+9. GNOME 50 specifics: `MessageTray.Notification` action API and the nested devkit command on Fedora 44. **TBD, verify** before coding the extension UI.
+10. Which `systemd --user` sandboxing options work on Fedora 44 without breaking libsecret or git. **TBD, verify.**

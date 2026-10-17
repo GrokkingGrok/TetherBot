@@ -1,11 +1,11 @@
 # Roadmap
 
-TetherBot is pre-alpha. Check items off as they land. Design detail is in [SPEC.md](SPEC.md). Anything marked **TBD, verify** there is an open checkbox in the last section of this file. Do not treat those as decided.
+TetherBot is pre-alpha. Check items off as they land. Design detail is in [SPEC.md](SPEC.md). Anything marked **TBD, verify** there is an open checkbox under Open checks. Do not treat those as decided. The Resolved list is decided.
 
 ## v0.1 — one desktop
 
 - [ ] Bridge daemon process, GLib main loop, config loader, logging with redaction
-- [ ] D-Bus service exporting `data/org.tetherbot.Bridge1.xml` on the session bus
+- [ ] D-Bus service exporting `data/io.github.grokkinggrok.TetherBot1.xml` on the session bus
 - [ ] Item store, diff, and notify policy
 - [ ] On-disk action queue with `fsync`, restart resume, coalescing, and pacing
 - [ ] Secret-service read and write (`org.tetherbot.Secret`), no plain-file fallback
@@ -15,8 +15,8 @@ TetherBot is pre-alpha. Check items off as they land. Design detail is in [SPEC.
 - [ ] Minimal extension: indicator counts, popup (bots, todos, asks), notifications with actions
 - [ ] Extension talks only D-Bus; proxy and handlers dropped in `disable()`
 - [ ] Manual checks M1–M8 and M10–M14
-- [ ] `legacy-todo` shadow mode, comparison command, and cutover — only if a concrete legacy format is in scope for this machine
-- [ ] Manual checks M15 and M16 when that sink is enabled
+- [x] Concrete legacy inbox format stays out of this public repo. The in-tree `legacy-todo` sink stays generic.
+- [ ] Manual checks M15 and M16 only if a sink outside this repo is enabled
 
 ## v0.2 — early adopters
 
@@ -38,13 +38,13 @@ TetherBot is pre-alpha. Check items off as they land. Design detail is in [SPEC.
 ## v1.0 — extensions.gnome.org
 
 - [ ] No network and no secrets in the extension; clean `disable()`; shell does not spawn processes
-- [ ] `shell-version: ["50"]` and a confirmed extension UUID
+- [ ] `shell-version: ["50"]` on the published listing (UUID `tetherbot@grokkinggrok.github.io` is decided)
 - [ ] gettext translations
 - [ ] Keyboard and screen-reader access
 - [ ] Quick Settings tile
 - [ ] `official` adapter, if an official API exists
-- [ ] Name, icon, and wording checked against Grok Bot brand rules, with unofficial labelling if required
-- [ ] Deprecation policy for `org.tetherbot.Bridge1` and schema `tetherbot/1`
+- [ ] Name, icon, and wording checked against Grok Bot brand rules. The listing stays labelled unofficial, not affiliated with xAI.
+- [ ] Deprecation policy for `io.github.grokkinggrok.TetherBot1` and schema `tetherbot/1`
 
 ## Open checks (TBD, verify)
 
@@ -58,8 +58,6 @@ TetherBot is pre-alpha. Check items off as they land. Design detail is in [SPEC.
 - [ ] Deep link to a specific bot chat, and the Grok Bot desktop entry id
 - [ ] How a bot should hold write access to the private data repo
 - [ ] Whether Grok Bot ships outbound webhooks, status events, or a local hook that can replace `github-poller`
-- [ ] Confirm the bus name `org.tetherbot.Bridge1` before v0.2, then freeze it
-- [ ] Confirm the extension UUID `tetherbot@example.invalid` and whether the listing must say unofficial
 - [ ] Decide whether a local todo consumer should call `GetItems` or keep parsing its file
 - [ ] Decide whether popup Done on a legacy todo writes the local file or only sends a webhook (proposed: write the file when that sink is the source of truth)
 - [ ] Git-over-HTTPS rate limits for `ls-remote` every 2 minutes; fall back to REST with ETag if throttled
@@ -67,3 +65,9 @@ TetherBot is pre-alpha. Check items off as they land. Design detail is in [SPEC.
 - [ ] Nested shell devkit command and package on Fedora 44 (`dbus-run-session gnome-shell --devkit` is the candidate)
 - [ ] Which `systemd --user` sandbox options work on Fedora 44 without breaking libsecret or git, including `ProtectSystem=strict` with `ReadWritePaths=`
 - [ ] Whether a COPR package is worth building for v0.2
+
+## Resolved
+
+- [x] Bus name and interface `io.github.grokkinggrok.TetherBot1`, object path `/io/github/grokkinggrok/TetherBot1`. Schema string stays `tetherbot/1`. Do not change the bus name after release.
+- [x] Extension UUID `tetherbot@grokkinggrok.github.io`. The README and the extension metadata description stay labelled unofficial, not affiliated with xAI.
+- [x] Concrete legacy inbox format stays out of this public repo. The `legacy-todo` sink stays generic.

@@ -1,5 +1,6 @@
 # Move this file to .github/workflows/ci.yml to enable GitHub Actions.
-# Pushing that path requires a token with the workflow scope.
+# The push credential cannot write .github/workflows. The owner runs:
+#   git mv ci/workflow.yml .github/workflows/ci.yml && git commit -m 'Enable CI' && git push
 name: CI
 
 on:

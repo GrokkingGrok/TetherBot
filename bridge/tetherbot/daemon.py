@@ -2,8 +2,8 @@
 """Bridge process.
 
 Loads config, the item cache, and the action queue, then runs a main loop
-until asked to stop. Enabled adapters and sinks are not started here, and
-the D-Bus name is not owned yet. Nothing in this module opens a socket.
+until asked to stop. A GLib loop also owns the session bus name. Enabled
+adapters and sinks are not started here.
 """
 
 from __future__ import annotations
@@ -22,6 +22,7 @@ from tetherbot.dbus_service import STATES
 from tetherbot.files import ensure_private_dir
 from tetherbot.log import configure_logging
 from tetherbot.queue import ActionQueue
+from tetherbot.service import BridgeApi
 from tetherbot.store import ItemStore
 
 
@@ -73,6 +74,7 @@ class BridgeDaemon:
         self.reason = "not started"
         self.running = False
         self._started = False
+        self.api: BridgeApi | None = None
 
     def start(self) -> DaemonStatus:
         """Open state files and mark the process running. Does not block."""
@@ -87,21 +89,68 @@ class BridgeDaemon:
         logging.getLogger("tetherbot").info("bridge %s: %s", self.state, self.reason)
         return self.status()
 
+    def now(self) -> datetime:
+        return self._clock()
+
+    def reload_config(self) -> None:
+        """Re-read ``config.toml`` and recompute the bridge state."""
+
+        if not self._started or self.store is None or self.queue is None:
+            raise RuntimeError("daemon is not started")
+        config_error: str | None = None
+        if self.config_path.is_file():
+            try:
+                self.config = load_config(self.config_path)
+            except ConfigError as exc:
+                self.config = None
+                config_error = str(exc)
+        else:
+            self.config = None
+        self.state, self.reason = _decide_state(
+            self.config,
+            config_error,
+            self.store.load_error,
+            queue_unreadable=bool(self.queue.errors),
+            config_exists=self.config_path.is_file(),
+        )
+
     def run(self, *, install_signals: bool = False) -> int:
-        """Start, then block in the main loop until ``stop``."""
+        """Start, then block in the main loop until ``stop``.
+
+        A GLib loop claims the session bus name before it blocks. If that
+        name is already owned, the process stops and returns 1.
+        """
 
         if self._loop is None:
             self._loop = GLibMainLoop()
         if not self._started:
             self.start()
-        if install_signals:
-            self._loop.watch_unix_signals(self.stop)
+        export = None
+        code = 0
         try:
+            if isinstance(self._loop, GLibMainLoop):
+                from tetherbot.dbus_service import BusOwnershipError, SessionExport
+
+                export = SessionExport(self.api)
+                try:
+                    export.acquire()
+                except BusOwnershipError:
+                    self.state = "failed_closed"
+                    self.reason = "bus name is already owned"
+                    logging.getLogger("tetherbot").error(
+                        "bridge failed_closed: bus name is already owned"
+                    )
+                    code = 1
+                    return code
+            if install_signals:
+                self._loop.watch_unix_signals(self.stop)
             self._loop.run()
         finally:
+            if export is not None:
+                export.release()
             if self.running:
                 self.stop()
-        return 0
+        return code
 
     def stop(self) -> None:
         """Leave the main loop. A second call does nothing."""
@@ -155,6 +204,7 @@ class BridgeDaemon:
             queue_unreadable=bool(self.queue.errors),
             config_exists=self.config_path.is_file(),
         )
+        self.api = BridgeApi(self)
 
 
 class GLibMainLoop:

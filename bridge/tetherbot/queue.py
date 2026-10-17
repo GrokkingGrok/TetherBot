@@ -140,6 +140,12 @@ class ActionQueue:
 
         return sum(action.state == "pending" for action in self._actions.values())
 
+    def snapshot(self) -> tuple[QueuedAction, ...]:
+        """Pending and parked actions, in action-id order."""
+
+        rows = sorted(self._actions.values(), key=lambda action: action.action_id)
+        return tuple(action.clone() for action in rows)
+
     def mark_attempt(self, bot: str, action_ids: list[str], *, now: datetime) -> None:
         """Record one POST for ``bot``. Each listed action gains one attempt."""
 

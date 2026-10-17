@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from tetherbot.files import write_private_text
 from tetherbot.model import looks_like_secret
 from tetherbot.queue import (
     DEFAULT_COALESCE_MAX_SECONDS,
@@ -253,3 +254,53 @@ def _reject_secrets(value: object, path: str) -> None:
         return
     if isinstance(value, str) and looks_like_secret(value):
         raise ConfigError(f"{path} looks like a secret")
+
+
+def save_adapter_enabled(path: Path, name: str, enabled: bool) -> None:
+    """Set one adapter's ``enabled`` flag and leave the rest of the file in place.
+
+    The file is rewritten only when the result still loads. A refused result
+    restores the previous text.
+    """
+
+    if name not in _ADAPTERS:
+        raise ConfigError(f"unknown adapter {name}")
+    if not isinstance(enabled, bool):
+        raise ConfigError("enabled must be a boolean")
+    if not path.is_file():
+        raise ConfigError("config.toml is missing")
+    original = path.read_text(encoding="utf-8")
+    updated = _rewrite_enabled(original, f"adapters.{name}", enabled)
+    write_private_text(path, updated)
+    try:
+        load_config(path)
+    except ConfigError:
+        write_private_text(path, original)
+        raise
+
+
+def _rewrite_enabled(text: str, section: str, enabled: bool) -> str:
+    header = f"[{section}]"
+    flag = "true" if enabled else "false"
+    lines = text.splitlines()
+    start = next((index for index, line in enumerate(lines) if line.strip() == header), None)
+    if start is None:
+        base = text if text.endswith("\n") or text == "" else text + "\n"
+        if base and not base.endswith("\n\n"):
+            base += "\n" if base.endswith("\n") else ""
+        return f"{base}{header}\nenabled = {flag}\n"
+    end = len(lines)
+    for index in range(start + 1, len(lines)):
+        stripped = lines[index].strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            end = index
+            break
+    for index in range(start + 1, end):
+        stripped = lines[index].lstrip()
+        if stripped.startswith("#"):
+            continue
+        if re.match(r"enabled\s*=", stripped):
+            lines[index] = f"enabled = {flag}"
+            return "\n".join(lines) + "\n"
+    lines.insert(start + 1, f"enabled = {flag}")
+    return "\n".join(lines) + "\n"

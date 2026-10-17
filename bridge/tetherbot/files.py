@@ -21,11 +21,21 @@ def ensure_private_dir(path: Path) -> None:
     os.chmod(path, 0o700)
 
 
+def write_private_text(path: Path, text: str) -> None:
+    """Atomically replace ``path`` with ``text`` and fsync it."""
+
+    _write_private_bytes(path, text.encode("utf-8"))
+
+
 def write_private_json(path: Path, payload: Mapping[str, Any]) -> None:
     """Atomically replace ``path`` with ``payload`` and fsync it."""
 
-    ensure_private_dir(path.parent)
     data = (json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
+    _write_private_bytes(path, data)
+
+
+def _write_private_bytes(path: Path, data: bytes) -> None:
+    ensure_private_dir(path.parent)
     temporary = path.with_name(f".{path.name}.tmp")
     fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     try:

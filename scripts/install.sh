@@ -11,8 +11,8 @@ Copy the user unit, D-Bus activation file, and example config into the
 per-user directories. Does not enable or start anything.
 
 The bridge process exists, but this installer does not place a launcher.
-The unit ExecStart is still /bin/false, and D-Bus is not exported.
---enable is refused.
+The unit ExecStart is still /bin/false, so D-Bus activation does not
+start it. --enable is refused.
 EOF
 }
 

@@ -2,7 +2,7 @@
 
 Keep your GNOME desktop tethered to your AI bots.
 
-**Status: pre-alpha, under construction.** Config, the item store, the action queue, and the bridge process are in place. The process does not own the D-Bus name, does not read the secret service, and does not open the network. The extension UI is still a stub.
+**Status: pre-alpha, under construction.** Config, the item store, the action queue, the bridge process, and the session bus service are in place. The process does not read the secret service and does not open the network. The extension UI is still a stub.
 
 **Unofficial, not affiliated with xAI.**
 

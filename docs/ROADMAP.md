@@ -4,10 +4,11 @@ TetherBot is pre-alpha. Check items off as they land. Design detail is in [SPEC.
 
 ## v0.1 — one desktop
 
-- [ ] Bridge daemon process, GLib main loop, config loader, logging with redaction
+- [x] Config loader and logging with redaction
+- [ ] Bridge daemon process and GLib main loop
 - [ ] D-Bus service exporting `data/io.github.grokkinggrok.TetherBot1.xml` on the session bus
-- [ ] Item store, diff, and notify policy
-- [ ] On-disk action queue with `fsync`, restart resume, coalescing, and pacing
+- [x] Item store, diff, and notify policy
+- [x] On-disk action queue with `fsync`, restart resume, coalescing, and pacing
 - [ ] Secret-service read and write (`io.github.grokkinggrok.TetherBot.Secret`), no plain-file fallback
 - [ ] `tetherbotctl` for status, enable, secret set, and webhook test
 - [ ] `webhook-sender`: POST, bearer header, retry table in SPEC section 7.2, re-paste flow

@@ -68,7 +68,16 @@ def test_fake_adapter_fails_closed_on_unknown_major(tmp_path: Path):
     minor = {
         "schema": "tetherbot/1.2",
         "bot": "primary",
-        "items": [{"id": "minor-ok", "kind": "todo", "title": "Still readable"}],
+        "items": [
+            {
+                "id": "minor-ok",
+                "kind": "todo",
+                "title": "Still readable",
+                "created": "2026-10-17T11:40:00+00:00",
+                "updated_at": "2026-10-17T11:40:00+00:00",
+                "source": {"bot": "primary"},
+            }
+        ],
     }
     (tmp_path / "minor.json").write_text(json.dumps(minor), encoding="utf-8")
 

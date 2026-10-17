@@ -8,6 +8,13 @@ schema = "tetherbot/1"
 # webhook-only, repo-only, or full
 mode = "webhook-only"
 
+# Queue defaults match the spec and can be lowered, not raised past 120s.
+# [queue]
+# coalesce_seconds = 20
+# coalesce_max_seconds = 120
+# min_interval_seconds = 60
+# daily_cap = 30
+
 [adapters.webhook-sender]
 enabled = false
 

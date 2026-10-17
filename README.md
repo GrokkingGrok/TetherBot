@@ -81,11 +81,7 @@ pytest
 ruff check .
 ```
 
-Runtime Python dependencies are none. PyGObject, libsecret, and git come from the operating system. The same lint and tests are described in [ci/workflow.yml](ci/workflow.yml) for Python 3.13. That file stays at `ci/workflow.yml` because writing `.github/workflows/` needs a credential with the `workflow` scope. The owner enables Actions locally with:
-
-```bash
-git mv ci/workflow.yml .github/workflows/ci.yml && git commit -m 'Enable CI' && git push
-```
+Runtime Python dependencies are none. PyGObject, libsecret, and git come from the operating system. GitHub Actions runs the same lint and tests on Python 3.13 from [.github/workflows/ci.yml](.github/workflows/ci.yml).
 
 `scripts/install.sh` only copies templates into your user directories. It does not enable the service. The unit's `ExecStart` is `/bin/false` until the daemon exists. `scripts/uninstall.sh` removes those templates and leaves the secret service alone.
 

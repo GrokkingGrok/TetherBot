@@ -108,8 +108,14 @@ pyproject.toml                  no runtime pip dependencies
 bridge/tetherbot/               Python package
   __init__.py                   SCHEMA_VERSION, package version
   __main__.py                   refuses to start a daemon
-  model.py                      item and action envelope
+  model.py                      item and action envelope, secret guard
   version_gate.py               fail closed on an unknown major
+  config.py                     config.toml loader
+  log.py                        redacting log
+  store.py                      item store and diff
+  notify_policy.py              notify dedupe, snooze, due soon
+  queue.py                      on-disk action queue
+  files.py                      private JSON writes with fsync
   dbus_service.py               bus name and XML loader
   adapters/base.py              adapter interface
   adapters/fake.py              fixture-backed test adapter
@@ -128,11 +134,11 @@ scripts/install.sh  uninstall.sh
 docs/
   SPEC.md  PROTOCOL.md  SETUP.md  ROADMAP.md
   prompts/bot-setup.md  prompts/coding-agent-setup.md
-tests/                          pytest smoke test and fake fixtures
-ci/workflow.yml                GitHub Actions definition, not yet enabled
+tests/                          pytest, including store, queue, and config
+.github/workflows/ci.yml        ruff and pytest on Python 3.13
 ```
 
-Later milestones add, and should not be invented early: `daemon.py`, `config.py`, `store.py`, `notify_policy.py`, `queue.py`, `secrets.py`, `log.py`, `tools/ctl.py`, `tools/credential_helper.py`, `tools/keys_dialog.py`, `template-repo/`, extension modules for the popup, notifications, and Quick Settings, plus `docs/privacy.md`.
+Later milestones add, and should not be invented early: `daemon.py`, `secrets.py`, `tools/ctl.py`, `tools/credential_helper.py`, `tools/keys_dialog.py`, `template-repo/`, extension modules for the popup, notifications, and Quick Settings, plus `docs/privacy.md`.
 
 The extension UUID is `tetherbot@grokkinggrok.github.io`. The README and `extension/metadata.json` label the project unofficial and not affiliated with xAI.
 
@@ -411,14 +417,17 @@ Do not add those fixtures or the field map to this repository. If a private sink
 
 ### 12.1 Unit tests (pytest, no network)
 
-Already present: a smoke test that loads `tests/fixtures/fake/primary.json` through `FakeAdapter`, records a send, accepts schema `tetherbot/1.2`, and fails closed on `tetherbot/2`.
+Already present:
+
+- Smoke test: `tests/fixtures/fake/primary.json` through `FakeAdapter`, a recorded send, schema `tetherbot/1.2` accepted, `tetherbot/2` fail closed. A bad file in that fixture set stays stale and its previous items are not invented.
+- Model: field validation, secret guard, global keys, unknown fields kept on `extra`, unknown kinds kept and not actionable.
+- Version gate: a known major, a newer minor, and a rejected newer major or unknown name.
+- Store: added, updated, removed, notify dedupe, snooze expiry, `expires_at`.
+- Queue: mode-0600 files, fsync, restart resume, coalescing window, pacing, daily cap.
+- Config loader rejects an unknown schema major and secret-shaped values. The log filter masks secret-shaped spans.
 
 Still to write, with the milestones that need them:
 
-- Model: validation for each field, secret guard, global keys, unknown fields ignored, unknown kinds kept but not actionable.
-- Version gate: supported, newer minor accepted, newer major fail closed, stale items kept.
-- Store diff: added, updated, removed, `notify` dedupe, snooze expiry, `expires_at`.
-- Queue: fsync persistence, restart resume, coalescing window, pacing, daily cap.
 - Webhook adapter against a local fake server: 200, 400 then 200, 400 eight times then parked, 401 stops the route, 404, timeout retry with the same `action_id`, header present, key absent from logs.
 - Repo adapter against a local bare repo (`file://`): ls-remote short-circuit, pull on change, owned-path guard, push retry, rebase conflict fails closed, bad JSON marks stale.
 - Credential helper: answers only for the configured host and path; empty output otherwise.

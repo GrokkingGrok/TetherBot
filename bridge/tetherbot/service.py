@@ -29,6 +29,9 @@ SYNC_LIMIT_SECONDS = 30
 _FILTER_KEYS = frozenset({"kinds", "bots", "status", "include_snoozed"})
 _ITEM_OUTBOUND = frozenset({"approve", "veto", "done"})
 _KNOWN_ADAPTERS = ("github-poller", "official", "webhook-sender")
+_BRIDGE_BOT_STATE = frozenset(
+    {"degraded", "offline", "failed_closed", "unconfigured", "paused"}
+)
 
 # Out-signature from the introspection XML. None means the method returns nothing.
 METHOD_OUT: dict[str, str | None] = {
@@ -89,6 +92,7 @@ class BridgeApi:
         self._last_sync = 0
         self._last_sync_request: datetime | None = None
         self._seen_state = (daemon.state, daemon.reason)
+        self._bots_json = _dumps(self._bots())
 
     def subscribe(self, listener: Listener) -> None:
         self._listeners.append(listener)
@@ -173,6 +177,7 @@ class BridgeApi:
         if ok:
             self._emit("ItemsChanged", [], [key], [])
             self._emit_properties("Counts")
+            self.note_bots()
         return (ok,)
 
     def _mark_seen(self, keys: list[str]) -> None:
@@ -282,6 +287,7 @@ class BridgeApi:
     def emit_items_changed(self, added: list[str], updated: list[str], removed: list[str]) -> None:
         self._emit("ItemsChanged", list(added), list(updated), list(removed))
         self._emit_properties("Counts")
+        self.note_bots()
 
     def emit_action_result(self, action_id: str, result: str, detail: str) -> None:
         self._emit("ActionResult", action_id, result, mask_secrets(detail))
@@ -347,6 +353,7 @@ class BridgeApi:
             sender.resume(row.bot)
         self._hide_again(row)
         self._emit_properties("QueueLength", "Counts")
+        self.note_bots()
         return None
 
     def _drop_queued(self, action_id: str) -> None:
@@ -354,6 +361,7 @@ class BridgeApi:
         self._daemon.queue.drop(action_id)
         self._release_closed([row.action_id])
         self._emit_properties("QueueLength", "Counts")
+        self.note_bots()
         return None
 
     def _enqueue(
@@ -380,6 +388,7 @@ class BridgeApi:
             self._emit("ItemsChanged", [], [item], [])
             self._request_state_write()
         self._emit_properties("QueueLength", "Counts")
+        self.note_bots()
         return chosen
 
     def _hide_again(self, row: Any) -> None:
@@ -392,6 +401,7 @@ class BridgeApi:
         if self._daemon.store.record_action(row.item, row.action, row.action_id, at):
             self._emit("ItemsChanged", [], [row.item], [])
             self._request_state_write()
+            self.note_bots()
 
     def _release_closed(self, action_ids: list[str]) -> None:
         changed = self._daemon.store.release_actions(action_ids)
@@ -399,6 +409,7 @@ class BridgeApi:
             return
         self._emit("ItemsChanged", [], changed, [])
         self._request_state_write()
+        self.note_bots()
 
     def _request_state_write(self) -> None:
         poller = getattr(self._daemon, "poller", None)
@@ -416,19 +427,16 @@ class BridgeApi:
         config = self._daemon.config
         if config is not None:
             names.update(config.bots)
-        items = self._daemon.store.items()
-        for item in items:
+        store = self._daemon.store
+        for item in store.items():
             names.add(item.key.split("/", 1)[0])
+        now = self._daemon.now()
         rows = []
         for name in sorted(names):
-            owned = [item for item in items if item.key.startswith(f"{name}/")]
-            summary = ""
-            last_seen = 0
-            if owned:
-                latest = max(owned, key=lambda item: item.updated_at)
-                summary = latest.title
-                seen_at = parse_iso8601(latest.updated_at, field_name="updated_at")
-                last_seen = int(seen_at.timestamp())
+            view = store.feed(name)
+            summary = "" if view is None or not view.summary else view.summary
+            if not summary:
+                summary = store.open_summary(name, now)
             slot = ""
             if config is not None and name in config.bots:
                 slot = config.bots[name].webhook_slot
@@ -436,13 +444,33 @@ class BridgeApi:
                 {
                     "name": name,
                     "display_name": name,
-                    "state": self._daemon.state,
+                    "state": self._bot_state(view),
                     "summary": summary,
-                    "last_seen": last_seen,
+                    "last_seen": _feed_last_seen(view),
+                    "next_run": _epoch(None if view is None else view.next_run),
                     "routes": {"outbound": bool(slot)},
                 }
             )
         return rows
+
+    def _bot_state(self, view: Any) -> str:
+        bridge = self._daemon.state or "ok"
+        if bridge in _BRIDGE_BOT_STATE:
+            return bridge
+        if view is not None and view.stale:
+            return "degraded"
+        if view is not None and view.state:
+            return view.state
+        return bridge
+
+    def note_bots(self) -> None:
+        """Emit ``Bots`` when the serialized row list changed."""
+
+        text = _dumps(self._bots())
+        if text == self._bots_json:
+            return
+        self._bots_json = text
+        self._emit_properties("Bots")
 
     def _note_state(self) -> None:
         current = (self._daemon.state, self._daemon.reason)
@@ -450,7 +478,8 @@ class BridgeApi:
             return
         self._seen_state = current
         self._emit("StateChanged", current[0], current[1])
-        self._emit_properties("State", "StateReason", "Mode", "Bots")
+        self._emit_properties("State", "StateReason", "Mode")
+        self.note_bots()
 
     def _emit_properties(self, *names: str) -> None:
         self._emit("PropertiesChanged", names)
@@ -472,6 +501,34 @@ def _camel_to_snake(name: str) -> str:
 
 def _dumps(value: object) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"))
+
+
+def _epoch(value: str | None) -> int:
+    parsed = _epoch_or_none(value)
+    return 0 if parsed is None else parsed
+
+
+def _epoch_or_none(value: str | None) -> int | None:
+    if not value:
+        return None
+    try:
+        return int(parse_iso8601(value, field_name="updated_at").timestamp())
+    except ValueError:
+        return None
+
+
+def _feed_last_seen(view: Any) -> int:
+    """Feed ``updated_at``, or ``status.last_run`` when that time is later."""
+
+    if view is None:
+        return 0
+    updated = _epoch_or_none(view.updated_at)
+    last_run = _epoch_or_none(view.last_run)
+    if updated is None:
+        return 0 if last_run is None else last_run
+    if last_run is None or last_run <= updated:
+        return updated
+    return last_run
 
 
 def _object(text: str, field_name: str) -> dict[str, Any]:

@@ -795,7 +795,9 @@ def test_template_feed_and_state_pass_the_schema_gate():
     state = ROOT / "template-repo" / "desktop" / "state.json"
     from tetherbot.adapters.github_poller import _read_feed, _read_state
 
-    items, problem = _read_feed(feed, "feed/primary.json")
+    items, problem, view = _read_feed(feed, "feed/primary.json")
     assert problem is None
+    assert view is not None and view.summary == "1 open ask."
+    assert view.state == "needs_you"
     assert items and items[0].bot == "primary"
     assert _read_state(state) is None

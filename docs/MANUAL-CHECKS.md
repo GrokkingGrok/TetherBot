@@ -448,6 +448,7 @@ Wait one poll.
 **Look for.**
 
 - The item disappears from the popup and the badge as soon as you tap Veto. The queue count includes it until the webhook accepts.
+- The Bots row does not keep that item's title. Its summary is the feed's `status.summary` (for example `1 open ask.`). Last seen follows the feed file's `updated_at` (or `status.last_run` when that is later), not the item. The state dot follows `status.state`; `needs_you` is amber. The row updates from `PropertiesChanged` for `Bots` after a bridge restart. The new dot colors load with the extension, so they need a log out and back in after this version is installed.
 - After accept, `queue: 0`. The item is still absent.
 - After the bridge restart, the item is still absent.
 - `desktop/state.json` in the clone has that item's `status` set to `dropped` and an `acted` object (`action` is `veto`). `feed/<bot>.json` is unchanged by the bridge.

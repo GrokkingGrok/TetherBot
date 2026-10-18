@@ -100,9 +100,10 @@ export function runViewChecks() {
             {
                 name: 'primary',
                 display_name: 'primary',
-                state: 'ok',
-                summary: 'Idle',
+                state: 'needs_you',
+                summary: '1 open ask.',
                 last_seen: Math.floor(NOW / 1000) - 240,
+                next_run: Math.floor(NOW / 1000) + 3600,
                 routes: {outbound: true},
             },
             {
@@ -164,8 +165,12 @@ export function runViewChecks() {
     assert(menu.todos.length === 2, 'both todos are listed');
     assert(menu.todos[0].canSendDone === true, 'routed todo can send done');
     assert(menu.todos[1].canSendDone === false, 'unrouted todo is not sent');
+    assert(menu.bots[0].state === 'needs_you', 'per-bot state');
+    assert(menu.bots[0].summary === '1 open ask.', 'feed summary');
     assert(menu.bots[0].lastSeen === 'last seen 4 m ago', 'relative last seen');
+    assert(menu.bots[0].nextRun === 'next run in 1 h', 'next run');
     assert(menu.bots[1].lastSeen === 'last seen unknown', 'missing last seen');
+    assert(menu.bots[1].nextRun === '', 'missing next run');
     assert(menu.footer.queueLength === 2, 'queue length');
     assert(!JSON.stringify(menu).includes('12.00'), 'watch amount stays out of this menu');
 

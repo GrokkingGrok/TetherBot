@@ -37,7 +37,7 @@ from tetherbot.adapters.base import AdapterStatus, PollResult, SendResult
 from tetherbot.credential import find_credential_helper, helper_spec
 from tetherbot.files import ensure_private_dir, write_private_json
 from tetherbot.model import Item, looks_like_secret, mask_secrets
-from tetherbot.store import StoreUpdate
+from tetherbot.store import FeedView, StoreUpdate, parse_feed_view
 from tetherbot.version_gate import check_schema
 
 _LOG = logging.getLogger("tetherbot")
@@ -380,12 +380,15 @@ class GitHubPoller:
         if feed.is_dir():
             for path in sorted(feed.glob("*.json")):
                 source = f"feed/{path.name}"
-                items, problem = _read_feed(path, source)
+                items, problem, view = _read_feed(path, source)
                 if problem is not None:
                     errors.append(problem)
                     stale.append(source)
+                    ctx.store.mark_feed_stale(path.stem)
                     continue
                 update = ctx.store.replace_origin(source, items, now=ctx.now())
+                if view is not None:
+                    ctx.store.set_feed(path.stem, view)
                 self._emit_store(ctx, update)
         state_path = clone / "desktop" / "state.json"
         if state_path.is_file():
@@ -399,6 +402,9 @@ class GitHubPoller:
                     api = getattr(ctx, "api", None)
                     if api is not None:
                         api.emit_items_changed([], changed, [])
+        api = getattr(ctx, "api", None)
+        if api is not None and hasattr(api, "note_bots"):
+            api.note_bots()
         self.stale = stale
         if errors:
             self.last_error = mask_secrets("; ".join(errors))[:200]
@@ -819,28 +825,28 @@ def _rebase_in_progress(clone: Path) -> bool:
     return (git_dir / "rebase-merge").exists() or (git_dir / "rebase-apply").exists()
 
 
-def _read_feed(path: Path, source: str) -> tuple[list[Item], str | None]:
+def _read_feed(path: Path, source: str) -> tuple[list[Item], str | None, FeedView | None]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        return [], f"{source} is unreadable"
+        return [], f"{source} is unreadable", None
     if not isinstance(payload, dict):
-        return [], f"{source} is unreadable"
+        return [], f"{source} is unreadable", None
     decision = check_schema(payload.get("schema"), source=source)
     if not decision.accepted:
-        return [], decision.message
+        return [], decision.message, None
     bot = payload.get("bot")
     if bot != path.stem:
-        return [], f"{source} is invalid"
+        return [], f"{source} is invalid", None
     raw_items = payload.get("items", [])
     if not isinstance(raw_items, list):
-        return [], f"{source} is invalid"
+        return [], f"{source} is invalid", None
     origin = source
     try:
         items = [Item.from_mapping(entry, bot=bot, origin=origin) for entry in raw_items]
     except (TypeError, ValueError):
-        return [], f"{source} is invalid"
-    return items, None
+        return [], f"{source} is invalid", None
+    return items, None, parse_feed_view(payload)
 
 
 def _state_item(item: Item) -> dict[str, object]:

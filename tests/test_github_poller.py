@@ -7,6 +7,7 @@ and the token is not part of the git command.
 
 import json
 import os
+import shlex
 import stat
 import subprocess
 import sys
@@ -605,6 +606,127 @@ def test_import_does_not_load_gi():
     subprocess.run([sys.executable, "-c", code], check=True, env=env, timeout=30)
 
 
+def _bridge_log(daemon: BridgeDaemon) -> str:
+    stream = daemon._log_stream.getvalue() if daemon._log_stream is not None else ""
+    path = daemon.state_dir / "bridge.log"
+    filed = path.read_text(encoding="utf-8") if path.is_file() else ""
+    return stream + filed
+
+
+def test_ls_remote_auth_failure_is_logged_without_git_output(tmp_path: Path):
+    token = "ghp_" + ("e" * 36)
+    leaked = (
+        "fatal: Authentication failed for 'https://github.com/owner/repo.git/'\n"
+        f"password={token}\n"
+    )
+
+    def run(args: list[str], cwd: Path | None) -> GitResult:
+        del args, cwd
+        return GitResult(1, f"stdout {token}", leaked)
+
+    daemon, _clock = _start(
+        tmp_path,
+        "https://github.com/owner/repo.git",
+        git=run,
+        auth="https-token",
+        credential_helper="/opt/tetherbot/git-credential-tetherbot",
+    )
+    daemon.tick_poller()
+    logged = _bridge_log(daemon)
+    assert daemon.poller.last_error == "ls-remote failed: auth"
+    assert daemon.poller.overlay == ("degraded", "ls-remote failed: auth")
+    assert "github-poller ls-remote failed: auth" in logged
+    assert token not in logged
+    assert "password=" not in logged
+    assert "Authentication failed" not in logged
+    assert "owner/repo" not in logged
+
+
+def test_ls_remote_network_failure_names_network_only(tmp_path: Path):
+    detail = "fatal: unable to access 'https://github.com/owner/repo.git/': Could not resolve host"
+
+    def run(args: list[str], cwd: Path | None) -> GitResult:
+        del args, cwd
+        return GitResult(1, "", detail)
+
+    daemon, _clock = _start(
+        tmp_path,
+        "https://github.com/owner/repo.git",
+        git=run,
+        auth="https-token",
+        credential_helper="/opt/tetherbot/git-credential-tetherbot",
+    )
+    daemon.tick_poller()
+    logged = _bridge_log(daemon)
+    assert daemon.poller.last_error == "ls-remote failed: network"
+    assert "github-poller ls-remote failed: network" in logged
+    assert "Could not resolve host" not in logged
+    assert "owner/repo" not in logged
+
+
+def _helper_seen(tmp_path: Path, monkeypatch, *, pass_bus: bool) -> dict[str, str]:
+    real_home = tmp_path / "real-home"
+    record = tmp_path / "helper-env.json"
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    helper = bindir / "git-credential-tetherbot"
+    helper.write_text(
+        "#!/usr/bin/env python3\n"
+        "import json, os\n"
+        "from pathlib import Path\n"
+        f"Path({str(record)!r}).write_text(json.dumps(dict(os.environ)), encoding='utf-8')\n",
+        encoding="utf-8",
+    )
+    helper.chmod(0o755)
+    git = bindir / "git"
+    git.write_text(f"#!/bin/sh\nexec {shlex.quote(str(helper))} \"$@\"\n", encoding="utf-8")
+    git.chmod(0o755)
+    monkeypatch.setenv("HOME", str(real_home))
+    monkeypatch.setenv("PATH", f"{bindir}{os.pathsep}{os.environ.get('PATH', '')}")
+    monkeypatch.setenv("GH_TOKEN", "ghp_" + ("a" * 36))
+    monkeypatch.setenv("TETHERBOT_LEAK", "should-not-pass")
+    if pass_bus:
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(real_home / "xdg-config"))
+        monkeypatch.setenv("XDG_DATA_HOME", str(real_home / "xdg-data"))
+        monkeypatch.setenv("DBUS_SESSION_BUS_ADDRESS", "unix:path=/run/user/1000/bus")
+        monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "runtime"))
+    else:
+        monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+        monkeypatch.delenv("XDG_DATA_HOME", raising=False)
+        monkeypatch.delenv("DBUS_SESSION_BUS_ADDRESS", raising=False)
+        monkeypatch.delenv("XDG_RUNTIME_DIR", raising=False)
+    result = SubprocessGit(tmp_path / "git-home").run(["ls-remote"], None)
+    assert result.code == 0
+    seen = json.loads(record.read_text(encoding="utf-8"))
+    assert "GH_TOKEN" not in seen
+    assert "TETHERBOT_LEAK" not in seen
+    assert "ghp_" not in record.read_text(encoding="utf-8")
+    return seen
+
+
+def test_subprocess_git_env_reaches_a_fake_helper(tmp_path: Path, monkeypatch):
+    seen = _helper_seen(tmp_path, monkeypatch, pass_bus=True)
+    real_home = tmp_path / "real-home"
+    assert seen["XDG_CONFIG_HOME"] == str(real_home / "xdg-config")
+    assert seen["XDG_DATA_HOME"] == str(real_home / "xdg-data")
+    assert seen["DBUS_SESSION_BUS_ADDRESS"] == "unix:path=/run/user/1000/bus"
+    assert seen["XDG_RUNTIME_DIR"] == str(tmp_path / "runtime")
+    assert seen["HOME"] == str(tmp_path / "git-home")
+    assert seen["GIT_CONFIG_GLOBAL"] == os.devnull
+    assert seen["GIT_CONFIG_SYSTEM"] == os.devnull
+
+
+def test_subprocess_git_env_defaults_xdg_and_omits_an_unset_bus(tmp_path: Path, monkeypatch):
+    seen = _helper_seen(tmp_path, monkeypatch, pass_bus=False)
+    real_home = tmp_path / "real-home"
+    assert seen["XDG_CONFIG_HOME"] == str(real_home / ".config")
+    assert seen["XDG_DATA_HOME"] == str(real_home / ".local" / "share")
+    assert "DBUS_SESSION_BUS_ADDRESS" not in seen
+    assert "XDG_RUNTIME_DIR" not in seen
+    assert seen["HOME"] == str(tmp_path / "git-home")
+    assert seen["GIT_CONFIG_GLOBAL"] == os.devnull
+
+
 def test_secret_shaped_git_args_do_not_spawn(tmp_path: Path, monkeypatch):
     def explode(*args, **kwargs):
         raise AssertionError((args, kwargs))
@@ -646,7 +768,7 @@ def test_https_runs_git_with_the_helper_and_not_the_token(tmp_path: Path):
     assert "https://github.com/owner/repo.git" in flat
     assert "@" not in flat
     assert token not in flat
-    assert daemon.poller.last_error == "ls-remote failed"
+    assert daemon.poller.last_error == "ls-remote failed: network"
 
 
 def test_https_clone_config_scopes_the_helper_and_omits_the_token(tmp_path: Path):

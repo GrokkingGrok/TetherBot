@@ -70,6 +70,7 @@ def test_get_returns_the_token_only_on_stdout(tmp_path: Path, monkeypatch):
     )
     assert code == 0
     assert out == f"username=x-access-token\npassword={TOKEN}\n\n"
+    assert err == ""
     assert TOKEN not in err
     assert TOKEN not in (tmp_path / "config.toml").read_text(encoding="utf-8")
     for path in tmp_path.rglob("*"):
@@ -90,7 +91,10 @@ def test_wrong_host_path_and_protocol_get_nothing(tmp_path: Path):
         code, out, err = _run("get", stdin, tmp_path, store=store)
         assert code == 0
         assert out == ""
+        assert err.strip() == "credential request did not match"
         assert TOKEN not in err
+        assert "owner/" not in err
+        assert "evil" not in err
 
 
 def test_store_and_erase_do_not_keep_the_token(tmp_path: Path, monkeypatch):
@@ -133,7 +137,20 @@ def test_missing_token_is_silent_on_stdout(tmp_path: Path):
     assert code == 0
     assert out == ""
     assert TOKEN not in err
-    assert "not stored" in err
+    assert err.strip() == "github token is not stored"
+
+
+def test_missing_config_names_the_reason_without_a_secret(tmp_path: Path):
+    code, out, err = _run(
+        "get",
+        f"protocol=https\nhost=github.com\npath={PATH_VALUE}\n\n",
+        tmp_path,
+    )
+    assert code == 0
+    assert out == ""
+    assert err.strip() == "github remote is not configured"
+    assert TOKEN not in err
+    assert PATH_VALUE not in err
 
 
 def test_port_443_matches_github(tmp_path: Path):

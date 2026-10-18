@@ -385,6 +385,19 @@ auth = "https-token"
 
 The URL is the plain https URL. It must not contain a token or a password.
 
+Before the first commit, the empty repository needs the feed pushed. An empty GitHub repository has no `main` branch until you push `feed/<bot>.json` from `template-repo/` yourself. The bridge does not create that commit.
+
+The helper only answers for the configured remote path. Point this `config.toml` at the repository before any manual git use of the helper, and pass `-c credential.useHttpPath=true`:
+
+```bash
+git -c credential.helper= \
+  -c credential.helper='git-credential-tetherbot --slot github-token' \
+  -c credential.useHttpPath=true \
+  ls-remote https://github.com/OWNER/REPOSITORY.git refs/heads/main
+```
+
+Do not put the token in that URL.
+
 ```bash
 tetherbotctl secret set github-token
 tetherbotctl enable repo
@@ -410,6 +423,7 @@ git -C ~/.local/share/tetherbot/repos/REPOSITORY remote get-url origin
 
 - `credential.helper` prints a blank line (the reset) and then a line ending in `git-credential-tetherbot --slot github-token`.
 - `remote get-url` prints the plain https URL. The token is not in it.
+- If status stays `degraded` on every poll, the reason is `ls-remote failed: auth` or `ls-remote failed: network`. The journal line is the same short reason. It does not include git's output or the token. `auth` means the helper could not supply the token (the configured path, the keyring, or the helper install). `network` means git could not reach the remote.
 - Within one poll interval (120 seconds unless you set a shorter `poll_seconds`, minimum 60), the popup lists the sample ask.
 - Commit a new item, or set `"notify": true` on a new item, in `feed/<bot>.json` and push it with your own git (not by putting the token in the remote). Within one poll, one notification appears. **Approve**, **Veto**, **Snooze**, and **Open chat** work when the item lists those actions. Snooze stays on this machine. Open chat launches Grok Bot when a desktop entry exists. The deep link to one chat is still **TBD, verify**.
 

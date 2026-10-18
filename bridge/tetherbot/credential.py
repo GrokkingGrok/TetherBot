@@ -9,7 +9,10 @@ argv. ``store`` and ``erase`` discard stdin and write nothing, so git cannot
 save the token into ``.git/config`` or a credential cache of its own.
 
 The helper answers only ``protocol=https``, ``host=github.com``, and the
-exact path of the ``github-poller`` remote in ``config.toml``.
+exact path of the ``github-poller`` remote in ``config.toml``. When it
+cannot answer, it writes one short reason to stderr. That line names the
+problem (config, match, token, or keyring) and does not include the token,
+the remote, or the request.
 """
 
 from __future__ import annotations
@@ -137,6 +140,7 @@ def main(
     incoming = sys.stdin if stdin is None else stdin
     raw = incoming.read(_MAX_STDIN)  # type: ignore[attr-defined]
     if incoming.read(1):  # type: ignore[attr-defined]
+        print("credential request refused", file=err)
         return 0
     if action != "get":
         return 0
@@ -155,11 +159,28 @@ def main(
     attributes = parse_attributes(str(raw))
     path = allowed_github_path(_config_path(config_path))
     body = fill(attributes, token=token, allowed=path)
-    if not token and path and _request_matches(attributes, path):
-        print("github token is not stored", file=err)
     if body:
         out.write(body)  # type: ignore[attr-defined]
+        return 0
+    print(_refusal_reason(attributes, token=token, allowed=path), file=err)
     return 0
+
+
+def _refusal_reason(
+    attributes: Mapping[str, str],
+    *,
+    token: str | None,
+    allowed: str | None,
+) -> str:
+    """One non-secret line for a get that writes nothing."""
+
+    if not allowed:
+        return "github remote is not configured"
+    if not _request_matches(attributes, allowed):
+        return "credential request did not match"
+    if not token:
+        return "github token is not stored"
+    return "credential request refused"
 
 
 def _request_matches(attributes: Mapping[str, str], allowed: str) -> bool:

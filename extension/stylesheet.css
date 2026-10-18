@@ -26,17 +26,25 @@
     margin-right: 4px;
 }
 
-.tetherbot-dot-ok {
+.tetherbot-dot-ok,
+.tetherbot-dot-idle {
     color: #26a269;
 }
 
 .tetherbot-dot-degraded,
-.tetherbot-dot-offline {
+.tetherbot-dot-offline,
+.tetherbot-dot-paused,
+.tetherbot-dot-needs_you {
     color: #e5a50a;
 }
 
+.tetherbot-dot-working {
+    color: #1c71d8;
+}
+
 .tetherbot-dot-failed_closed,
-.tetherbot-dot-unconfigured {
+.tetherbot-dot-unconfigured,
+.tetherbot-dot-error {
     color: #c01c28;
 }
 

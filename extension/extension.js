@@ -226,6 +226,7 @@ export default class TetherBotExtension extends Extension {
         this._reason = this._proxy.StateReason || '';
         this._queueLength = Number(this._proxy.QueueLength || 0);
         this._counts = unpackCounts(this._proxy.Counts);
+        // g-properties-changed calls this, so a Bots update repaints the row.
         const bots = this._proxy.Bots || '[]';
         try {
             const parsed = JSON.parse(bots);
@@ -324,7 +325,7 @@ export default class TetherBotExtension extends Extension {
         title.add_child(dot);
         title.add_child(new St.Label({text: ` ${row.name}`}));
         box.add_child(title);
-        const detail = [row.summary, row.lastSeen].filter(Boolean).join(' · ');
+        const detail = [row.summary, row.lastSeen, row.nextRun].filter(Boolean).join(' · ');
         box.add_child(new St.Label({text: detail, style_class: 'tetherbot-subtle'}));
         item.add_child(box);
         item.connect('activate', () => this._openChat(row.bot));

@@ -234,9 +234,11 @@ Lists of items pass as JSON strings (`s`), so the item model can grow without br
 | `StateReason` | s | Short human text for the current state |
 | `Mode` | s | `webhook-only`, `repo-only`, `full` |
 | `Counts` | a{su} | `asks`, `todos`, `watch`, `notifications`, `waiting`, `queued`. `queued` matches `QueueLength` |
-| `Bots` | s | JSON list: `{name, display_name, state, summary, last_seen, routes:{outbound: bool}}` |
+| `Bots` | s | JSON list: `{name, display_name, state, summary, last_seen, next_run, routes:{outbound: bool}}`. See below |
 | `LastSync` | x | Unix time of the last successful poll (0 if never) |
 | `QueueLength` | u | Pending outbound actions. Parked actions are not included. `GetQueue` lists both. `tetherbotctl status` prints `queue:` for this count and `parked:` for the parked count. A send that accepts or parks emits `PropertiesChanged` for `QueueLength` and `Counts`, including the change to 0 |
+
+`Bots` is one object per bot. `summary` is the feed file's `status.summary`. When that summary is missing, it is a count of items still visible in the popup (`1 open ask`, `2 todos`), and it never uses the title of a closed, dropped, acted, or resolved item. `last_seen` is the feed file's `updated_at`, or `status.last_run` when that timestamp is later, as Unix seconds. It is not an item's `updated_at`. `next_run` is `status.next_run` as Unix seconds, or 0. `state` is the feed's `status.state` (`idle`, `working`, `needs_you`, `error`). A bridge state other than `ok`, or a stale feed, replaces that value so the row still shows `degraded`, `offline`, `failed_closed`, `unconfigured`, or `paused`. `PropertiesChanged` includes `Bots` when this JSON changes: a feed or status-block update, and an action that hides, unhides, or resolves an item. An unchanged serialization does not emit.
 
 ### 6.2 Methods
 
@@ -375,7 +377,7 @@ Generic module only. See section 11. Off by default. A concrete legacy inbox for
 
 - **Top-bar indicator.** A glyph with a badge that counts open asks plus todos owned by the user (configurable). Colors: normal, attention (open asks), and a dimmed icon when the bridge is `unconfigured`, `failed_closed`, or not running. The tooltip and accessible name read like "TetherBot: 2 asks, 3 todos".
 - **Popup menu:**
-  1. A per-bot row: name, state dot, one-line summary, "last seen 4 m ago". Click opens the chat (`OpenChat`).
+  1. A per-bot row: name, state dot, one-line summary, "last seen 4 m ago". The summary and the dot come from that feed's status block (`needs_you` is amber, `idle` is green, `working` is blue, `error` is red). Last seen is the feed time, not an item title. A feed with no summary shows a count of visible open items instead. Click opens the chat (`OpenChat`). The row is redrawn when `Bots` changes.
   2. **Asks**: title, bot, due, with inline Approve and Veto buttons when listed in `actions`.
   3. **Todos**: open items for the user, with Done (sends `done` if the bot has a route; otherwise marks done locally when a local file is the source of truth).
   4. **Money and watch**: bills and watch items, read-only, sorted by date, with `amount`.

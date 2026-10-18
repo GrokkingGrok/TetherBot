@@ -10,15 +10,21 @@ and ``expires_at`` are applied locally. Notifications come from
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+import re
+from collections.abc import Mapping
+from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
 
 from tetherbot import SCHEMA_VERSION
 from tetherbot.files import write_private_json
-from tetherbot.model import Item, parse_acted, parse_iso8601, resolved_status
+from tetherbot.model import Item, looks_like_secret, parse_acted, parse_iso8601, resolved_status
 from tetherbot.notify_policy import Notice, NotifyPolicy
 from tetherbot.version_gate import check_schema
+
+_BOT = re.compile(r"[a-z0-9-]{1,64}")
+FEED_STATES = frozenset({"idle", "working", "needs_you", "error"})
+_SUMMARY_LIMIT = 200
 
 
 @dataclass(frozen=True)
@@ -41,11 +47,24 @@ class StoreUpdate:
     errors: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class FeedView:
+    """One feed file's status block. Item titles are not part of it."""
+
+    updated_at: str | None = None
+    state: str | None = None
+    summary: str | None = None
+    last_run: str | None = None
+    next_run: str | None = None
+    stale: bool = False
+
+
 class ItemStore:
     def __init__(self, path: Path | None = None) -> None:
         self.path = path
         self.load_error: str | None = None
         self._items: dict[str, Item] = {}
+        self._feeds: dict[str, FeedView] = {}
         self._policy = NotifyPolicy()
         self._block_save = False
         self.repo_state_dirty = False
@@ -106,6 +125,43 @@ class ItemStore:
         if update.diff.updated or update.notifications:
             self._save()
         return update
+
+    def feed(self, bot: str) -> FeedView | None:
+        return self._feeds.get(bot)
+
+    def set_feed(self, bot: str, view: FeedView) -> bool:
+        """Remember a feed status block. A bad bot id is ignored."""
+
+        if _BOT.fullmatch(bot) is None:
+            return False
+        if self._feeds.get(bot) == view:
+            return False
+        self._feeds[bot] = view
+        self._save()
+        return True
+
+    def mark_feed_stale(self, bot: str) -> bool:
+        """Keep the last status block and mark that feed stale."""
+
+        if _BOT.fullmatch(bot) is None:
+            return False
+        current = self._feeds.get(bot, FeedView())
+        if current.stale:
+            return False
+        self._feeds[bot] = replace(current, stale=True)
+        self._save()
+        return True
+
+    def open_summary(self, bot: str, now: datetime) -> str:
+        """Count visible open items. Closed, dropped, acted, and resolved items are omitted."""
+
+        _require_aware(now)
+        visible = [
+            item
+            for item in self._items.values()
+            if item.key.startswith(f"{bot}/") and _listed(item, now)
+        ]
+        return _count_summary(visible)
 
     def snooze(self, key: str, until: datetime, *, now: datetime) -> bool:
         _require_aware(now)
@@ -317,16 +373,21 @@ class ItemStore:
             return
         self._items = {item.key: item for item in items}
         self._policy = NotifyPolicy(delivered)
+        self._feeds = _load_feeds(raw.get("feeds"))
         self.repo_state_dirty = any(item.acted or item.resolved for item in items)
 
     def _save(self) -> None:
         if self.path is None or self._block_save:
             return
-        payload = {
+        payload: dict[str, object] = {
             "schema": SCHEMA_VERSION,
             "items": [item.to_cache() for item in self.items()],
             "delivered": [list(token) for token in sorted(self._policy.delivered)],
         }
+        if self._feeds:
+            payload["feeds"] = {
+                bot: _feed_payload(view) for bot, view in sorted(self._feeds.items())
+            }
         write_private_json(self.path, payload)
 
 
@@ -385,3 +446,107 @@ def _snoozed(item: Item, now: datetime) -> bool:
 def _require_aware(moment: datetime) -> None:
     if moment.tzinfo is None or moment.tzinfo.utcoffset(moment) is None:
         raise ValueError("timestamps must include a timezone offset")
+
+
+def parse_feed_view(payload: Mapping[str, object]) -> FeedView:
+    """Read the feed file's status block. Unknown states and bad times are dropped."""
+
+    status = payload.get("status")
+    state = None
+    summary = None
+    last_run = None
+    next_run = None
+    if isinstance(status, Mapping):
+        raw_state = status.get("state")
+        if isinstance(raw_state, str) and raw_state in FEED_STATES:
+            state = raw_state
+        summary = _clean_summary(status.get("summary"))
+        last_run = _optional_time(status.get("last_run"))
+        next_run = _optional_time(status.get("next_run"))
+    return FeedView(
+        updated_at=_optional_time(payload.get("updated_at")),
+        state=state,
+        summary=summary,
+        last_run=last_run,
+        next_run=next_run,
+    )
+
+
+def _clean_summary(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    text = " ".join(value.split())
+    if not text or looks_like_secret(text):
+        return None
+    return text[:_SUMMARY_LIMIT]
+
+
+def _optional_time(value: object) -> str | None:
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        parse_iso8601(value, field_name="updated_at")
+    except ValueError:
+        return None
+    return value
+
+
+def _count_summary(items: list[Item]) -> str:
+    parts: list[str] = []
+    asks = sum(item.kind == "ask" for item in items)
+    todos = sum(item.kind == "todo" for item in items)
+    watches = sum(item.kind == "watch" for item in items)
+    notes = sum(item.kind == "notification" for item in items)
+    if asks == 1:
+        parts.append("1 open ask")
+    elif asks:
+        parts.append(f"{asks} open asks")
+    if todos == 1:
+        parts.append("1 todo")
+    elif todos:
+        parts.append(f"{todos} todos")
+    if watches == 1:
+        parts.append("1 watch")
+    elif watches:
+        parts.append(f"{watches} watches")
+    if notes == 1:
+        parts.append("1 notification")
+    elif notes:
+        parts.append(f"{notes} notifications")
+    return ", ".join(parts)
+
+
+def _load_feeds(value: object) -> dict[str, FeedView]:
+    if not isinstance(value, Mapping):
+        return {}
+    feeds: dict[str, FeedView] = {}
+    for bot, raw in value.items():
+        if not isinstance(bot, str) or _BOT.fullmatch(bot) is None or not isinstance(raw, Mapping):
+            continue
+        state = raw.get("state")
+        feeds[bot] = FeedView(
+            updated_at=_optional_time(raw.get("updated_at")),
+            state=state if isinstance(state, str) and state in FEED_STATES else None,
+            summary=_clean_summary(raw.get("summary")),
+            last_run=_optional_time(raw.get("last_run")),
+            next_run=_optional_time(raw.get("next_run")),
+            stale=raw.get("stale") is True,
+        )
+    return feeds
+
+
+def _feed_payload(view: FeedView) -> dict[str, object]:
+    payload: dict[str, object] = {}
+    if view.updated_at is not None:
+        payload["updated_at"] = view.updated_at
+    if view.state is not None:
+        payload["state"] = view.state
+    if view.summary is not None:
+        payload["summary"] = view.summary
+    if view.last_run is not None:
+        payload["last_run"] = view.last_run
+    if view.next_run is not None:
+        payload["next_run"] = view.next_run
+    if view.stale:
+        payload["stale"] = True
+    return payload

@@ -111,6 +111,22 @@ export function formatLastSeen(unix, nowMs) {
     return `last seen ${Math.floor(hours / 24)} d ago`;
 }
 
+export function formatNextRun(unix, nowMs) {
+    const when = number(unix);
+    if (!when)
+        return '';
+    const seconds = when - Math.floor(nowMs / 1000);
+    if (seconds < 60)
+        return 'next run due';
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60)
+        return `next run in ${minutes} m`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24)
+        return `next run in ${hours} h`;
+    return `next run in ${Math.floor(hours / 24)} d`;
+}
+
 function bannerFor({running, state, reason}) {
     if (!running)
         return BRIDGE_DOWN;
@@ -152,6 +168,7 @@ export function menuModel({
             state: bot.state || '',
             summary: bot.summary || '',
             lastSeen: formatLastSeen(bot.last_seen, nowMs),
+            nextRun: formatNextRun(bot.next_run, nowMs),
         });
     }
     const asks = [];

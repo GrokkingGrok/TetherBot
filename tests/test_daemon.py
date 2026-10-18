@@ -12,7 +12,12 @@ from pathlib import Path
 import pytest
 
 from tests.helpers import NOW, make_item
-from tetherbot.daemon import BridgeDaemon, default_config_path, default_state_dir
+from tetherbot.daemon import (
+    BridgeDaemon,
+    default_config_path,
+    default_repos_dir,
+    default_state_dir,
+)
 from tetherbot.queue import ActionQueue
 from tetherbot.store import ItemStore
 
@@ -44,6 +49,7 @@ def _daemon(tmp_path: Path, **kwargs: object) -> BridgeDaemon:
         loop=loop,  # type: ignore[arg-type]
         log_stream=StringIO(),
         clock=clock,  # type: ignore[arg-type]
+        repos_dir=kwargs.pop("repos_dir", tmp_path / "repos"),  # type: ignore[arg-type]
     )
 
 
@@ -212,13 +218,34 @@ def test_start_twice_is_refused(tmp_path: Path):
 def test_default_paths_follow_xdg(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
     monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
     assert default_config_path() == tmp_path / "config" / "tetherbot" / "config.toml"
     assert default_state_dir() == tmp_path / "state" / "tetherbot"
+    assert default_repos_dir() == tmp_path / "data" / "tetherbot" / "repos"
     monkeypatch.setenv("XDG_CONFIG_HOME", "  ")
     monkeypatch.delenv("XDG_STATE_HOME")
+    monkeypatch.delenv("XDG_DATA_HOME")
     monkeypatch.setenv("HOME", str(tmp_path))
     assert default_config_path() == tmp_path / ".config" / "tetherbot" / "config.toml"
     assert default_state_dir() == tmp_path / ".local" / "state" / "tetherbot"
+    assert default_repos_dir() == tmp_path / ".local" / "share" / "tetherbot" / "repos"
+
+
+def test_failed_closed_overlay_wins_while_the_base_state_is_ok(tmp_path: Path):
+    daemon = _daemon(tmp_path)
+    daemon.start()
+    daemon.base_state = "ok"
+    daemon.base_reason = ""
+    daemon.webhook = type("Sender", (), {"overlay": ("degraded", "re-paste key")})()
+    daemon.poller = type("Poller", (), {"overlay": ("failed_closed", "rebase conflict")})()
+    daemon._apply_overlay()
+    assert daemon.state == "failed_closed"
+    assert daemon.reason == "rebase conflict"
+    daemon.base_state = "degraded"
+    daemon.base_reason = "keyring locked"
+    daemon._apply_overlay()
+    assert daemon.state == "degraded"
+    assert daemon.reason == "keyring locked"
 
 
 def test_import_does_not_load_glib_or_adapters():

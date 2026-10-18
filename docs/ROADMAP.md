@@ -12,7 +12,7 @@ TetherBot is pre-alpha. Check items off as they land. Design detail is in [SPEC.
 - [x] Secret-service read and write (`io.github.grokkinggrok.TetherBot.Secret`), no plain-file fallback
 - [x] `tetherbotctl` for status, enable, secret set, and webhook test
 - [x] `webhook-sender`: POST, bearer header, retry table in SPEC section 7.2, re-paste flow
-- [ ] `github-poller`: change check, schema gate, owned-path writes, fail closed on rebase conflicts
+- [x] `github-poller`: change check, schema gate, owned-path writes, fail closed on rebase conflicts
 - [ ] Minimal extension: indicator counts, popup (bots, todos, asks), notifications with actions
 - [ ] Extension talks only D-Bus; proxy and handlers dropped in `disable()`
 - [ ] Manual checks M1–M8 and M10–M14

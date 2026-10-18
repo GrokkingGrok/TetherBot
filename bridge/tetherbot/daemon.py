@@ -3,8 +3,8 @@
 
 Loads config, the item cache, and the action queue, then runs a main loop
 until asked to stop. A GLib loop also owns the session bus name, opens the
-secret service, and ticks ``webhook-sender`` when that adapter is enabled.
-Other adapters and sinks are not started here.
+secret service, and ticks ``webhook-sender`` and ``github-poller`` when those
+adapters are enabled. Other adapters and sinks are not started here.
 """
 
 from __future__ import annotations
@@ -67,9 +67,14 @@ class BridgeDaemon:
         webhook_post: Callable[..., object] | None = None,
         webhook_online: Callable[[], bool] | None = None,
         webhook_jitter: Callable[[int], float] | None = None,
+        repos_dir: Path | None = None,
+        poller_git: Callable[..., object] | None = None,
+        poller_online: Callable[[], bool] | None = None,
+        poller_locked: Callable[[], bool] | None = None,
     ) -> None:
         self.config_path = default_config_path() if config_path is None else config_path
         self.state_dir = default_state_dir() if state_dir is None else state_dir
+        self.repos_dir = default_repos_dir() if repos_dir is None else repos_dir
         self._loop = loop
         self._log_stream = log_stream
         self._clock = clock or (lambda: datetime.now(UTC))
@@ -86,7 +91,11 @@ class BridgeDaemon:
         self._webhook_post = webhook_post
         self._webhook_online = webhook_online
         self._webhook_jitter = webhook_jitter
+        self._poller_git = poller_git
+        self._poller_online = poller_online
+        self._poller_locked = poller_locked
         self.webhook = None
+        self.poller = None
         self.base_state = self.state
         self.base_reason = self.reason
 
@@ -144,6 +153,7 @@ class BridgeDaemon:
             )
         )
         self._sync_webhook()
+        self._sync_poller()
 
     def run(self, *, install_signals: bool = False) -> int:
         """Start, then block in the main loop until ``stop``.
@@ -179,7 +189,7 @@ class BridgeDaemon:
             if install_signals:
                 self._loop.watch_unix_signals(self.stop)
             if hasattr(self._loop, "timeout_add"):
-                self._loop.timeout_add(1, self.tick_webhook)
+                self._loop.timeout_add(1, self.tick_adapters)
             self._loop.run()
         finally:
             if export is not None:
@@ -197,6 +207,9 @@ class BridgeDaemon:
         if self.webhook is not None:
             self.webhook.stop()
             self.webhook = None
+        if self.poller is not None:
+            self.poller.stop()
+            self.poller = None
         logging.getLogger("tetherbot").info("bridge stopping")
         if self._loop is not None:
             self._loop.quit()
@@ -247,11 +260,21 @@ class BridgeDaemon:
         )
         self.api = BridgeApi(self)
         self._sync_webhook()
+        self._sync_poller()
+
+    def tick_adapters(self) -> None:
+        self.tick_webhook()
+        self.tick_poller()
 
     def tick_webhook(self) -> None:
         sender = self.webhook
         if sender is not None and self.running:
             sender.tick()
+
+    def tick_poller(self) -> None:
+        poller = self.poller
+        if poller is not None and self.running:
+            poller.tick()
 
     def publish_overlay(self) -> None:
         self._apply_overlay()
@@ -269,9 +292,14 @@ class BridgeDaemon:
 
     def _apply_overlay(self) -> None:
         state, reason = self.base_state, self.base_reason
-        overlay = None if self.webhook is None else self.webhook.overlay
-        if overlay is not None and state == "ok":
-            state, reason = overlay
+        overlays = [
+            adapter.overlay
+            for adapter in (self.webhook, self.poller)
+            if adapter is not None and adapter.overlay is not None
+        ]
+        if overlays and state == "ok":
+            closed = next((item for item in overlays if item[0] == "failed_closed"), None)
+            state, reason = closed if closed is not None else overlays[0]
         self.state = state
         self.reason = reason
 
@@ -295,6 +323,28 @@ class BridgeDaemon:
         elif not enabled and self.webhook is not None:
             self.webhook.stop()
             self.webhook = None
+        self._apply_overlay()
+
+    def _sync_poller(self) -> None:
+        enabled = False
+        if self.config is not None:
+            row = self.config.adapters.get("github-poller")
+            enabled = row is not None and row.enabled
+        if enabled and self.poller is None:
+            from tetherbot.adapters.github_poller import GitHubPoller
+
+            kwargs: dict[str, object] = {}
+            if self._poller_git is not None:
+                kwargs["git"] = self._poller_git
+            if self._poller_online is not None:
+                kwargs["online"] = self._poller_online
+            if self._poller_locked is not None:
+                kwargs["locked"] = self._poller_locked
+            self.poller = GitHubPoller(**kwargs)
+            self.poller.start(self)
+        elif not enabled and self.poller is not None:
+            self.poller.stop()
+            self.poller = None
         self._apply_overlay()
 
 
@@ -350,12 +400,16 @@ def default_state_dir() -> Path:
     return _xdg("XDG_STATE_HOME", Path.home() / ".local" / "state") / "tetherbot"
 
 
+def default_repos_dir() -> Path:
+    return _xdg("XDG_DATA_HOME", Path.home() / ".local" / "share") / "tetherbot" / "repos"
+
+
 def _xdg(name: str, fallback: Path) -> Path:
     value = os.environ.get(name, "").strip()
     return Path(value) if value else fallback
 
 
-_IMPLEMENTED = frozenset({"webhook-sender"})
+_IMPLEMENTED = frozenset({"webhook-sender", "github-poller"})
 
 
 def _decide_state(

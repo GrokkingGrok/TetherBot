@@ -223,8 +223,6 @@ class BridgeApi:
         enabled = {}
         if self._daemon.config is not None:
             enabled = {name: row.enabled for name, row in self._daemon.config.adapters.items()}
-        sender = getattr(self._daemon, "webhook", None)
-        live = sender.status() if sender is not None else None
         rows = []
         for name in _KNOWN_ADAPTERS:
             is_on = bool(enabled.get(name, False))
@@ -232,11 +230,9 @@ class BridgeApi:
             last_error = ""
             version_gate = SCHEMA_VERSION
             next_poll = 0
-            if live is not None and name == live.name:
-                state = live.state
-                last_error = live.detail
-                version_gate = str(getattr(sender, "profile", SCHEMA_VERSION))
-                next_poll = int(sender.next_poll())
+            live = self._adapter_live(name)
+            if live is not None:
+                state, last_error, version_gate, next_poll = live
             rows.append(
                 {
                     "name": name,
@@ -248,6 +244,22 @@ class BridgeApi:
                 }
             )
         return (_dumps(rows),)
+
+    def _adapter_live(self, name: str) -> tuple[str, str, str, int] | None:
+        if name == "webhook-sender":
+            sender = getattr(self._daemon, "webhook", None)
+            if sender is None:
+                return None
+            status = sender.status()
+            profile = str(getattr(sender, "profile", SCHEMA_VERSION))
+            return status.state, status.detail, profile, int(sender.next_poll())
+        if name == "github-poller":
+            poller = getattr(self._daemon, "poller", None)
+            if poller is None:
+                return None
+            status = poller.status()
+            return status.state, status.detail, SCHEMA_VERSION, int(poller.next_poll())
+        return None
 
     def _set_adapter_enabled(self, name: str, enabled: bool) -> None:
         if not isinstance(enabled, bool):
@@ -264,6 +276,10 @@ class BridgeApi:
 
     def publish_state(self) -> None:
         self._note_state()
+
+    def emit_items_changed(self, added: list[str], updated: list[str], removed: list[str]) -> None:
+        self._emit("ItemsChanged", list(added), list(updated), list(removed))
+        self._emit_properties("Counts")
 
     def emit_action_result(self, action_id: str, result: str, detail: str) -> None:
         self._emit("ActionResult", action_id, result, mask_secrets(detail))

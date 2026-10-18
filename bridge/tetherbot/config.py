@@ -160,7 +160,13 @@ def _remote(name: str, remote: object, auth: str | None) -> str:
             raise ConfigError(f"adapters.{name}.remote must be a git@github.com path")
         return remote
     parts = urlsplit(remote)
-    if parts.scheme != "https" or parts.username or parts.password or not parts.netloc:
+    if parts.username or parts.password:
+        raise ConfigError(f"adapters.{name}.remote must be an https URL without credentials")
+    if parts.scheme == "file" and name == "github-poller":
+        if parts.netloc not in {"", "localhost"} or not parts.path.startswith("/"):
+            raise ConfigError(f"adapters.{name}.remote must be a file URL with an absolute path")
+        return remote
+    if parts.scheme != "https" or not parts.netloc:
         raise ConfigError(f"adapters.{name}.remote must be an https URL without credentials")
     return remote
 

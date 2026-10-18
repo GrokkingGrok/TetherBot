@@ -61,3 +61,45 @@ def test_credential_in_remote_url_is_rejected(tmp_path: Path):
     )
     with pytest.raises(ConfigError, match="without credentials"):
         load_config(path)
+
+
+def test_file_remote_is_absolute_and_only_for_the_poller(tmp_path: Path):
+    path = tmp_path / "config.toml"
+    path.write_text(
+        "\n".join(
+            [
+                'schema = "tetherbot/1"',
+                "[adapters.github-poller]",
+                "enabled = true",
+                'remote = "file:///tmp/repo.git"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+    assert load_config(path).adapters["github-poller"].remote == "file:///tmp/repo.git"
+
+    path.write_text(
+        "\n".join(
+            [
+                'schema = "tetherbot/1"',
+                "[adapters.github-poller]",
+                'remote = "file://github.com/tmp/repo.git"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ConfigError, match="absolute path"):
+        load_config(path)
+
+    path.write_text(
+        "\n".join(
+            [
+                'schema = "tetherbot/1"',
+                "[adapters.webhook-sender]",
+                'remote = "file:///tmp/repo.git"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ConfigError, match="https URL"):
+        load_config(path)

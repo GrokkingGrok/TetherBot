@@ -9,7 +9,8 @@ for HTTP 400 is still **TBD, verify**, so every 400 uses the rate-cap table.
 A 401 or 403 stops that bot's route, parks its actions, and asks for the key
 again. Until the key dialog exists, ``tetherbotctl secret set`` retries those
 parked actions when the bridge is on the bus. A poll burst is recorded after
-HTTP 200 for the future github-poller; this module does not start it.
+HTTP 200. This module does not start github-poller; a running poller
+consumes those times.
 """
 
 from __future__ import annotations

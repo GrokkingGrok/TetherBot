@@ -302,6 +302,38 @@ def test_unchanged_sha_runs_only_ls_remote(tmp_path: Path):
     assert calls[mark:] == [["ls-remote", "--", remote, "refs/heads/main"]]
 
 
+def test_restart_reads_the_clone_when_the_sha_is_unchanged(tmp_path: Path):
+    remote = _seed(tmp_path)
+    first, _first_clock = _start(tmp_path, remote)
+    first.tick_poller()
+    assert first.store is not None and first.store.get(KEY) is not None
+    first.stop()
+    (tmp_path / "state" / "items.json").unlink()
+
+    run, calls = _recording(tmp_path / "state" / "git-home")
+    second, clock = _start(tmp_path, remote, git=run)
+    assert second.api is not None and second.store is not None
+    second.tick_poller()
+    assert calls == [["ls-remote", "--", remote, "refs/heads/main"]]
+    log = (tmp_path / "state" / "bridge.log").read_text(encoding="utf-8")
+    assert "github-poller unchanged" in log
+    row = json.loads(second.api.properties()["Bots"])[0]
+    assert row["summary"] == "Example feed."
+    assert row["state"] == "idle"
+    assert row["last_seen"] == int(NOW.timestamp())
+    item = second.store.get(KEY)
+    assert item is not None
+    assert item.updated_at == "2026-10-17T11:40:00+00:00"
+    assert row["name"] == "primary"
+
+    clock.current += timedelta(seconds=60)
+    second.tick_poller()
+    assert calls == [
+        ["ls-remote", "--", remote, "refs/heads/main"],
+        ["ls-remote", "--", remote, "refs/heads/main"],
+    ]
+
+
 def test_pull_on_change_rebases_a_local_commit(tmp_path: Path):
     remote = _seed(tmp_path)
     run, calls = _recording(tmp_path / "state" / "git-home")

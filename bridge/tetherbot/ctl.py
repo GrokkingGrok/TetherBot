@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import getpass
+import json
 import sys
 import urllib.error
 import urllib.request
@@ -49,6 +50,7 @@ class CtlContext:
     properties: Callable[[], Mapping[str, object] | None]
     set_enabled: Callable[[str, bool], None] | None
     post: Callable[[str, str], int]
+    resume: Callable[[str], None] | None = None
 
 
 def main(argv: list[str] | None = None, context: CtlContext | None = None) -> int:
@@ -81,6 +83,7 @@ def default_context() -> CtlContext:
         properties=dbus_properties,
         set_enabled=_set_enabled_live(path),
         post=post_ping,
+        resume=_resume_live(path),
     )
 
 
@@ -134,6 +137,20 @@ def dbus_properties() -> dict[str, object] | None:
         return None
 
 
+def resume_parked_ids(
+    slot: str,
+    bots: Mapping[str, str],
+    rows: list[Mapping[str, object]],
+) -> list[str]:
+    """Parked action ids whose bot uses ``slot``. The rows are not logged."""
+
+    return [
+        str(row["action_id"])
+        for row in rows
+        if row.get("state") == "parked" and bots.get(str(row.get("bot"))) == slot
+    ]
+
+
 def dbus_set_adapter(name: str, enabled: bool) -> None:
     bus = _session_bus()
     if bus is None:
@@ -151,6 +168,60 @@ def dbus_set_adapter(name: str, enabled: bool) -> None:
             2000,
             None,
         )
+    except Exception:
+        raise CtlError("cannot update the running bridge") from None
+
+
+def dbus_get_queue() -> list[dict[str, object]]:
+    reply = _dbus_call("GetQueue", None, "(s)")
+    if reply is None:
+        raise CtlError("cannot update the running bridge")
+    payload = reply.unpack()[0]
+    rows = json.loads(str(payload))
+    if not isinstance(rows, list):
+        raise CtlError("cannot update the running bridge")
+    return [row for row in rows if isinstance(row, dict)]
+
+
+def dbus_retry_parked(action_id: str) -> None:
+    glib = _gio()[0]
+    _dbus_call("RetryParked", glib.Variant("(s)", (action_id,)), None)
+
+
+def _resume_live(path: Path) -> Callable[[str], None]:
+    def _resume(slot: str) -> None:
+        if dbus_properties() is None or not path.is_file():
+            return
+        config = load_config(path)
+        bots = {name: bot.webhook_slot for name, bot in config.bots.items()}
+        if slot not in bots.values():
+            return
+        for action_id in resume_parked_ids(slot, bots, dbus_get_queue()):
+            dbus_retry_parked(action_id)
+
+    return _resume
+
+
+def _dbus_call(method: str, args: object, reply: str | None) -> object:
+    bus = _session_bus()
+    if bus is None:
+        raise CtlError("cannot update the running bridge")
+    try:
+        glib, gio = _gio()
+        reply_type = None if reply is None else glib.VariantType(reply)
+        return bus.call_sync(  # type: ignore[attr-defined]
+            BUS_NAME,
+            OBJECT_PATH,
+            INTERFACE,
+            method,
+            args,
+            reply_type,
+            gio.DBusCallFlags.NONE,
+            2000,
+            None,
+        )
+    except CtlError:
+        raise
     except Exception:
         raise CtlError("cannot update the running bridge") from None
 
@@ -209,6 +280,8 @@ def _secret_set(slot: str, context: CtlContext) -> int:
     except EOFError as exc:
         raise CtlError("cancelled") from exc
     print(f"stored {slot}", file=context.stdout)
+    if context.resume is not None:
+        context.resume(slot)
     return 0
 
 

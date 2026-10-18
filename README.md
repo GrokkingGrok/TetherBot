@@ -2,7 +2,7 @@
 
 Keep your GNOME desktop tethered to your AI bots.
 
-**Status: pre-alpha, under construction.** Config, the item store, the action queue, the bridge process, the session bus service, secret-service storage, and `tetherbotctl` (status, enable, secret set, webhook test) are in place. The bridge process does not open the network. `tetherbotctl webhook test` is the one path that sends a ping. The key dialog, `repo setup`, and the extension UI are still stubs.
+**Status: pre-alpha, under construction.** Config, the item store, the action queue, the bridge process, the session bus service, secret-service storage, `tetherbotctl`, and `webhook-sender` are in place. The sender posts only when that adapter is enabled. `tetherbotctl webhook test` can also send one ping. The key dialog, `github-poller`, `repo setup`, and the extension UI are still stubs.
 
 **Unofficial, not affiliated with xAI.**
 

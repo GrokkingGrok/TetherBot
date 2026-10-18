@@ -223,17 +223,28 @@ class BridgeApi:
         enabled = {}
         if self._daemon.config is not None:
             enabled = {name: row.enabled for name, row in self._daemon.config.adapters.items()}
+        sender = getattr(self._daemon, "webhook", None)
+        live = sender.status() if sender is not None else None
         rows = []
         for name in _KNOWN_ADAPTERS:
             is_on = bool(enabled.get(name, False))
+            state = "not-started" if is_on else "disabled"
+            last_error = ""
+            version_gate = SCHEMA_VERSION
+            next_poll = 0
+            if live is not None and name == live.name:
+                state = live.state
+                last_error = live.detail
+                version_gate = str(getattr(sender, "profile", SCHEMA_VERSION))
+                next_poll = int(sender.next_poll())
             rows.append(
                 {
                     "name": name,
                     "enabled": is_on,
-                    "state": "not-started" if is_on else "disabled",
-                    "version_gate": SCHEMA_VERSION,
-                    "last_error": "",
-                    "next_poll": 0,
+                    "state": state,
+                    "version_gate": version_gate,
+                    "last_error": last_error,
+                    "next_poll": next_poll,
                 }
             )
         return (_dumps(rows),)
@@ -253,6 +264,12 @@ class BridgeApi:
 
     def publish_state(self) -> None:
         self._note_state()
+
+    def emit_action_result(self, action_id: str, result: str, detail: str) -> None:
+        self._emit("ActionResult", action_id, result, mask_secrets(detail))
+
+    def emit_notification(self, item_json: str, reason: str) -> None:
+        self._emit("NotificationRequested", mask_secrets(item_json), reason)
 
     def _request_secret_entry(self, slot: str) -> tuple[bool]:
         """The key dialog is a later milestone. False means it did not open."""
@@ -298,6 +315,9 @@ class BridgeApi:
         if row.state != "parked":
             raise ServiceError(INVALID_ARGS, "action is not parked")
         self._daemon.queue.retry(action_id)
+        sender = getattr(self._daemon, "webhook", None)
+        if sender is not None:
+            sender.resume(row.bot)
         self._emit_properties("QueueLength", "Counts")
         return None
 

@@ -182,13 +182,14 @@ def test_set_adapter_enabled_rewrites_config_and_state(tmp_path: Path):
     text = (tmp_path / "config.toml").read_text(encoding="utf-8")
     assert "enabled = true" in text
     assert stat.S_IMODE((tmp_path / "config.toml").stat().st_mode) == 0o600
-    assert daemon.state == "degraded"
-    assert daemon.reason == "not started: webhook-sender"
-    assert ("StateChanged", ("degraded", "not started: webhook-sender")) in seen
+    assert daemon.state == "ok"
+    assert daemon.reason == ""
+    assert ("StateChanged", ("ok", "")) in seen
     adapters = json.loads(daemon.api.call("GetAdapters", ())[0])
     webhook = next(row for row in adapters if row["name"] == "webhook-sender")
     assert webhook["enabled"] is True
-    assert webhook["state"] == "not-started"
+    assert webhook["state"] == "running"
+    assert webhook["version_gate"] == "routine-webhook-2026-10"
     with pytest.raises(ServiceError, match="unknown adapter"):
         daemon.api.call("SetAdapterEnabled", ("carrier-pigeon", True))
     assert daemon.api.call("RequestSecretEntry", ("primary-actions",)) == (False,)

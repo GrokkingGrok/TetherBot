@@ -24,7 +24,7 @@ from typing import Any
 
 from tetherbot import SCHEMA_VERSION
 from tetherbot.files import ensure_private_dir, write_private_json
-from tetherbot.model import ENVELOPE_ACTIONS, looks_like_secret, parse_iso8601
+from tetherbot.model import ENVELOPE_ACTIONS, looks_like_secret, mask_secrets, parse_iso8601
 from tetherbot.version_gate import check_schema
 
 DEFAULT_COALESCE_SECONDS = 20
@@ -117,11 +117,23 @@ class ActionQueue:
         self._actions[chosen] = queued
         return chosen
 
-    def next_batch(self, now: datetime) -> tuple[QueuedAction, ...] | None:
-        """Return one bot's due batch. The files stay pending until accept or park."""
+    def next_batch(
+        self,
+        now: datetime,
+        *,
+        skip: frozenset[str] | None = None,
+    ) -> tuple[QueuedAction, ...] | None:
+        """Return one bot's due batch. The files stay pending until accept or park.
+
+        ``skip`` names bots whose own backoff has not elapsed yet, so a later
+        bot can still leave.
+        """
 
         moment = _as_utc(now)
+        held = skip or frozenset()
         for bot in sorted({action.bot for action in self._actions.values()}):
+            if bot in held:
+                continue
             pending = [
                 action
                 for action in self._actions.values()
@@ -171,10 +183,17 @@ class ActionQueue:
         for action_id in action_ids:
             self._discard(action_id)
 
+    def note(self, action_id: str, detail: str) -> None:
+        """Record a secret-free detail on a pending action, such as a retry time."""
+
+        action = self._require(action_id)
+        action.detail = mask_secrets(detail)
+        self._write_action(action)
+
     def park(self, action_id: str, detail: str) -> None:
         action = self._require(action_id)
         action.state = "parked"
-        action.detail = detail
+        action.detail = mask_secrets(detail)
         self._write_action(action)
 
     def drop(self, action_id: str) -> None:

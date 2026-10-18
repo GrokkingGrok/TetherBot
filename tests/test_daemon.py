@@ -119,7 +119,9 @@ def test_enabled_adapter_is_not_started(tmp_path: Path):
     daemon = _daemon(tmp_path)
     status = daemon.start()
     assert status.state == "degraded"
-    assert status.reason == "not started: legacy-todo, webhook-sender"
+    assert status.reason == "not started: legacy-todo"
+    assert daemon.webhook is not None
+    assert daemon.webhook.status().state == "running"
 
 
 def test_queue_limits_and_resume(tmp_path: Path):

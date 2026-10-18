@@ -123,7 +123,7 @@ bridge/tetherbot/               Python package
   ctl.py                        tetherbotctl: status, enable, secret set, webhook test
   adapters/base.py              adapter interface
   adapters/fake.py              fixture-backed test adapter
-  adapters/webhook_sender.py    outbound stub
+  adapters/webhook_sender.py    outbound POST, retry table, re-paste
   adapters/github_poller.py     poll and write-back stub
   adapters/official.py          future official API stub
   sinks/base.py                 sink interface
@@ -142,7 +142,7 @@ tests/                          pytest, including store, queue, config, daemon, 
 .github/workflows/ci.yml        ruff and pytest on Python 3.13
 ```
 
-`python -m tetherbot` loads `config.toml`, opens the item cache and the action queue under the state directory, and runs a GLib main loop until SIGINT or SIGTERM. On that loop it owns `io.github.grokkinggrok.TetherBot1` on the session bus. A missing config leaves the state `unconfigured`. A refused config leaves the state `failed_closed` and the process keeps running. The log line names the state and the reason, never a secret. Enabled adapters and sinks are not started yet, so that state is `degraded`. D-Bus activation still does not start the process: the unit `ExecStart` is `/bin/false` until the installer places a launcher.
+`python -m tetherbot` loads `config.toml`, opens the item cache and the action queue under the state directory, and runs a GLib main loop until SIGINT or SIGTERM. On that loop it owns `io.github.grokkinggrok.TetherBot1` on the session bus. A missing config leaves the state `unconfigured`. A refused config leaves the state `failed_closed` and the process keeps running. The log line names the state and the reason, never a secret. An enabled `webhook-sender` is started and posts from the action queue. Other enabled adapters and sinks are not started, so those names stay in a degraded `not started` reason. D-Bus activation still does not start the process: the unit `ExecStart` is `/bin/false` until the installer places a launcher.
 
 `python -m tetherbot.ctl` is `tetherbotctl`. It reports status from the running bridge when the bus name is owned, and otherwise from the local config. `enable` and `disable` call `SetAdapterEnabled` when the bridge is on the bus, and otherwise rewrite that adapter's `enabled` line. `secret set` reads with `getpass`. `webhook test <bot>` prints only the HTTP status. `repo setup` is not part of this command yet. The installer does not place `~/.local/bin/tetherbotctl` yet.
 
@@ -310,7 +310,7 @@ Behavior to implement in v0.1:
 | 408, 429, 5xx, network error, TLS error | Backoff as for 400, no try limit while offline (`Gio.NetworkMonitor`) |
 | Timeout after the request was sent | Ambiguous: the run may have started. Retry once after backoff with the same `action_id`, so the bot can drop the duplicate. |
 
-6. **Re-paste key.** The notification action calls `RequestSecretEntry("<slot>")`. The dialog names where the key lives ("Bot details, Routines, the routine, Webhook, key") and has two fields (URL and key). After saving, the bridge sends a `{"type":"ping"}` test only if the user ticks "Send a test now", because a test spends usage.
+6. **Re-paste key.** The notification action calls `RequestSecretEntry("<slot>")`. The dialog names where the key lives ("Bot details, Routines, the routine, Webhook, key") and has two fields (URL and key). After saving, the bridge sends a `{"type":"ping"}` test only if the user ticks "Send a test now", because a test spends usage. The dialog is not built yet, and `RequestSecretEntry` returns false. Until it exists, `tetherbotctl secret set <slot>` stores the secret and, when the bridge is on the bus, retries parked actions for bots that use that slot. HTTP 400 always uses the rate-cap table: the invalid-payload wording is still **TBD, verify**. A 200 records the section 7.3 poll burst and does not start `github-poller`.
 7. **Test path.** `tetherbotctl webhook test <bot>` POSTs `{"schema":"tetherbot/1","type":"ping"}` with `Authorization: Bearer` and `Content-Type: application/json`. It prints the status code, never the key or the URL, and does not follow redirects.
 
 The routine on the bot side (prompt A) treats the body as data: it acts only on known `action` values for items it owns, and treats `note` text as a message from the user, not as instructions that widen what the routine may do.
@@ -435,7 +435,8 @@ Already present:
 - Store: added, updated, removed, notify dedupe, snooze expiry, `expires_at`.
 - Queue: mode-0600 files, fsync, restart resume, coalescing window, pacing, daily cap.
 - Config loader rejects an unknown schema major and secret-shaped values. The log filter masks secret-shaped spans.
-- Daemon: a missing config is `unconfigured`, a refused config is `failed_closed` and the secret is not logged, an enabled adapter is not started, the queue resumes, startup applies `expires_at`, and stop ends the loop. Importing the module does not import GLib.
+- Daemon: a missing config is `unconfigured`, a refused config is `failed_closed` and the secret is not logged, `webhook-sender` starts when it is enabled, any other enabled adapter or sink stays `not started`, the queue resumes, startup applies `expires_at`, and stop ends the loop. Importing the module does not import GLib.
+- Webhook sender, against an injected transport: one bearer POST for a coalesced batch, pace and the daily cap, HTTP 200 records a poll burst, 400 parks on the eighth try, 401 and 403 stop the route until `RetryParked`, 404 says "Routine not found", a timeout retries once with the same `action_id`, and offline sends nothing. The URL and key stay out of the log, the queue, and D-Bus. Importing the module does not import GLib.
 - D-Bus API: filters, enqueue, snooze, queue retry and drop, adapter enable saved back to `config.toml`, and secret methods refused without echoing a secret. When `dbus-run-session` and PyGObject are installed, a private bus test calls `GetItems`, introspection, a property, and the not-found error.
 - Secret store: webhook `{url, key}` and a github token under `io.github.grokkinggrok.TetherBot.Secret`, attributes `kind` and `slot`. A locked or missing service raises and writes no file. The log filter learns the exact stored values.
 - CLI: a missing config prints `unconfigured` first. Enable rewrites that adapter's flag. Secret set stores the value and does not print it. Webhook test prints only the status code. Importing `tetherbot.ctl` does not import GLib.

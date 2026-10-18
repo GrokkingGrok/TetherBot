@@ -3,9 +3,9 @@
 
 Pre-alpha. Config loading, redacting logs, the item store, the action
 queue, the daemon process, the session bus service, secret-service
-storage, and ``tetherbotctl`` are implemented. The bridge process does
-not open the network. ``tetherbotctl webhook test`` can send one ping.
-The key dialog is not built yet.
+storage, ``tetherbotctl``, and ``webhook-sender`` are implemented.
+``webhook-sender`` posts only when that adapter is enabled. The key
+dialog and ``github-poller`` are not built yet.
 """
 
 __version__ = "0.0.0"

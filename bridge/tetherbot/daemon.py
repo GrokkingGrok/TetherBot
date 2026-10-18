@@ -2,8 +2,9 @@
 """Bridge process.
 
 Loads config, the item cache, and the action queue, then runs a main loop
-until asked to stop. A GLib loop also owns the session bus name and opens
-the secret service. Enabled adapters and sinks are not started here.
+until asked to stop. A GLib loop also owns the session bus name, opens the
+secret service, and ticks ``webhook-sender`` when that adapter is enabled.
+Other adapters and sinks are not started here.
 """
 
 from __future__ import annotations
@@ -63,6 +64,9 @@ class BridgeDaemon:
         log_stream: TextIO | None = None,
         clock: Callable[[], datetime] | None = None,
         secrets: SecretStore | None = None,
+        webhook_post: Callable[..., object] | None = None,
+        webhook_online: Callable[[], bool] | None = None,
+        webhook_jitter: Callable[[int], float] | None = None,
     ) -> None:
         self.config_path = default_config_path() if config_path is None else config_path
         self.state_dir = default_state_dir() if state_dir is None else state_dir
@@ -79,6 +83,12 @@ class BridgeDaemon:
         self.api: BridgeApi | None = None
         self._secrets_explicit = secrets is not None
         self.secrets = secrets if secrets is not None else SecretStore(UnavailableBackend())
+        self._webhook_post = webhook_post
+        self._webhook_online = webhook_online
+        self._webhook_jitter = webhook_jitter
+        self.webhook = None
+        self.base_state = self.state
+        self.base_reason = self.reason
 
     def start(self) -> DaemonStatus:
         """Open state files and mark the process running. Does not block."""
@@ -102,10 +112,11 @@ class BridgeDaemon:
         except Exception:
             logging.getLogger("tetherbot").error("secret service is not available")
             return
-        if status not in {"locked", "missing"} or self.state == "failed_closed":
+        if status not in {"locked", "missing"} or self.base_state == "failed_closed":
             return
-        self.state = "degraded"
-        self.reason = "keyring locked"
+        self.base_state = "degraded"
+        self.base_reason = "keyring locked"
+        self._apply_overlay()
         if self.api is not None:
             self.api.publish_state()
 
@@ -123,13 +134,16 @@ class BridgeDaemon:
                 config_error = str(exc)
         else:
             self.config = None
-        self.state, self.reason = _decide_state(
-            self.config,
-            config_error,
-            self.store.load_error,
-            queue_unreadable=bool(self.queue.errors),
-            config_exists=self.config_path.is_file(),
+        self._assign_base(
+            *_decide_state(
+                self.config,
+                config_error,
+                self.store.load_error,
+                queue_unreadable=bool(self.queue.errors),
+                config_exists=self.config_path.is_file(),
+            )
         )
+        self._sync_webhook()
 
     def run(self, *, install_signals: bool = False) -> int:
         """Start, then block in the main loop until ``stop``.
@@ -164,6 +178,8 @@ class BridgeDaemon:
                     return code
             if install_signals:
                 self._loop.watch_unix_signals(self.stop)
+            if hasattr(self._loop, "timeout_add"):
+                self._loop.timeout_add(1, self.tick_webhook)
             self._loop.run()
         finally:
             if export is not None:
@@ -178,6 +194,9 @@ class BridgeDaemon:
         if not self.running:
             return
         self.running = False
+        if self.webhook is not None:
+            self.webhook.stop()
+            self.webhook = None
         logging.getLogger("tetherbot").info("bridge stopping")
         if self._loop is not None:
             self._loop.quit()
@@ -217,14 +236,66 @@ class BridgeDaemon:
         cache_error = self.store.load_error
         if cache_error is None:
             self.store.refresh(self._clock())
-        self.state, self.reason = _decide_state(
-            self.config,
-            config_error,
-            cache_error,
-            queue_unreadable=bool(self.queue.errors),
-            config_exists=self.config_path.is_file(),
+        self._assign_base(
+            *_decide_state(
+                self.config,
+                config_error,
+                cache_error,
+                queue_unreadable=bool(self.queue.errors),
+                config_exists=self.config_path.is_file(),
+            )
         )
         self.api = BridgeApi(self)
+        self._sync_webhook()
+
+    def tick_webhook(self) -> None:
+        sender = self.webhook
+        if sender is not None and self.running:
+            sender.tick()
+
+    def publish_overlay(self) -> None:
+        self._apply_overlay()
+        if self.api is not None:
+            self.api.publish_state()
+
+    @property
+    def loop(self) -> MainLoop | None:
+        return self._loop
+
+    def _assign_base(self, state: str, reason: str) -> None:
+        self.base_state = state
+        self.base_reason = reason
+        self._apply_overlay()
+
+    def _apply_overlay(self) -> None:
+        state, reason = self.base_state, self.base_reason
+        overlay = None if self.webhook is None else self.webhook.overlay
+        if overlay is not None and state == "ok":
+            state, reason = overlay
+        self.state = state
+        self.reason = reason
+
+    def _sync_webhook(self) -> None:
+        enabled = False
+        if self.config is not None:
+            row = self.config.adapters.get("webhook-sender")
+            enabled = row is not None and row.enabled
+        if enabled and self.webhook is None:
+            from tetherbot.adapters.webhook_sender import WebhookSender
+
+            kwargs: dict[str, object] = {}
+            if self._webhook_post is not None:
+                kwargs["post"] = self._webhook_post
+            if self._webhook_online is not None:
+                kwargs["online"] = self._webhook_online
+            if self._webhook_jitter is not None:
+                kwargs["jitter"] = self._webhook_jitter
+            self.webhook = WebhookSender(**kwargs)
+            self.webhook.start(self)
+        elif not enabled and self.webhook is not None:
+            self.webhook.stop()
+            self.webhook = None
+        self._apply_overlay()
 
 
 class GLibMainLoop:
@@ -247,6 +318,20 @@ class GLibMainLoop:
     def quit(self) -> None:
         self._loop.quit()
 
+    def timeout_add(self, seconds: int, callback: Callable[[], None]) -> None:
+        def _wrapped() -> bool:
+            callback()
+            return True
+
+        self._glib.timeout_add_seconds(max(seconds, 1), _wrapped)
+
+    def idle_add(self, callback: Callable[[], None]) -> None:
+        def _wrapped() -> bool:
+            callback()
+            return False
+
+        self._glib.idle_add(_wrapped)
+
     def watch_unix_signals(self, callback: Callable[[], None]) -> None:
         def _wrapped() -> bool:
             callback()
@@ -268,6 +353,9 @@ def default_state_dir() -> Path:
 def _xdg(name: str, fallback: Path) -> Path:
     value = os.environ.get(name, "").strip()
     return Path(value) if value else fallback
+
+
+_IMPLEMENTED = frozenset({"webhook-sender"})
 
 
 def _decide_state(
@@ -294,4 +382,7 @@ def _decide_state(
     )
     if not enabled:
         return "unconfigured", "no adapter is enabled"
-    return "degraded", "not started: " + ", ".join(enabled)
+    pending = [name for name in enabled if name not in _IMPLEMENTED]
+    if pending:
+        return "degraded", "not started: " + ", ".join(pending)
+    return "ok", ""

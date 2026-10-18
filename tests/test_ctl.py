@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from tetherbot.config import load_config
-from tetherbot.ctl import CtlContext, CtlError, _NoRedirect, main, post_ping
+from tetherbot.ctl import CtlContext, CtlError, _NoRedirect, main, post_ping, resume_parked_ids
 from tetherbot.secrets import MemoryBackend, SecretStore
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -135,6 +135,26 @@ def test_secret_set_stores_a_webhook_without_printing_it(tmp_path: Path):
     assert WEBHOOK_URL not in text
     assert WEBHOOK_KEY not in text
     assert list(tmp_path.iterdir()) == []
+
+
+def test_resume_parked_ids_follow_the_slot():
+    bots = {"primary": "primary-actions", "other": "other-actions"}
+    rows = [
+        {"action_id": "a-1", "bot": "primary", "state": "parked"},
+        {"action_id": "a-2", "bot": "primary", "state": "pending"},
+        {"action_id": "a-3", "bot": "other", "state": "parked"},
+    ]
+    assert resume_parked_ids("primary-actions", bots, rows) == ["a-1"]
+
+
+def test_secret_set_asks_the_bridge_to_resume(tmp_path: Path):
+    answers = iter((WEBHOOK_URL, WEBHOOK_KEY))
+    resumed: list[str] = []
+    context = _context(tmp_path, prompt=lambda _label: next(answers), resume=resumed.append)
+    assert main(["secret", "set", "primary-actions"], context) == 0
+    assert resumed == ["primary-actions"]
+    assert WEBHOOK_URL not in context.stdout.getvalue()
+    assert WEBHOOK_KEY not in context.stderr.getvalue()
 
 
 def test_secret_set_stores_a_github_token_without_printing_it(tmp_path: Path):

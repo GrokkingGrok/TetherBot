@@ -22,11 +22,7 @@ The package metadata targets Python 3.13. The scaffold tests use only the standa
 
 ## CI
 
-`ci/workflow.yml` is the GitHub Actions definition. It is not under `.github/workflows/` because a push credential without the `workflow` scope cannot write that path. The owner enables CI locally with:
-
-```bash
-git mv ci/workflow.yml .github/workflows/ci.yml && git commit -m 'Enable CI' && git push
-```
+GitHub Actions is [.github/workflows/ci.yml](.github/workflows/ci.yml). It runs `ruff check .` and `pytest` on Python 3.13.
 
 ## Changes
 

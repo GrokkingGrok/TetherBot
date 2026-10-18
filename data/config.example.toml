@@ -8,6 +8,13 @@ schema = "tetherbot/1"
 # webhook-only, repo-only, or full
 mode = "webhook-only"
 
+# Queue defaults match the spec and can be lowered, not raised past 120s.
+# [queue]
+# coalesce_seconds = 20
+# coalesce_max_seconds = 120
+# min_interval_seconds = 60
+# daily_cap = 30
+
 [adapters.webhook-sender]
 enabled = false
 
@@ -17,6 +24,9 @@ enabled = false
 # branch = "main"
 # poll_seconds = 120
 # auth = "https-token"   # or ssh-deploy-key
+# A file:// URL with an absolute path needs no token.
+# https-token uses git-credential-tetherbot. The token is not part of
+# this URL. ssh-deploy-key is accepted here and does not run git yet.
 
 [adapters.official]
 enabled = false

@@ -1,13 +1,16 @@
 [Unit]
 Description=TetherBot bridge
 After=graphical-session.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
 
 [Service]
-Type=simple
-# TODO(v0.1): ExecStart=%h/.local/bin/tetherbot
-# Fail closed until the daemon exists, so starting the unit cannot run a stub process.
-ExecStart=/bin/false
-Restart=no
+Type=dbus
+BusName=io.github.grokkinggrok.TetherBot1
+ExecStart=%h/.local/bin/tetherbot
+Restart=on-failure
+RestartSec=3
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 NoNewPrivileges=yes
 LockPersonality=yes
 RestrictRealtime=yes

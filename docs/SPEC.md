@@ -1,6 +1,6 @@
 # TetherBot: build spec
 
-Status: pre-alpha scaffold. This file is the architecture source of truth.
+Status: pre-alpha. This file is the architecture source of truth.
 Targets: GNOME Shell 50, Wayland, Fedora 44, Python 3.13+.
 
 Read this whole file before writing code. Anything marked **TBD, verify** is not confirmed. Check it before you rely on it, and do not fill the gap with a guess.
@@ -53,7 +53,7 @@ Use **Python 3.13+ with PyGObject** (`gi.repository`: `Gio` for D-Bus and networ
 
 HTTP: use `urllib.request` in a worker thread, with results posted back to the GLib loop via `GLib.idle_add`. Do not add `requests` or `httpx`. Git: call the `git` CLI with `subprocess`.
 
-The scaffold imports none of `gi` yet, so the unit tests run without the system libraries.
+Importing the package does not import `gi`, so the unit tests run without the system libraries.
 
 ## 3. Architecture
 
@@ -107,14 +107,26 @@ AGENTS.md                       instructions for coding agents
 pyproject.toml                  no runtime pip dependencies
 bridge/tetherbot/               Python package
   __init__.py                   SCHEMA_VERSION, package version
-  __main__.py                   refuses to start a daemon
-  model.py                      item and action envelope
+  __main__.py                   starts the bridge process
+  daemon.py                     config, store, queue, and the GLib main loop
+  service.py                    session API on the store and queue
+  secrets.py                    libsecret read and write, no file fallback
+  model.py                      item and action envelope, secret guard
   version_gate.py               fail closed on an unknown major
-  dbus_service.py               bus name and XML loader
+  config.py                     config.toml loader
+  log.py                        redacting log
+  store.py                      item store and diff
+  notify_policy.py              notify dedupe, snooze, due soon
+  queue.py                      on-disk action queue
+  files.py                      private JSON writes with fsync
+  dbus_service.py               bus name and session export
+  ctl.py                        tetherbotctl: status, enable, secret set, webhook test
+  credential.py                 git credential helper (libsecret, no files)
+  sweep.py                      secret sweep used by scripts/secret-sweep.py
   adapters/base.py              adapter interface
   adapters/fake.py              fixture-backed test adapter
-  adapters/webhook_sender.py    outbound stub
-  adapters/github_poller.py     poll and write-back stub
+  adapters/webhook_sender.py    outbound POST, retry table, re-paste
+  adapters/github_poller.py     file:// and https-token poll, schema gate, owned-path write-back
   adapters/official.py          future official API stub
   sinks/base.py                 sink interface
   sinks/legacy_todo.py          example legacy todo sync
@@ -122,17 +134,25 @@ data/
   io.github.grokkinggrok.TetherBot1.xml     D-Bus introspection XML (source of truth)
   config.example.toml
 extension/                      GNOME 50 ESM skeleton
-  metadata.json  extension.js  prefs.js  stylesheet.css
-systemd/                        user unit and D-Bus activation templates
-scripts/install.sh  uninstall.sh
+  metadata.json  extension.js  view.js  prefs.js  stylesheet.css
+  io.github.grokkinggrok.TetherBot1.xml   copy of the bus interface, checked against data/
+systemd/                        user unit and D-Bus activation (ExecStart is the launcher)
+scripts/install.sh  uninstall.sh  install-extension.sh
+scripts/fake-webhook.py  secret-sweep.py
+scripts/launchers/              tetherbot, tetherbotctl, git-credential-tetherbot
+template-repo/                  private data repo skeleton (feed example, ownership)
 docs/
-  SPEC.md  PROTOCOL.md  SETUP.md  ROADMAP.md
+  SPEC.md  PROTOCOL.md  SETUP.md  ROADMAP.md  MANUAL-CHECKS.md
   prompts/bot-setup.md  prompts/coding-agent-setup.md
-tests/                          pytest smoke test and fake fixtures
-ci/workflow.yml                GitHub Actions definition, not yet enabled
+tests/                          pytest, including store, queue, config, daemon, D-Bus, secrets, ctl, and the credential helper
+.github/workflows/ci.yml        ruff and pytest on Python 3.13
 ```
 
-Later milestones add, and should not be invented early: `daemon.py`, `config.py`, `store.py`, `notify_policy.py`, `queue.py`, `secrets.py`, `log.py`, `tools/ctl.py`, `tools/credential_helper.py`, `tools/keys_dialog.py`, `template-repo/`, extension modules for the popup, notifications, and Quick Settings, plus `docs/privacy.md`.
+`python -m tetherbot` loads `config.toml`, opens the item cache and the action queue under the state directory, and runs a GLib main loop until SIGINT or SIGTERM. On that loop it owns `io.github.grokkinggrok.TetherBot1` on the session bus. A missing config leaves the state `unconfigured`. A refused config leaves the state `failed_closed` and the process keeps running. The log line names the state and the reason, never a secret. An enabled `webhook-sender` posts from the action queue. An enabled `github-poller` polls a `file://` remote or an `https://github.com` remote and writes only `desktop/` and `log/desktop/`. `https-token` runs git through `git-credential-tetherbot` (`python -m tetherbot.credential`), which reads the token from libsecret. `ssh-deploy-key` is accepted in config and then fails closed without spawning git (`deploy key is not configured`). Other enabled adapters and sinks are not started, so those names stay in a degraded `not started` reason. `scripts/install.sh` copies the app and the launchers. The unit `ExecStart` is `%h/.local/bin/tetherbot`. D-Bus activation starts `tetherbot.service`.
+
+`python -m tetherbot.ctl` is `tetherbotctl`. It reports status from the running bridge when the bus name is owned, and otherwise from the local config. `enable` and `disable` call `SetAdapterEnabled` when the bridge is on the bus, and otherwise rewrite that adapter's `enabled` line. `secret set` reads with `getpass`. `webhook test <bot>` prints only the HTTP status. `repo setup` is not part of this command yet. `scripts/install.sh` places `~/.local/bin/tetherbot`, `~/.local/bin/tetherbotctl`, and `~/.local/bin/git-credential-tetherbot`.
+
+Later milestones add, and should not be invented early: `tools/keys_dialog.py`, `desktop/outbox`, extension prefs, and `docs/privacy.md`. `template-repo/` and the credential helper are already in the tree so the v0.1 manual checks can run.
 
 The extension UUID is `tetherbot@grokkinggrok.github.io`. The README and `extension/metadata.json` label the project unofficial and not affiliated with xAI.
 
@@ -150,7 +170,7 @@ The extension UUID is `tetherbot@grokkinggrok.github.io`. The README and `extens
 
 ### 4.3 Template private repository: `tetherbot-data`
 
-Users create this from `template-repo/` (v0.2) as a **private** repository. Each path has exactly one writer, so git does not have to merge the same file from both ends.
+Users create this from `template-repo/` as a **private** repository. Each path has exactly one writer, so git does not have to merge the same file from both ends.
 
 ```
 tetherbot-data/
@@ -244,6 +264,8 @@ Lists of items pass as JSON strings (`s`), so the item model can grow without br
 | `ActionResult(s action_id, s result, s detail)` | `result`: `accepted` (HTTP 200, run started), `queued_retry`, `parked`, `rejected_key`, `dropped` |
 | `StateChanged(s state, s reason)` | Mirrors the property for clients that do not watch properties |
 
+`ForgetSecret` deletes that slot from libsecret and does not take the secret value. `RequestSecretEntry` returns false until the key dialog exists; the secret still does not cross D-Bus. A locked or missing keyring sets the bridge state to `degraded` with reason `keyring locked` and never writes a secret file. `OpenChat` returns false until the Grok Bot desktop entry id is known. `SyncNow` is limited to once per 30 seconds and does not poll until an inbound adapter is running, so `LastSync` stays 0. `PerformAction` enqueues `approve`, `veto`, and `done` only. `snooze` stays on `Snooze`. `ActionResult` is emitted when a later sender finishes a post.
+
 Access control: any process in the user session can call the bridge. That is the normal session-bus trust boundary. The bridge never exposes secrets over D-Bus, so the worst a hostile local app can do is queue actions. It already has the user's full privileges anyway. Write this down in `docs/privacy.md` when that file is added (v0.2).
 
 ## 7. Adapters
@@ -294,8 +316,8 @@ Behavior to implement in v0.1:
 | 408, 429, 5xx, network error, TLS error | Backoff as for 400, no try limit while offline (`Gio.NetworkMonitor`) |
 | Timeout after the request was sent | Ambiguous: the run may have started. Retry once after backoff with the same `action_id`, so the bot can drop the duplicate. |
 
-6. **Re-paste key.** The notification action calls `RequestSecretEntry("<slot>")`. The dialog names where the key lives ("Bot details, Routines, the routine, Webhook, key") and has two fields (URL and key). After saving, the bridge sends a `{"type":"ping"}` test only if the user ticks "Send a test now", because a test spends usage.
-7. **Test path.** `tetherbotctl webhook test <bot>` sends a ping and prints the status code, never the key.
+6. **Re-paste key.** The notification action calls `RequestSecretEntry("<slot>")`. The dialog names where the key lives ("Bot details, Routines, the routine, Webhook, key") and has two fields (URL and key). After saving, the bridge sends a `{"type":"ping"}` test only if the user ticks "Send a test now", because a test spends usage. The dialog is not built yet, and `RequestSecretEntry` returns false. Until it exists, `tetherbotctl secret set <slot>` stores the secret and, when the bridge is on the bus, retries parked actions for bots that use that slot. HTTP 400 always uses the rate-cap table: the invalid-payload wording is still **TBD, verify**. A 200 records the section 7.3 poll burst. It does not start `github-poller`; a running poller consumes those times.
+7. **Test path.** `tetherbotctl webhook test <bot>` POSTs `{"schema":"tetherbot/1","type":"ping"}` with `Authorization: Bearer` and `Content-Type: application/json`. It prints the status code, never the key or the URL, and does not follow redirects.
 
 The routine on the bot side (prompt A) treats the body as data: it acts only on known `action` values for items it owns, and treats `note` text as a message from the user, not as instructions that widen what the routine may do.
 
@@ -304,6 +326,7 @@ The routine on the bot side (prompt A) treats the body as data: it acts only on 
 - **Auth.** Two modes:
   - `https-token` (default for new users): a fine-grained personal access token scoped to one repo. Permissions: Contents read and write (read only if write-back is off), Metadata read. Suggest a 90-day expiry. The remote URL is a plain `https://` git URL. The token is supplied only by `git-credential-tetherbot`, set on that clone only: `credential.helper` reset to empty, then the bridge helper, plus `credential.useHttpPath=true`. The helper answers only for `protocol=https`, `host=github.com`, and the exact configured path. It reads the token from libsecret, prints `username=x-access-token` and `password=...` to git, and nothing else. The token never appears in a URL, `.git/config`, an environment variable, argv, or a log. `GIT_TERMINAL_PROMPT=0`.
   - `ssh-deploy-key`: a repo-only deploy key via `core.sshCommand`. No token at all.
+- **v0.1 transport.** Git runs for a `file://` remote with an absolute path and no userinfo, and for `https-token` (a plain `https://github.com/...` URL). The https clone gets `credential.helper` reset to empty, then `git-credential-tetherbot --slot github-token`, and `credential.useHttpPath=true`, on that clone only. `ls-remote` and `clone` pass the same helper with `git -c`, because those commands do not have a clone config yet. The helper answers only `protocol=https`, `host=github.com`, and the exact path of the configured remote. If the helper executable is missing, https fails closed without spawning git (`credential helper is not installed`). `ssh-deploy-key` stays deferred: it is accepted in config and then fails closed without spawning git (`deploy key is not configured`). A URL with userinfo is refused. `desktop/outbox` stays v0.2.
 - **Cheap change check.** Every poll first runs `git ls-remote <remote> refs/heads/<branch>` and compares the SHA with the last one seen. Only on a change does it run `git pull --rebase --autostash` and re-read files. An optional REST mode (`GET /repos/{owner}/{repo}/commits/{branch}` with `If-None-Match`) can replace `ls-remote`. GitHub documents that a 304 to an authenticated conditional request does not count against the primary rate limit (5,000 requests per hour for a token). The client reads `x-ratelimit-remaining` and backs off below 10%. It sends the token as an `Authorization` header, through the same helper code path, never in a URL. Rate limits for plain git over HTTPS are not published in detail (**TBD, verify**). Polling every 2 minutes is about 720 checks a day.
 - **Interval.** Default 120 s, minimum 60 s, maximum 900 s. Pause while offline (`Gio.NetworkMonitor`) and stretch to 600 s while the screen is locked (`org.gnome.ScreenSaver` `ActiveChanged`). After a webhook 200, run a **burst**: polls at +30 s, +60 s, +120 s, +240 s, then back to normal. On errors, back off: 2x up to 15 m.
 - **Reading.** Parse `feed/*.json` (schema-gated) and `desktop/state.json`. A JSON parse error in one file marks that source stale. It never wipes items.
@@ -336,12 +359,12 @@ Generic module only. See section 11. Off by default. A concrete legacy inbox for
 ### 8.2 Process and permissions
 
 - The extension holds no secrets and makes no network calls. Reviewers can check that by searching it for `Soup`, `Gio.SocketClient`, `fetch`, and `GLib.spawn`. The only imports it needs are `Gio` (D-Bus proxy), `GLib`, `St`, `Clutter`, and Shell UI modules.
-- Unit hardening that works for user services: `NoNewPrivileges=yes`, `LockPersonality=yes`, `RestrictRealtime=yes`, `RestrictSUIDSGID=yes`, `UMask=0077`. Test each one on Fedora 44. Some sandboxing options need user namespaces in user units (**TBD, verify** whether `ProtectSystem=strict` with `ReadWritePaths=` works there). The scaffold unit already sets the options in the first sentence. `ExecStart` is `/bin/false` until the daemon exists.
+- Unit hardening that works for user services: `NoNewPrivileges=yes`, `LockPersonality=yes`, `RestrictRealtime=yes`, `RestrictSUIDSGID=yes`, `UMask=0077`. Test each one on Fedora 44. Some sandboxing options need user namespaces in user units (**TBD, verify** whether `ProtectSystem=strict` with `ReadWritePaths=` works there). The unit sets the options in the first sentence. `ExecStart` is `%h/.local/bin/tetherbot` with `Type=dbus` and `BusName=io.github.grokkinggrok.TetherBot1`. D-Bus activation uses `SystemdService=tetherbot.service`. `Exec` in the activation file points at the installed launcher as a fallback. `scripts/install.sh` copies both files.
 - Network destinations are fixed: the webhook host from the stored URL (scheme `https`), plus `github.com` and `api.github.com` for the git adapter. The adapter refuses any other host for a git-hosting route.
 
 ### 8.3 Key entry outside the shell
 
-`RequestSecretEntry(slot)` makes the bridge spawn a small GTK4 and libadwaita window owned by the bridge process tree. It writes straight to libsecret and exits. The extension's prefs window only has a "Set up keys..." button that calls this method. That keeps secrets out of `gnome-shell` and out of the prefs process. A terminal fallback exists: `tetherbotctl secret set <slot>` reads with `getpass` and does not echo.
+`RequestSecretEntry(slot)` makes the bridge spawn a small GTK4 and libadwaita window owned by the bridge process tree. It writes straight to libsecret and exits. The extension's prefs window only has a "Set up keys..." button that calls this method. That keeps secrets out of `gnome-shell` and out of the prefs process. Until that dialog exists, `RequestSecretEntry` returns false. A terminal fallback exists: `tetherbotctl secret set <slot>` reads with `getpass` and does not echo. A slot named `github-token` asks for the token. Any other slot asks for the webhook URL and key. Success prints `stored <slot>` and nothing else.
 
 ## 9. Extension UI
 
@@ -358,14 +381,14 @@ Generic module only. See section 11. Off by default. A concrete legacy inbox for
 - **Empty and error states** are explicit, including "Bridge not running", "Webhook-only mode: bot updates need the repo adapter", and "This feed uses a newer protocol. Update TetherBot."
 - **Prefs** (`prefs.js`, Adw): which counts drive the badge, show or hide each section, notification on or off per bot, and "Set up keys...". UI settings only, in the extension's gsettings schema. The schema file arrives with the prefs milestone. The scaffold prefs window is an empty page.
 
-Implementation notes for GNOME Shell 50: ESM imports (`resource:///org/gnome/shell/...`), `Gio.DBusProxy` built from the shipped XML with `Gio.DBusProxy.makeProxyWrapper`, all calls async, and proxy plus signal handlers dropped in `disable()`. Watch the bus name (`Gio.bus_watch_name`) so the indicator flips state when the bridge starts or stops. Check the exact `MessageTray.Notification` and `addAction` API for GNOME 50 before coding (**TBD, verify**, as it changed in 46). On Wayland, shell code reloads only after a logout and login, so develop in a nested devkit session (`dbus-run-session gnome-shell --devkit` on 49 and later, **TBD, verify** the flag and package on Fedora 44).
+Implementation notes for GNOME Shell 50: ESM imports (`resource:///org/gnome/shell/...`), `Gio.DBusProxy` built from the shipped XML with `Gio.DBusProxy.makeProxyWrapper`, all calls async (`*Remote`, no `*Sync`), and the proxy, signal handlers, notification source, and indicator dropped in `disable()`. Watch the bus name (`Gio.bus_watch_name`) so the indicator flips state when the bridge starts or stops. The proxy is created with `DO_NOT_AUTO_START`. Notifications use `MessageTray.Notification({source, title, body})` and `addAction(label, callback)` (the Shell 49/50 shape). On Wayland, shell code reloads only after a logout and login, so develop in a nested devkit session (`dbus-run-session gnome-shell --devkit` on 49 and later, **TBD, verify** the flag and package on Fedora 44).
 
-The scaffold indicator is an empty status-area button. It does not connect to the bus yet.
+The indicator shows asks plus todos, and dims when the bridge is down, `unconfigured`, or `failed_closed`. The popup lists bots, asks, and todos. Money, watch, the webhook-only sentence, and prefs content stay v0.2. A todo's Done button is shown only when that bot has an outbound route and the item lists `done`. There is no bus method for marking done locally. The prefs window is still the empty page.
 
 ### 9.2 Webhook-only mode (no git token)
 
 Works: quick actions per bot ("Run now", plus user presets defined in `config.toml` as fixed `note` texts), the queue, delivery status, retry, and accepted or failed notifications.
-Missing: bot status, counts, asks, todos, and notifications about bot-side events. No path exists today for a bot to push to the desktop without the repo. The popup says so in one line and links to the docs. If Grok Bot later ships outbound webhooks, status events, or a desktop hook, that lands as the `official` adapter.
+Missing: bot status, counts, asks, todos, and notifications about bot-side events. No path exists today for a bot to push to the desktop without the repo. The popup is meant to say so in one line and link to the docs. That sentence is not in the popup yet. If Grok Bot later ships outbound webhooks, status events, or a desktop hook, that lands as the `official` adapter.
 
 ### 9.3 Later
 
@@ -378,7 +401,7 @@ Missing: bot status, counts, asks, todos, and notifications about bot-side event
 
 Human steps are in [SETUP.md](SETUP.md). Prompt A is [prompts/bot-setup.md](prompts/bot-setup.md). Prompt B is [prompts/coding-agent-setup.md](prompts/coding-agent-setup.md).
 
-`scripts/install.sh` matches the installer contract in SETUP.md. It is idempotent, refuses `--enable` while the daemon is unimplemented, and never reads a secret.
+`scripts/install.sh` matches the installer contract in SETUP.md. It is idempotent, and `--enable` runs `systemctl --user enable --now tetherbot.service`. It never reads a secret.
 
 ## 11. Legacy single-repo todo sync (example)
 
@@ -411,19 +434,27 @@ Do not add those fixtures or the field map to this repository. If a private sink
 
 ### 12.1 Unit tests (pytest, no network)
 
-Already present: a smoke test that loads `tests/fixtures/fake/primary.json` through `FakeAdapter`, records a send, accepts schema `tetherbot/1.2`, and fails closed on `tetherbot/2`.
+Already present:
+
+- Smoke test: `tests/fixtures/fake/primary.json` through `FakeAdapter`, a recorded send, schema `tetherbot/1.2` accepted, `tetherbot/2` fail closed. A bad file in that fixture set stays stale and its previous items are not invented.
+- Model: field validation, secret guard, global keys, unknown fields kept on `extra`, unknown kinds kept and not actionable.
+- Version gate: a known major, a newer minor, and a rejected newer major or unknown name.
+- Store: added, updated, removed, notify dedupe, snooze expiry, `expires_at`.
+- Queue: mode-0600 files, fsync, restart resume, coalescing window, pacing, daily cap.
+- Config loader rejects an unknown schema major and secret-shaped values. The log filter masks secret-shaped spans.
+- Daemon: a missing config is `unconfigured`, a refused config is `failed_closed` and the secret is not logged, `webhook-sender` and `github-poller` start when enabled, any other enabled adapter or sink stays `not started`, the queue resumes, startup applies `expires_at`, and stop ends the loop. Importing the module does not import GLib.
+- Repo poller, against a local bare repo (`file://`): `ls-remote` short-circuit, pull on change (including a non-fast-forward rebase that applies), owned-path guard, push retry, rebase conflict aborts and fails closed, bad JSON and `tetherbot/2` keep the previous items and mark the source stale. `https`, `ssh`, and a URL with userinfo do not run git. Importing the module does not import GLib.
+- Webhook sender, against an injected transport: one bearer POST for a coalesced batch, pace and the daily cap, HTTP 200 records a poll burst, 400 parks on the eighth try, 401 and 403 stop the route until `RetryParked`, 404 says "Routine not found", a timeout retries once with the same `action_id`, and offline sends nothing. The URL and key stay out of the log, the queue, and D-Bus. Importing the module does not import GLib.
+- D-Bus API: filters, enqueue, snooze, queue retry and drop, adapter enable saved back to `config.toml`, and secret methods refused without echoing a secret. When `dbus-run-session` and PyGObject are installed, a private bus test calls `GetItems`, introspection, a property, and the not-found error.
+- Secret store: webhook `{url, key}` and a github token under `io.github.grokkinggrok.TetherBot.Secret`, attributes `kind` and `slot`. A locked or missing service raises and writes no file. The log filter learns the exact stored values.
+- CLI: a missing config prints `unconfigured` first. Enable rewrites that adapter's flag. Secret set stores the value and does not print it. Webhook test prints only the status code. Importing `tetherbot.ctl` does not import GLib.
+- Extension mapping, with `gjs -m extension/test_view.js` (no shell): the proxy wrapper from the shipped XML exposes the remote methods, and the menu model covers the badge, bridge-down banner, ask buttons, routed Done, snooze, and re-paste. A source test rejects Soup, sockets, and spawn in `extension/`.
 
 Still to write, with the milestones that need them:
 
-- Model: validation for each field, secret guard, global keys, unknown fields ignored, unknown kinds kept but not actionable.
-- Version gate: supported, newer minor accepted, newer major fail closed, stale items kept.
-- Store diff: added, updated, removed, `notify` dedupe, snooze expiry, `expires_at`.
-- Queue: fsync persistence, restart resume, coalescing window, pacing, daily cap.
 - Webhook adapter against a local fake server: 200, 400 then 200, 400 eight times then parked, 401 stops the route, 404, timeout retry with the same `action_id`, header present, key absent from logs.
-- Repo adapter against a local bare repo (`file://`): ls-remote short-circuit, pull on change, owned-path guard, push retry, rebase conflict fails closed, bad JSON marks stale.
 - Credential helper: answers only for the configured host and path; empty output otherwise.
 - D-Bus: start the service on a private bus (`dbus-run-session`), call every method, check signals.
-- Extension: a small GJS test for the proxy wrapper and for item-to-menu mapping, run with `gjs -m` (no shell needed).
 
 ### 12.2 Manual checks
 
@@ -460,8 +491,8 @@ Checklists live in [ROADMAP.md](ROADMAP.md).
 
 ### v0.2: early adopters
 
-- `template-repo/`, `feed/<bot>.json` for any number of bots, `https-token` mode with the credential helper, `desktop/outbox`.
-- Install and uninstall polished. Prompts and `docs/privacy.md` reviewed against the running app.
+- `feed/<bot>.json` for any number of bots, and `desktop/outbox`. `template-repo/` and `https-token` with `git-credential-tetherbot` are already in the tree for the v0.1 manual checks. Install and uninstall place the app and the launchers.
+- Prompts and `docs/privacy.md` reviewed against the running app.
 - GTK4 key dialog, webhook-only mode, Money and watch section, prefs.
 - Packaging: a COPR RPM for the bridge (**TBD, verify** interest). Feedback from a handful of users. All manual checks pass.
 

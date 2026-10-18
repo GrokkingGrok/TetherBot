@@ -78,9 +78,7 @@ Inside the bridge and on D-Bus, the global key is `<bot>/<id>`, for example `pri
 
 ### Secret guard
 
-The bridge treats an item as sensitive when `title`, `body`, `amount`, or `waiting.on` matches a secret-shaped pattern: token prefixes `ghp_`, `github_pat_`, `sk-`, or `AKIA`; a run of 9 or more digits; or a long base64 or hex blob. The stored text becomes `[redacted: looked like a secret]`. The original is logged as a redaction event and is never written to a todo file or a notification.
-
-The scaffold does not implement this guard yet. v0.1 does.
+The bridge treats an item as sensitive when `title`, `body`, `amount`, or `waiting.on` matches a secret-shaped pattern: token prefixes `ghp_`, `github_pat_`, `sk-`, or `AKIA`; a run of 9 or more digits; or a long base64 or hex blob (40 or more base64 characters, or 32 or more hex characters). The stored text becomes `[redacted: looked like a secret]`. The log records the field name and the item key. The original is never written to a todo file, a notification, or the log.
 
 ## Action envelope
 
@@ -116,7 +114,7 @@ Decided: a concrete legacy inbox format stays out of this public repository. It 
 
 ## Private data repository
 
-Users create a **private** repository from `template-repo/` (added in v0.2). Each path has one writer.
+Users create a **private** repository from `template-repo/`. Each path has one writer.
 
 | Path | Written by | Read by |
 |---|---|---|

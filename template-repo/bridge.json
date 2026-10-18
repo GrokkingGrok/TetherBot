@@ -1,0 +1,5 @@
+{
+  "schema": "tetherbot/1",
+  "bots": ["primary"],
+  "timezone": "UTC"
+}

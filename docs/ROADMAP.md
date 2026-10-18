@@ -4,27 +4,32 @@ TetherBot is pre-alpha. Check items off as they land. Design detail is in [SPEC.
 
 ## v0.1 — one desktop
 
-- [ ] Bridge daemon process, GLib main loop, config loader, logging with redaction
-- [ ] D-Bus service exporting `data/io.github.grokkinggrok.TetherBot1.xml` on the session bus
-- [ ] Item store, diff, and notify policy
-- [ ] On-disk action queue with `fsync`, restart resume, coalescing, and pacing
-- [ ] Secret-service read and write (`io.github.grokkinggrok.TetherBot.Secret`), no plain-file fallback
-- [ ] `tetherbotctl` for status, enable, secret set, and webhook test
-- [ ] `webhook-sender`: POST, bearer header, retry table in SPEC section 7.2, re-paste flow
-- [ ] `github-poller`: change check, schema gate, owned-path writes, fail closed on rebase conflicts
-- [ ] Minimal extension: indicator counts, popup (bots, todos, asks), notifications with actions
-- [ ] Extension talks only D-Bus; proxy and handlers dropped in `disable()`
-- [ ] Manual checks M1–M8 and M10–M14
+- [x] Config loader and logging with redaction
+- [x] Bridge daemon process and GLib main loop
+- [x] D-Bus service exporting `data/io.github.grokkinggrok.TetherBot1.xml` on the session bus
+- [x] Item store, diff, and notify policy
+- [x] On-disk action queue with `fsync`, restart resume, coalescing, and pacing
+- [x] Secret-service read and write (`io.github.grokkinggrok.TetherBot.Secret`), no plain-file fallback
+- [x] `tetherbotctl` for status, enable, secret set, and webhook test
+- [x] `webhook-sender`: POST, bearer header, retry table in SPEC section 7.2, re-paste flow
+- [x] `github-poller`: change check, schema gate, owned-path writes, fail closed on rebase conflicts
+- [x] Minimal extension: indicator counts, popup (bots, todos, asks), notifications with actions
+- [x] Extension talks only D-Bus; proxy and handlers dropped in `disable()`
+- [x] Installer places the app, launchers, unit, and D-Bus activation. `ExecStart` is `%h/.local/bin/tetherbot`
+- [x] `git-credential-tetherbot` for `https-token` (token stays in libsecret). `ssh-deploy-key` stays deferred
+- [x] `template-repo/` for the private data repository
+- [x] `docs/MANUAL-CHECKS.md` for M1–M8 and M10–M14
+- [ ] Manual checks M1–M8 and M10–M14 (a person runs these on Fedora 44 / GNOME Shell 50)
 - [x] Concrete legacy inbox format stays out of this public repo. The in-tree `legacy-todo` sink stays generic.
 - [ ] Manual checks M15 and M16 only if a sink outside this repo is enabled
 
 ## v0.2 — early adopters
 
-- [ ] `template-repo/` for the private data repository
+- [x] `template-repo/` for the private data repository
 - [ ] `feed/<bot>.json` for more than one bot
-- [ ] `https-token` mode and `git-credential-tetherbot`
+- [x] `https-token` mode and `git-credential-tetherbot`
 - [ ] `desktop/outbox` for repo-only actions
-- [ ] Polish `scripts/install.sh` and `scripts/uninstall.sh` against a real daemon
+- [x] Polish `scripts/install.sh` and `scripts/uninstall.sh` against a real daemon
 - [ ] Review the two prompts in `docs/prompts/` against the running app
 - [ ] `docs/privacy.md` (session-bus trust boundary, what leaves the machine)
 - [ ] GTK4 key dialog owned by the bridge process

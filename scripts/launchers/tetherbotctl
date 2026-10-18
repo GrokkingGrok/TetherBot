@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Run tetherbotctl from the per-user app copy.
+# Secret entry uses the hidden prompt inside tetherbotctl. This launcher
+# does not read or print a secret.
+set -euo pipefail
+
+data_home="${XDG_DATA_HOME:-${HOME}/.local/share}"
+app="${data_home}/tetherbot/app"
+
+if [[ ! -d "${app}/tetherbot" ]]; then
+  echo "tetherbotctl: app is not installed under ${app}" >&2
+  exit 1
+fi
+
+export PYTHONPATH="${app}${PYTHONPATH:+:${PYTHONPATH}}"
+exec python3 -m tetherbot.ctl "$@"

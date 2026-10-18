@@ -10,7 +10,7 @@ Nothing in these steps belongs in a chat, in `config.toml`, or in this repositor
 
 ## Suggested order
 
-M1, M2, then the extension install in M14 (log out and back in once), then M3. Do M10 before M4 if the popup has no ask yet. Then M4, M5, M11, M6, M7, M8, M12, M13.
+M1, M2, then the extension install in M14 (log out and back in once), then M3. Do M10 before M4 if the popup has no ask yet. Then M4, M10a, M5, M11, M6, M7, M8, M12, M13.
 
 You can stop after any check. Later checks say what they need.
 
@@ -202,6 +202,7 @@ gdbus monitor --session --dest io.github.grokkinggrok.TetherBot1
 **Look for.**
 
 - One `ActionResult` whose result is `accepted`.
+- The ask leaves the popup and the badge as soon as you tap Approve. While it waits to send, the footer still counts it in the queue.
 - A `PropertiesChanged` signal whose `QueueLength` is 0. The extension reads that signal for the queued count.
 - The bot's chat shows the approval. The routine's instruction says to deliver the result there. The POST may include the item `title` and `kind`.
 - `tetherbotctl status` shows `queue: 0` after the send. `queue:` counts pending actions only.
@@ -428,6 +429,31 @@ git -C ~/.local/share/tetherbot/repos/REPOSITORY remote get-url origin
 - Commit a new item, or set `"notify": true` on a new item, in `feed/<bot>.json` and push it with your own git (not by putting the token in the remote). Within one poll, one notification appears. **Approve**, **Veto**, **Snooze**, and **Open chat** work when the item lists those actions. Snooze stays on this machine. Open chat launches Grok Bot when a desktop entry exists. The deep link to one chat is still **TBD, verify**.
 
 **Reset.** Leave the repository configured if you are going on to M11. To stop polling, `tetherbotctl disable repo`.
+
+## M10a. A veto hides the item until the feed changes it
+
+**Preconditions.** M10, and M4's webhook accepts actions. The popup shows a notify item whose actions include veto. Restart the bridge after installing this version (`systemctl --user restart tetherbot`). The popup reads the item list from the bridge, so this check does not need a log out. A log out and back in is needed only if you reinstalled the extension and want the shell to load that copy.
+
+**Commands.** Veto the notify item from the popup or its notification. Wait until the action is accepted (about 20 seconds, the coalesce window).
+
+```bash
+systemctl --user restart tetherbot
+tetherbotctl status
+```
+
+Open the popup again. Then, in the feed repository, edit that item: keep `"status": "open"`, set `updated_at` to a later time than the tap, and push.
+
+Wait one poll.
+
+**Look for.**
+
+- The item disappears from the popup and the badge as soon as you tap Veto. The queue count includes it until the webhook accepts.
+- After accept, `queue: 0`. The item is still absent.
+- After the bridge restart, the item is still absent.
+- `desktop/state.json` in the clone has that item's `status` set to `dropped` and an `acted` object (`action` is `veto`). `feed/<bot>.json` is unchanged by the bridge.
+- After the feed push, within one poll, the item is listed again.
+
+**Reset.** Leave the repository configured.
 
 ## M11. An unknown schema fails closed and keeps the old items
 

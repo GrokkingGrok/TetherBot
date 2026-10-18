@@ -143,6 +143,8 @@ class Item:
     snoozed_until: str | None = None
     seen: bool = False
     done_locally: bool = False
+    acted: dict[str, str] | None = None
+    resolved: str | None = None
     redacted_fields: tuple[str, ...] = ()
 
     @property
@@ -163,6 +165,7 @@ class Item:
             actions=list(self.actions),
             links=[dict(link) for link in self.links],
             extra=dict(self.extra),
+            acted=None if self.acted is None else dict(self.acted),
             redacted_fields=tuple(self.redacted_fields),
         )
 
@@ -195,11 +198,16 @@ class Item:
     def to_cache(self) -> dict[str, Any]:
         payload = self.protocol_dict()
         payload["origin"] = self.origin
-        payload["local"] = {
+        local: dict[str, Any] = {
             "snoozed_until": self.snoozed_until,
             "seen": self.seen,
             "done_locally": self.done_locally,
         }
+        if self.acted is not None:
+            local["acted"] = dict(self.acted)
+        if self.resolved is not None:
+            local["resolved"] = self.resolved
+        payload["local"] = local
         payload["redacted_fields"] = list(self.redacted_fields)
         return payload
 
@@ -302,7 +310,47 @@ class Item:
         item.snoozed_until = snoozed if isinstance(snoozed, str) else None
         item.seen = seen
         item.done_locally = done
+        item.acted = parse_acted(local.get("acted"))
+        resolved = local.get("resolved")
+        item.resolved = resolved if resolved in {"done", "dropped"} else None
         return item
+
+
+def parse_acted(value: object) -> dict[str, str] | None:
+    """Return a local action record, or None when the value is absent or unusable.
+
+    The record is ``action``, ``action_id``, and ``at``. A bad value is
+    ignored so an older or partial file does not make the cache unreadable.
+    """
+
+    if value is None:
+        return None
+    if not isinstance(value, Mapping):
+        return None
+    action = value.get("action")
+    action_id = value.get("action_id")
+    at = value.get("at")
+    if action not in {"approve", "veto", "done"}:
+        return None
+    if not isinstance(action_id, str) or not action_id or looks_like_secret(action_id):
+        return None
+    if not isinstance(at, str):
+        return None
+    try:
+        parse_iso8601(at, field_name="at")
+    except ValueError:
+        return None
+    return {"action": action, "action_id": action_id, "at": at}
+
+
+def resolved_status(action: str) -> str | None:
+    """Feed status that mirrors one closing action. Approve and done are ``done``."""
+
+    if action in {"approve", "done"}:
+        return "done"
+    if action == "veto":
+        return "dropped"
+    return None
 
 
 def _guard_secrets(

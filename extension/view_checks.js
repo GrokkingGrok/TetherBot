@@ -119,6 +119,17 @@ export function runViewChecks() {
                 title: 'Later',
                 local: {snoozed_until: '2026-10-17T13:00:00+00:00'},
             }),
+            ask({
+                key: 'primary/vetoed',
+                title: 'Already vetoed',
+                local: {
+                    acted: {
+                        action: 'veto',
+                        action_id: 'a-veto1',
+                        at: '2026-10-17T12:00:00+00:00',
+                    },
+                },
+            }),
             {
                 key: 'primary/todo-1',
                 kind: 'todo',
@@ -147,7 +158,7 @@ export function runViewChecks() {
         nowMs: NOW,
     });
     assert(menu.banner === '', 'ok has no banner');
-    assert(menu.asks.length === 1, 'snoozed ask is hidden');
+    assert(menu.asks.length === 1, 'snoozed and acted asks are hidden');
     assert(menu.asks[0].actions.join(',') === 'approve,veto', 'ask buttons');
     assert(menu.asks[0].due === '2026-10-18', 'ask due');
     assert(menu.todos.length === 2, 'both todos are listed');

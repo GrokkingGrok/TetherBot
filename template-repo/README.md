@@ -24,8 +24,11 @@ schema string is `tetherbot/1`.
 
 `bridge.json` names the schema, the bots, and a timezone. `feed/<bot>.json` is
 that bot's status and items. `desktop/state.json` is the bridge's view of
-item state. `desktop/outbox/` is reserved for a later release. `log/desktop/`
-is an append-only bridge log.
+item state. After Approve, Veto, or Done, an item entry may include optional
+`acted` (`action`, `action_id`, `at`). Once the webhook accepts, `status` in
+that entry is `done` for approve and done, and `dropped` for veto. The bridge
+does not edit `feed/`. `desktop/outbox/` is reserved for a later release.
+`log/desktop/` is an append-only bridge log.
 
 The bridge refuses to stage a path it does not own. It owns `desktop/` and
 `log/desktop/` only.

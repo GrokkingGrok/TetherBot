@@ -107,8 +107,16 @@ def test_cache_round_trip_keeps_local_state_and_extra():
     item = make_item(example_extra=True)
     item.snoozed_until = "2026-10-17T13:00:00+00:00"
     item.seen = True
+    item.acted = {
+        "action": "veto",
+        "action_id": "a-veto1",
+        "at": "2026-10-17T12:00:00+00:00",
+    }
+    item.resolved = "dropped"
     restored = Item.from_cache(item.to_cache())
     assert restored.extra == {"example_extra": True}
     assert restored.snoozed_until == item.snoozed_until
     assert restored.seen is True
+    assert restored.acted == item.acted
+    assert restored.resolved == "dropped"
     assert restored.key == item.key

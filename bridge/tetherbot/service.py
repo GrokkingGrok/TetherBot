@@ -127,6 +127,8 @@ class BridgeApi:
         now = self._daemon.now()
         rows = []
         for item in self._daemon.store.items():
+            if item.acted or item.resolved:
+                continue
             if not include_snoozed and _snoozed(item.snoozed_until, now):
                 continue
             if kinds is not None and item.kind not in kinds:
@@ -343,12 +345,14 @@ class BridgeApi:
         sender = getattr(self._daemon, "webhook", None)
         if sender is not None:
             sender.resume(row.bot)
+        self._hide_again(row)
         self._emit_properties("QueueLength", "Counts")
         return None
 
     def _drop_queued(self, action_id: str) -> None:
-        self._find_queued(action_id)
+        row = self._find_queued(action_id)
         self._daemon.queue.drop(action_id)
+        self._release_closed([row.action_id])
         self._emit_properties("QueueLength", "Counts")
         return None
 
@@ -371,8 +375,35 @@ class BridgeApi:
             )
         except QueueError as exc:
             raise ServiceError(INVALID_ARGS, str(exc)) from exc
+        if action in _ITEM_OUTBOUND:
+            self._daemon.store.record_action(item, action, chosen, self._daemon.now())
+            self._emit("ItemsChanged", [], [item], [])
+            self._request_state_write()
         self._emit_properties("QueueLength", "Counts")
         return chosen
+
+    def _hide_again(self, row: Any) -> None:
+        if row.action not in _ITEM_OUTBOUND:
+            return
+        try:
+            at = parse_iso8601(row.created, field_name="created")
+        except ValueError:
+            at = self._daemon.now()
+        if self._daemon.store.record_action(row.item, row.action, row.action_id, at):
+            self._emit("ItemsChanged", [], [row.item], [])
+            self._request_state_write()
+
+    def _release_closed(self, action_ids: list[str]) -> None:
+        changed = self._daemon.store.release_actions(action_ids)
+        if not changed:
+            return
+        self._emit("ItemsChanged", [], changed, [])
+        self._request_state_write()
+
+    def _request_state_write(self) -> None:
+        poller = getattr(self._daemon, "poller", None)
+        if poller is not None and hasattr(poller, "request_state_write"):
+            poller.request_state_write()
 
     def _find_queued(self, action_id: str) -> Any:
         for action in self._daemon.queue.snapshot():
@@ -481,11 +512,16 @@ def _item_payload(item: Any) -> dict[str, Any]:
     payload = item.protocol_dict()
     payload["key"] = item.key
     payload["origin"] = item.origin
-    payload["local"] = {
+    local: dict[str, Any] = {
         "done_locally": item.done_locally,
         "seen": item.seen,
         "snoozed_until": item.snoozed_until,
     }
+    if item.acted:
+        local["acted"] = dict(item.acted)
+    if item.resolved:
+        local["resolved"] = item.resolved
+    payload["local"] = local
     payload["redacted_fields"] = list(item.redacted_fields)
     return payload
 

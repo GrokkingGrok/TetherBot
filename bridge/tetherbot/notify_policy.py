@@ -34,7 +34,7 @@ class NotifyPolicy:
         self.delivered = set(delivered or ())
 
     def consider(self, item: Item, *, now: datetime, seen_before: bool) -> list[Notice]:
-        if _is_snoozed(item, now) or item.status != "open":
+        if _is_snoozed(item, now) or item.status != "open" or item.acted or item.resolved:
             return []
         notices: list[Notice] = []
         revision = (item.key, item.updated_at, "revision")

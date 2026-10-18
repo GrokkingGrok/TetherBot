@@ -8,7 +8,12 @@ replaced with an empty list. The bridge stages only ``desktop/`` and
 
 ``https-token`` runs git through ``git-credential-tetherbot``. The token
 stays in libsecret and is not put in a remote URL, ``.git/config``, argv,
-or the log. ``ssh-deploy-key`` stays deferred and does not spawn git.
+or the log. Git's ``HOME`` is a private directory and its global config is
+``/dev/null``. The helper still receives the user's XDG config and data
+directories, plus the session bus when it is set, so it can find the app,
+``config.toml``, and libsecret. A failed ``ls-remote`` is logged as
+``ls-remote failed: auth`` or ``ls-remote failed: network``. Git's own
+output is not logged. ``ssh-deploy-key`` stays deferred and does not spawn git.
 ``desktop/outbox`` is still a v0.2 path. A rejected push or a stale feed
 does not stretch the poll interval: the next ``ls-remote`` stays on
 ``poll_seconds``. Transport failures still back off. Importing this module
@@ -40,6 +45,24 @@ _MAX_BACKOFF = 15 * 60
 _LOCK_STRETCH = 600
 _PUSH_TRIES = 3
 _COMMIT_MESSAGE = "Update desktop state"
+_HELPER_BUS_ENV = ("DBUS_SESSION_BUS_ADDRESS", "XDG_RUNTIME_DIR")
+_AUTH_STDERR = (
+    "keyring locked",
+    "secret service is not available",
+    "github token is not stored",
+    "slot is invalid",
+    "github remote is not configured",
+    "credential request did not match",
+    "credential request refused",
+    "app is not installed",
+    "authentication failed",
+    "could not read username",
+    "terminal prompts disabled",
+    "invalid username or token",
+    "password authentication",
+    "returned error: 401",
+    "returned error: 403",
+)
 _IDENTITY = (
     "-c",
     "user.name=TetherBot",
@@ -63,6 +86,62 @@ class GitResult:
     stderr: str
 
 
+def _git_child_env(home: Path) -> dict[str, str]:
+    """Environment git, and then the credential helper, actually run with.
+
+    ``HOME`` stays on the private git directory and both global git configs
+    point at ``os.devnull``, so a user gitconfig cannot change the remote.
+    ``XDG_CONFIG_HOME`` and ``XDG_DATA_HOME`` stay on the real user (the
+    parent environment when set, otherwise that user's ``.config`` and
+    ``.local/share``). The session bus variables are copied only when set.
+    Nothing else from the parent environment is copied.
+    """
+
+    desktop = _desktop_home()
+    env = {
+        "PATH": os.environ.get("PATH", ""),
+        "HOME": str(home),
+        "GIT_TERMINAL_PROMPT": "0",
+        "GIT_CONFIG_GLOBAL": os.devnull,
+        "GIT_CONFIG_SYSTEM": os.devnull,
+        "GIT_AUTHOR_NAME": "TetherBot",
+        "GIT_AUTHOR_EMAIL": "noreply@localhost",
+        "GIT_COMMITTER_NAME": "TetherBot",
+        "GIT_COMMITTER_EMAIL": "noreply@localhost",
+        "XDG_CONFIG_HOME": _env_or_default("XDG_CONFIG_HOME", desktop / ".config"),
+        "XDG_DATA_HOME": _env_or_default("XDG_DATA_HOME", desktop / ".local" / "share"),
+    }
+    for name in _HELPER_BUS_ENV:
+        value = os.environ.get(name, "").strip()
+        if value:
+            env[name] = value
+    return env
+
+
+def _desktop_home() -> Path:
+    raw = os.environ.get("HOME", "").strip()
+    if raw:
+        return Path(raw)
+    return Path.home()
+
+
+def _env_or_default(name: str, fallback: Path) -> str:
+    value = os.environ.get(name, "").strip()
+    return value if value else str(fallback)
+
+
+def _ls_remote_reason(result: GitResult) -> str:
+    """Classify a failed ls-remote without copying git's output.
+
+    The label is ``auth`` or ``network``. stdout and stderr can contain a
+    token, so they are not returned and must not be logged.
+    """
+
+    folded = f"{result.stderr}\n{result.stdout}".casefold()
+    kind = "auth" if any(marker in folded for marker in _AUTH_STDERR) else "network"
+    return f"ls-remote failed: {kind}"
+
+
 class SubprocessGit:
     """Run git with a private environment. stdout and stderr are not logged."""
 
@@ -75,17 +154,7 @@ class SubprocessGit:
     def run(self, args: list[str], cwd: Path | None) -> GitResult:
         if any(looks_like_secret(arg) for arg in args):
             return GitResult(1, "", "")
-        env = {
-            "PATH": os.environ.get("PATH", ""),
-            "HOME": str(self.home),
-            "GIT_TERMINAL_PROMPT": "0",
-            "GIT_CONFIG_GLOBAL": os.devnull,
-            "GIT_CONFIG_SYSTEM": os.devnull,
-            "GIT_AUTHOR_NAME": "TetherBot",
-            "GIT_AUTHOR_EMAIL": "noreply@localhost",
-            "GIT_COMMITTER_NAME": "TetherBot",
-            "GIT_COMMITTER_EMAIL": "noreply@localhost",
-        }
+        env = _git_child_env(self.home)
         try:
             completed = subprocess.run(
                 ["git", *_IDENTITY, *args],
@@ -199,11 +268,12 @@ class GitHubPoller:
         if (clone / ".git").is_dir() and not self._ensure_https_credentials(clone):
             self._schedule_transport_failure(now)
             return
-        sha = self._ls_remote(remote)
+        sha, probed = self._ls_remote(remote)
         if sha is None:
-            self.last_error = "ls-remote failed"
-            self._set_overlay("degraded", "ls-remote failed")
-            _LOG.info("github-poller ls-remote failed")
+            reason = _ls_remote_reason(probed)
+            self.last_error = reason
+            self._set_overlay("degraded", reason)
+            _LOG.info("github-poller %s", reason)
             self._schedule_transport_failure(now)
             return
         if sha == self._sha and (clone / ".git").is_dir():
@@ -396,11 +466,11 @@ class GitHubPoller:
         _LOG.info("github-poller pull failed")
         return False
 
-    def _ls_remote(self, remote: str) -> str | None:
+    def _ls_remote(self, remote: str) -> tuple[str | None, GitResult]:
         result = self._run_scoped(["ls-remote", "--", remote, f"refs/heads/{self._branch()}"], None)
         if result.code != 0:
-            return None
-        return _parse_sha(result.stdout)
+            return None, result
+        return _parse_sha(result.stdout), result
 
     def _porcelain(self, clone: Path, paths: list[str]) -> bool:
         result = self._run_scoped(["status", "--porcelain", "--", *paths], clone)
@@ -603,7 +673,7 @@ class GitHubPoller:
             api.emit_notification(mask_secrets(text), notice.reason)
 
     def _remember_remote(self, remote: str) -> None:
-        refreshed = self._ls_remote(remote)
+        refreshed, _probed = self._ls_remote(remote)
         if refreshed is None:
             return
         self._sha = refreshed

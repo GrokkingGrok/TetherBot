@@ -16,7 +16,7 @@ from pathlib import Path
 
 from tetherbot import SCHEMA_VERSION
 from tetherbot.files import write_private_json
-from tetherbot.model import Item, parse_iso8601
+from tetherbot.model import Item, parse_acted, parse_iso8601, resolved_status
 from tetherbot.notify_policy import Notice, NotifyPolicy
 from tetherbot.version_gate import check_schema
 
@@ -48,6 +48,7 @@ class ItemStore:
         self._items: dict[str, Item] = {}
         self._policy = NotifyPolicy()
         self._block_save = False
+        self.repo_state_dirty = False
         if path is not None and path.exists():
             self._load()
 
@@ -63,7 +64,7 @@ class ItemStore:
         visible = [
             item
             for item in self._items.values()
-            if item.status == "open" and not _snoozed(item, now)
+            if _listed(item, now)
         ]
         return {
             "asks": sum(item.kind == "ask" for item in visible),
@@ -116,6 +117,100 @@ class ItemStore:
         self._save()
         return True
 
+    def record_action(self, key: str, action: str, action_id: str, at: datetime) -> bool:
+        """Hide ``key`` while approve, veto, or done is queued.
+
+        The feed status stays as the bot wrote it. ``at`` is the tap time
+        a later feed edit is compared with.
+        """
+
+        _require_aware(at)
+        if resolved_status(action) is None:
+            return False
+        item = self._items.get(key)
+        acted = parse_acted({"action": action, "action_id": action_id, "at": at.isoformat()})
+        if item is None or acted is None:
+            return False
+        item.acted = acted
+        item.resolved = None
+        self.repo_state_dirty = True
+        self._save()
+        return True
+
+    def resolve_batch(self, actions: list[object]) -> list[str]:
+        """Mark the last closing action for each item resolved. Feed files stay untouched."""
+
+        last: dict[str, tuple[str, str, str]] = {}
+        for action in actions:
+            name = getattr(action, "action", "")
+            item_key = getattr(action, "item", "")
+            action_id = getattr(action, "action_id", "")
+            created = getattr(action, "created", "")
+            if resolved_status(name) is None or not isinstance(item_key, str):
+                continue
+            if not isinstance(action_id, str) or not isinstance(created, str):
+                continue
+            last[item_key] = (name, action_id, created)
+        changed: list[str] = []
+        for item_key, (name, action_id, created) in last.items():
+            item = self._items.get(item_key)
+            if item is None:
+                continue
+            at = created
+            if item.acted is not None and item.acted.get("action_id") == action_id:
+                at = item.acted["at"]
+            acted = parse_acted({"action": name, "action_id": action_id, "at": at})
+            if acted is None:
+                continue
+            item.acted = acted
+            item.resolved = resolved_status(name)
+            changed.append(item_key)
+        if changed:
+            self.repo_state_dirty = True
+            self._save()
+        return changed
+
+    def release_actions(self, action_ids: list[str]) -> list[str]:
+        """Show items again when their closing action was parked, rejected, or dropped."""
+
+        ids = set(action_ids)
+        changed: list[str] = []
+        for item in self._items.values():
+            if item.acted is None or item.acted.get("action_id") not in ids:
+                continue
+            item.acted = None
+            item.resolved = None
+            changed.append(item.key)
+        if changed:
+            self.repo_state_dirty = True
+            self._save()
+        return changed
+
+    def apply_repo_state(self, entries: list[object]) -> list[str]:
+        """Copy closing marks from ``desktop/state.json``. Snooze stays on this machine."""
+
+        changed: list[str] = []
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            key = entry.get("key")
+            item = self._items.get(key) if isinstance(key, str) else None
+            if item is None:
+                continue
+            acted = parse_acted(entry.get("acted"))
+            if acted is None or not _state_mark_applies(item, acted):
+                continue
+            status = entry.get("status")
+            resolved = status if status in {"done", "dropped"} else None
+            if item.acted == acted and item.resolved == resolved:
+                continue
+            item.acted = acted
+            item.resolved = resolved
+            changed.append(item.key)
+        if changed:
+            self._save()
+        return changed
+
     def mark_seen(self, keys: list[str]) -> None:
         changed = False
         for key in keys:
@@ -149,6 +244,12 @@ class ItemStore:
                 item.snoozed_until = existing.snoozed_until
                 item.seen = existing.seen
                 item.done_locally = existing.done_locally
+                if _feed_replaces_local_close(item, existing):
+                    if existing.acted or existing.resolved:
+                        self.repo_state_dirty = True
+                else:
+                    item.acted = None if existing.acted is None else dict(existing.acted)
+                    item.resolved = existing.resolved
             self._items[key] = item
         return errors
 
@@ -216,6 +317,7 @@ class ItemStore:
             return
         self._items = {item.key: item for item in items}
         self._policy = NotifyPolicy(delivered)
+        self.repo_state_dirty = any(item.acted or item.resolved for item in items)
 
     def _save(self) -> None:
         if self.path is None or self._block_save:
@@ -237,6 +339,41 @@ def _snapshot(items: dict[str, Item]) -> dict[str, tuple[str, str, str | None]]:
 
 def _fingerprint(item: Item) -> str:
     return json.dumps(item.protocol_dict(), sort_keys=True, separators=(",", ":"))
+
+
+def _listed(item: Item, now: datetime) -> bool:
+    if item.status != "open" or item.acted or item.resolved:
+        return False
+    return not _snoozed(item, now)
+
+
+def _feed_replaces_local_close(incoming: Item, existing: Item) -> bool:
+    """True when the feed, not the desktop tap, should decide visibility."""
+
+    if not existing.acted and not existing.resolved:
+        return True
+    if incoming.status in {"done", "dropped", "expired"}:
+        return True
+    acted_at = None if existing.acted is None else existing.acted.get("at")
+    if incoming.status == "open" and isinstance(acted_at, str):
+        try:
+            return parse_iso8601(incoming.updated_at, field_name="updated_at") > parse_iso8601(
+                acted_at, field_name="at"
+            )
+        except ValueError:
+            return False
+    return False
+
+
+def _state_mark_applies(item: Item, acted: dict[str, str]) -> bool:
+    if item.status in {"done", "dropped", "expired"}:
+        return False
+    try:
+        feed_at = parse_iso8601(item.updated_at, field_name="updated_at")
+        acted_at = parse_iso8601(acted["at"], field_name="at")
+    except ValueError:
+        return False
+    return item.status != "open" or feed_at <= acted_at
 
 
 def _snoozed(item: Item, now: datetime) -> bool:

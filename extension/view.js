@@ -58,6 +58,11 @@ function botId(item) {
     return slash > 0 ? key.slice(0, slash) : '';
 }
 
+function acted(item) {
+    const record = item?.local?.acted;
+    return Boolean(record && typeof record.action === 'string' && record.action);
+}
+
 function snoozed(item, nowMs) {
     const until = item?.local?.snoozed_until;
     if (!until)
@@ -152,9 +157,9 @@ export function menuModel({
     const asks = [];
     const todos = [];
     for (const item of items || []) {
-        if (!item || item.status !== 'open' || snoozed(item, nowMs))
+        if (!item || item.status !== 'open' || snoozed(item, nowMs) || acted(item))
             continue;
-        if (item.local && item.local.done_locally)
+        if (item.local && (item.local.done_locally || item.local.resolved))
             continue;
         const key = itemKey(item);
         const bot = botId(item);

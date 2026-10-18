@@ -76,7 +76,7 @@ One model covers every kind.
 
 Inside the bridge and on D-Bus, the global key is `<bot>/<id>`, for example `primary/primary-20261017-01`. The prefix is the bot id. It matches `[bots.<id>]` in `config.toml` and the file `feed/<id>.json`. It is not a display name, and it is not the webhook slot. The slot (`webhook_slot`, for example `primary-actions`) only names the secret in the desktop secret service. The bridge routes an action by the bot id, then looks up that bot's slot.
 
-The bridge adds `origin` (`feed`, `legacy-inbox`, `fake`, and so on) and `local` (`{snoozed_until, seen, done_locally}`).
+The bridge adds `origin` (`feed`, `legacy-inbox`, `fake`, and so on) and `local` (`{snoozed_until, seen, done_locally}`). `local` may also include optional `acted` (`{action, action_id, at}`) and `resolved` (`done` or `dropped`) after approve, veto, or done. Older readers ignore fields they do not know.
 
 ### Secret guard
 
@@ -138,6 +138,6 @@ Users create a **private** repository from `template-repo/`. Each path has one w
 | `feed/<bot>.json`, `log/feed/<bot>/` | that bot | bridge |
 | `desktop/**`, `log/desktop/` | bridge | bots |
 
-`bridge.json` holds the schema, the bot list, and the timezone. `desktop/state.json` is the bridge's view of item state. `desktop/outbox/YYYY-MM.jsonl` carries action envelopes when a bot has no webhook. `log/desktop/YYYY-MM.jsonl` is an append-only bridge log.
+`bridge.json` holds the schema, the bot list, and the timezone. `desktop/state.json` is the bridge's view of item state. An item entry may include optional `acted` (`action`, `action_id`, `at`). After the webhook accepts approve or done, that entry's `status` is `done`. After veto, `status` is `dropped`. The bridge does not write `feed/*.json`. `desktop/outbox/YYYY-MM.jsonl` carries action envelopes when a bot has no webhook. `log/desktop/YYYY-MM.jsonl` is an append-only bridge log.
 
 The bridge refuses to stage a path it does not own.

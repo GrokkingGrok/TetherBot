@@ -284,7 +284,7 @@ class WebhookSender:
                     outcome.status,
                 )
         if plan.result == "accepted":
-            self._accept(ctx, bot, ids)
+            self._accept(ctx, bot, batch)
             return
         if plan.hold_prefix is not None:
             self._defer(ctx, bot, ids, plan, attempts)
@@ -294,11 +294,13 @@ class WebhookSender:
             return
         self._park_ids(ctx, bot, ids, plan)
 
-    def _accept(self, ctx: Any, bot: str, ids: list[str]) -> None:
+    def _accept(self, ctx: Any, bot: str, batch: tuple[Any, ...]) -> None:
+        ids = [action.action_id for action in batch]
         ctx.queue.accept(ids)
         ctx.api.emit_queue_changed()
         for action_id in ids:
             ctx.api.emit_action_result(action_id, "accepted", "")
+        _resolve_closed(ctx, batch)
         now = ctx.now()
         self.poll_burst = tuple(now + timedelta(seconds=offset) for offset in _BURST_SECONDS)
         self._notified = {item for item in self._notified if item[0] != bot}
@@ -322,6 +324,7 @@ class WebhookSender:
             ctx.queue.park(action_id, plan.detail)
             ctx.api.emit_action_result(action_id, plan.result, plan.detail)
         ctx.api.emit_queue_changed()
+        _release_closed(ctx, ids)
         self._stopped[bot] = plan.detail
         self._write_stops()
         self._set_overlay("degraded", plan.detail)
@@ -337,6 +340,7 @@ class WebhookSender:
             ctx.queue.park(action_id, plan.detail)
             ctx.api.emit_action_result(action_id, plan.result, plan.detail)
         ctx.api.emit_queue_changed()
+        _release_closed(ctx, ids)
         if plan.notify and plan.title:
             self._notify_once(bot, plan.detail, plan.title, plan.detail, "")
 
@@ -485,7 +489,8 @@ def plan_for(outcome: HttpOutcome, *, timeout_retry: bool, attempts: int) -> Pla
             return Plan(True, "parked", "rate cap", None, None, "delivery_failed", "Webhook paused")
         return Plan(True, "queued_retry", "", None, _RETRY_PREFIX, None, None)
     status = outcome.status
-    if status == 200:
+    if status is not None and (200 <= status < 300 or status == 409):
+        # 409 is a duplicate of an action the receiver already applied.
         return Plan(True, "accepted", "", None, None, None, None)
     if status in {401, 403}:
         return Plan(
@@ -594,6 +599,33 @@ def _action_row(action: Any, item: Any) -> dict[str, Any]:
         if isinstance(kind, str) and kind:
             row["kind"] = kind
     return row
+
+
+def _resolve_closed(ctx: Any, batch: tuple[Any, ...]) -> None:
+    store = getattr(ctx, "store", None)
+    if store is None:
+        return
+    changed = store.resolve_batch(list(batch))
+    _publish_closed(ctx, changed)
+
+
+def _release_closed(ctx: Any, action_ids: list[str]) -> None:
+    store = getattr(ctx, "store", None)
+    if store is None:
+        return
+    changed = store.release_actions(action_ids)
+    _publish_closed(ctx, changed)
+
+
+def _publish_closed(ctx: Any, changed: list[str]) -> None:
+    if not changed:
+        return
+    api = getattr(ctx, "api", None)
+    if api is not None:
+        api.emit_items_changed([], changed, [])
+    poller = getattr(ctx, "poller", None)
+    if poller is not None and hasattr(poller, "request_state_write"):
+        poller.request_state_write()
 
 
 def _notify_body(plan: Plan) -> str:

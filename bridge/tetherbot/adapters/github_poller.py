@@ -195,6 +195,7 @@ class GitHubPoller:
         self._backoff = 0
         self._sha = ""
         self._needs_push = False
+        self._state_dirty = False
         self.overlay: tuple[str, str] | None = None
         self.stale: list[str] = []
         self.last_error = ""
@@ -277,6 +278,10 @@ class GitHubPoller:
             self._schedule_transport_failure(now)
             return
         if sha == self._sha and (clone / ".git").is_dir():
+            if self._needs_local_state():
+                self._write_state(clone)
+                if not self._closed and not self._needs_push:
+                    self._remember_remote(remote)
             if self._needs_push:
                 self._push_with_retry(clone)
                 if not self._closed and not self._needs_push:
@@ -300,6 +305,11 @@ class GitHubPoller:
             self._sha = sha
             self._store_sha()
         self._finish_readable(now, changed=True)
+
+    def request_state_write(self) -> None:
+        """Ask the next poll to commit ``desktop/state.json`` even if the feed is unchanged."""
+
+        self._state_dirty = True
 
     def commit_paths(self, paths: list[str]) -> bool:
         """Stage owned paths only. A refused path is not passed to git."""
@@ -383,6 +393,12 @@ class GitHubPoller:
             if problem is not None:
                 errors.append(problem)
                 stale.append("desktop/state.json")
+            else:
+                changed = ctx.store.apply_repo_state(_state_entries(state_path))
+                if changed:
+                    api = getattr(ctx, "api", None)
+                    if api is not None:
+                        api.emit_items_changed([], changed, [])
         self.stale = stale
         if errors:
             self.last_error = mask_secrets("; ".join(errors))[:200]
@@ -395,24 +411,22 @@ class GitHubPoller:
         assert ctx is not None
         payload = {
             "schema": SCHEMA_VERSION,
-            "items": [
-                {
-                    "done_locally": item.done_locally,
-                    "key": item.key,
-                    "seen": item.seen,
-                    "snoozed_until": item.snoozed_until,
-                    "status": item.status,
-                }
-                for item in ctx.store.items()
-            ],
+            "items": [_state_item(item) for item in ctx.store.items()],
         }
         text = json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n"
         path = clone / "desktop" / "state.json"
         if path.is_file() and path.read_text(encoding="utf-8") == text:
+            ctx.store.repo_state_dirty = False
+            self._state_dirty = False
             return
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text, encoding="utf-8")
-        self.commit_paths(["desktop/state.json"])
+        if self.commit_paths(["desktop/state.json"]):
+            ctx.store.repo_state_dirty = False
+            self._state_dirty = False
+            return
+        ctx.store.repo_state_dirty = True
+        self._state_dirty = True
 
     def _push_with_retry(self, clone: Path) -> bool:
         for attempt in range(_PUSH_TRIES):
@@ -603,6 +617,13 @@ class GitHubPoller:
         if row is None or row.poll_seconds is None:
             return 120
         return int(row.poll_seconds)
+
+    def _needs_local_state(self) -> bool:
+        if self._state_dirty:
+            return True
+        ctx = self._ctx
+        store = None if ctx is None else getattr(ctx, "store", None)
+        return bool(store is not None and getattr(store, "repo_state_dirty", False))
 
     def _finish_readable(self, now: datetime, *, changed: bool) -> None:
         """Schedule the next poll at the normal interval.
@@ -820,6 +841,34 @@ def _read_feed(path: Path, source: str) -> tuple[list[Item], str | None]:
     except (TypeError, ValueError):
         return [], f"{source} is invalid"
     return items, None
+
+
+def _state_item(item: Item) -> dict[str, object]:
+    entry: dict[str, object] = {
+        "done_locally": item.done_locally,
+        "key": item.key,
+        "seen": item.seen,
+        "snoozed_until": item.snoozed_until,
+        "status": item.resolved or item.status,
+    }
+    if item.acted:
+        entry["acted"] = {
+            "action": item.acted["action"],
+            "action_id": item.acted["action_id"],
+            "at": item.acted["at"],
+        }
+    return entry
+
+
+def _state_entries(path: Path) -> list[object]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+    items = payload.get("items", [])
+    return items if isinstance(items, list) else []
 
 
 def _read_state(path: Path) -> str | None:

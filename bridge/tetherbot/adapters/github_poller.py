@@ -196,6 +196,7 @@ class GitHubPoller:
         self._sha = ""
         self._needs_push = False
         self._state_dirty = False
+        self._tree_loaded = False
         self.overlay: tuple[str, str] | None = None
         self.stale: list[str] = []
         self.last_error = ""
@@ -286,7 +287,7 @@ class GitHubPoller:
                 self._push_with_retry(clone)
                 if not self._closed and not self._needs_push:
                     self._remember_remote(remote)
-            if self.stale and not self._closed:
+            if not self._closed and (self.stale or not self._tree_loaded):
                 self._read_tree(clone)
             self._finish_readable(now, changed=False)
             return
@@ -405,6 +406,7 @@ class GitHubPoller:
         api = getattr(ctx, "api", None)
         if api is not None and hasattr(api, "note_bots"):
             api.note_bots()
+        self._tree_loaded = True
         self.stale = stale
         if errors:
             self.last_error = mask_secrets("; ".join(errors))[:200]

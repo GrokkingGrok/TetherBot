@@ -494,11 +494,19 @@ Checklists live in [ROADMAP.md](ROADMAP.md).
 - `webhook-sender` for one bot, with coalescing, pacing, backoff, and re-paste key. A CLI prompt is enough if the GTK dialog slips.
 - Minimal extension: indicator with counts, popup (bots, todos, asks), notifications with actions.
 - `legacy-todo` stays a generic sink here. A concrete inbox format is not part of this repository.
-- M1 through M8 and M10 through M16 pass for the features that are actually enabled.
+- Manual checks M1–M8 and M10–M14 passed on Fedora 44 / GNOME Shell 50. M9 is not in that set. M15 and M16 stay conditional on a sink outside this repo.
+
+### v0.1.x: bot-written todos (next)
+
+- The bot writes the feed, including a `kind: todo` captured from a phone message while the user is away, and a daily summary of that day's asks and todos. The desktop shows new items on the next poll or at boot. Done in the popup still reports over the webhook, and the bridge records the item closed.
+- Write access is a credential scoped to the private data repo only, held on the bot side, never on the desktop or in this repository. Fine-grained token versus deploy key is **TBD, verify**.
+- TetherBot is the single todo tracker. An older local todo sync is retired after cutover, not run beside it.
+- `feed/<bot>.json` for more than one bot. More than one desktop may read the same feed. A non-GNOME client is out of scope. On a second machine the bot side is how todos are added. Per-desktop `desktop/state.json` when two desktops share one feed is **TBD, verify**.
+- An always-on local device, such as a single-board computer, as an indicator or hub is optional later. The private repo is already the always-on middle.
 
 ### v0.2: early adopters
 
-- `feed/<bot>.json` for any number of bots, and `desktop/outbox`. `template-repo/` and `https-token` with `git-credential-tetherbot` are already in the tree for the v0.1 manual checks. Install and uninstall place the app and the launchers.
+- `desktop/outbox`. `template-repo/` and `https-token` with `git-credential-tetherbot` are already in the tree for the v0.1 manual checks. Install and uninstall place the app and the launchers.
 - Prompts and `docs/privacy.md` reviewed against the running app.
 - GTK4 key dialog, webhook-only mode, Money and watch section, prefs.
 - Packaging: a COPR RPM for the bridge (**TBD, verify** interest). Feedback from a handful of users. All manual checks pass.
@@ -530,16 +538,18 @@ GNOME already has chat-style AI clients: Newelle (GTK4, MCP), Alpaca (Ollama), a
 - **Naming.** Bus name and interface `io.github.grokkinggrok.TetherBot1`. Object path `/io/github/grokkinggrok/TetherBot1`. Schema string stays `tetherbot/1`. Extension UUID `tetherbot@grokkinggrok.github.io`. Libsecret schema `io.github.grokkinggrok.TetherBot.Secret`. Do not change the bus name after release.
 - **Unofficial labelling.** The README and `extension/metadata.json` say the project is unofficial and not affiliated with xAI.
 - **Legacy inbox format.** A concrete legacy inbox format stays out of this public repository. The `legacy-todo` sink stays generic and does not publish a field map.
+- **Bot write access.** A credential scoped to the private data repo only, held on the bot side. It is never stored on the desktop or in this repository.
 
 ### Still open
 
 1. Webhook response details: exact status and body for the shared rate cap (reported as 400), bad key (401 or 403?), max body size, and whether a run id comes back. **TBD, verify** with a test routine during manual checks M3 and M7.
 2. Key rotation: is there a way to get a new key without recreating the routine? **TBD, verify.**
 3. Deep link to open a specific bot's chat in the Grok Bot Linux app, and its desktop entry id. **TBD, verify.** Fallback is launching the app.
-4. How should a bot hold write access to the data repo? **TBD, verify** what Grok Bot supports and recommends.
+4. How the bot authenticates writes to the data repo: a fine-grained token or a deploy key. **TBD, verify.** The credential stays on the bot side either way.
 5. Will Grok Bot ship outbound webhooks, status events, or a local hook that replaces the repo poller? Watch release notes. The `official` stub is the seam.
 6. Should a local todo consumer move to D-Bus `GetItems`, or keep parsing its own file? Decide after v0.1.
 7. Should `done` on a legacy todo from the popup write the local todo file (one source of truth) or only send a webhook? Proposed: write the file when that sink is the source of truth.
 8. Git-over-HTTPS polling limits for `ls-remote` every 2 minutes. **TBD, verify.** Fall back to REST with ETag if throttled.
 9. GNOME 50 specifics: `MessageTray.Notification` action API and the nested devkit command on Fedora 44. **TBD, verify** before coding the extension UI.
 10. Which `systemd --user` sandboxing options work on Fedora 44 without breaking libsecret or git. **TBD, verify.**
+11. Two desktops sharing one feed: how `desktop/state.json` keeps per-desktop acted and closed state without both machines pushing conflicting state. **TBD, verify.**

@@ -74,7 +74,9 @@ One model covers every kind.
 | `source` | `{bot, routine?}` | Required. `bot` matches the feed file's `bot` |
 | `links` | array of `{label, url}` | Optional, `https` only, maximum 3 |
 
-Inside the bridge and on D-Bus, the global key is `<bot>/<id>`, for example `primary/primary-20261017-01`. The bridge adds `origin` (`feed`, `legacy-inbox`, `fake`, and so on) and `local` (`{snoozed_until, seen, done_locally}`).
+Inside the bridge and on D-Bus, the global key is `<bot>/<id>`, for example `primary/primary-20261017-01`. The prefix is the bot id. It matches `[bots.<id>]` in `config.toml` and the file `feed/<id>.json`. It is not a display name, and it is not the webhook slot. The slot (`webhook_slot`, for example `primary-actions`) only names the secret in the desktop secret service. The bridge routes an action by the bot id, then looks up that bot's slot.
+
+The bridge adds `origin` (`feed`, `legacy-inbox`, `fake`, and so on) and `local` (`{snoozed_until, seen, done_locally}`).
 
 ### Secret guard
 
@@ -90,23 +92,37 @@ This JSON is the webhook POST body. The key travels only in the `Authorization` 
   "type": "actions",
   "batch_id": "b-20261017-1a2b3c",
   "sent_at": "2026-10-17T18:20:05+00:00",
-  "client": {"name": "tetherbot", "version": "0.1.0", "host": "fedora"},
+  "client": {"name": "tetherbot", "version": "0.1.0", "host": "desktop"},
   "actions": [
     {
       "action_id": "a-7f3e9c10",
       "item": "primary/primary-20261017-01",
       "action": "approve",
       "args": {},
-      "created": "2026-10-17T18:19:51+00:00"
+      "created": "2026-10-17T18:19:51+00:00",
+      "title": "Approve the sample request or turn it down",
+      "kind": "ask"
     }
   ]
 }
 ```
 
 - `action` is one of `approve`, `veto`, `done`, `reopen`, `run_now`, `note`. `note` carries `args.text` (up to 500 characters). It is the only free-text field.
+- `title` and `kind` are optional copies of the item the desktop had when it sent the batch. Webhook-only mode has no feed file on the bot, so these two fields are how the receiver knows what was clicked. Omit them when the item is no longer in the bridge store. Readers that do not know the fields ignore them.
+- `client.host` is the label `desktop`. It is not the machine's hostname. `client.version` is the bridge version, `0.1.0` for this milestone.
+- The `actions` array is in `created` order, oldest first. Every action in the batch is sent, including two clicks on the same item. The receiver applies that array in order. For one item, the last action wins.
 - `snooze` stays on the machine by default, in `local.snoozed_until`.
 - `action_id` is stable so the bot can drop a duplicate after a timeout retry.
-- A ping batch is `{"schema": "tetherbot/1", "type": "ping"}`. A test ping spends a bot run, so it happens only when the user asks for it.
+- A ping is `{"schema":"tetherbot/1","type":"ping"}` plus optional `sent_at` and `client` (same object as on an action batch). A receiver that only checks `schema` and `type` still treats it as a ping. A test ping spends a bot run, so it happens only when the user asks for it.
+
+```json
+{
+  "schema": "tetherbot/1",
+  "type": "ping",
+  "sent_at": "2026-10-17T18:20:05+00:00",
+  "client": {"name": "tetherbot", "version": "0.1.0", "host": "desktop"}
+}
+```
 
 ## Legacy inbox
 

@@ -9,8 +9,10 @@ replaced with an empty list. The bridge stages only ``desktop/`` and
 ``https-token`` runs git through ``git-credential-tetherbot``. The token
 stays in libsecret and is not put in a remote URL, ``.git/config``, argv,
 or the log. ``ssh-deploy-key`` stays deferred and does not spawn git.
-``desktop/outbox`` is still a v0.2 path. Importing this module does not
-import PyGObject.
+``desktop/outbox`` is still a v0.2 path. A rejected push or a stale feed
+does not stretch the poll interval: the next ``ls-remote`` stays on
+``poll_seconds``. Transport failures still back off. Importing this module
+does not import PyGObject.
 """
 
 from __future__ import annotations
@@ -180,51 +182,45 @@ class GitHubPoller:
         if kind == "https" and self._keyring_locked():
             self.last_error = "keyring locked"
             self._set_overlay("degraded", "keyring locked")
-            self._schedule(now, failed=True)
+            self._schedule_transport_failure(now)
             return
         if kind == "https" and not self._resolved_helper():
             self._refuse("https")
-            self._schedule(now, failed=True)
+            self._schedule_transport_failure(now)
             return
         if kind not in {"file", "https"}:
             self._refuse(kind)
-            self._schedule(now, failed=True)
+            self._schedule_transport_failure(now)
             return
         clone = self._clone_dir(remote)
         if clone is None:
-            self._schedule(now, failed=True)
+            self._schedule_transport_failure(now)
             return
         if (clone / ".git").is_dir() and not self._ensure_https_credentials(clone):
-            self._schedule(now, failed=True)
+            self._schedule_transport_failure(now)
             return
         sha = self._ls_remote(remote)
         if sha is None:
             self.last_error = "ls-remote failed"
             self._set_overlay("degraded", "ls-remote failed")
             _LOG.info("github-poller ls-remote failed")
-            self._schedule(now, failed=True)
+            self._schedule_transport_failure(now)
             return
         if sha == self._sha and (clone / ".git").is_dir():
             if self._needs_push:
                 self._push_with_retry(clone)
                 if not self._closed and not self._needs_push:
                     self._remember_remote(remote)
-                self._schedule(now, failed=self._closed or self._needs_push)
-                return
-            if self.stale:
+            if self.stale and not self._closed:
                 self._read_tree(clone)
-            if not self._closed and not self.stale:
-                self._clear_overlay()
-                self.last_error = ""
-            _LOG.info("github-poller unchanged")
-            self._schedule(now, failed=self._closed or bool(self.stale))
+            self._finish_readable(now, changed=False)
             return
         if not (clone / ".git").is_dir():
             if not self._clone(remote, clone):
-                self._schedule(now, failed=True)
+                self._schedule_transport_failure(now)
                 return
         elif not self._pull(clone):
-            self._schedule(now, failed=True)
+            self._schedule_transport_failure(now)
             return
         self._read_tree(clone)
         self._write_state(clone)
@@ -233,13 +229,7 @@ class GitHubPoller:
         else:
             self._sha = sha
             self._store_sha()
-        if not self._closed and not self.stale:
-            self._clear_overlay()
-            self.last_error = ""
-            _LOG.info("github-poller updated")
-        elif not self._closed:
-            _LOG.info("github-poller stale")
-        self._schedule(now, failed=self._closed or bool(self.stale) or self._needs_push)
+        self._finish_readable(now, changed=True)
 
     def commit_paths(self, paths: list[str]) -> bool:
         """Stage owned paths only. A refused path is not passed to git."""
@@ -370,9 +360,11 @@ class GitHubPoller:
                 self._close("rebase conflict")
                 return False
         self._needs_push = True
+        _LOG.info("github-poller push rejected")
+        if self.stale:
+            return False
         self.last_error = "push rejected"
         self._set_overlay("degraded", "push rejected")
-        _LOG.info("github-poller push rejected")
         return False
 
     def _clone(self, remote: str, dest: Path) -> bool:
@@ -541,6 +533,31 @@ class GitHubPoller:
         if row is None or row.poll_seconds is None:
             return 120
         return int(row.poll_seconds)
+
+    def _finish_readable(self, now: datetime, *, changed: bool) -> None:
+        """Schedule the next poll at the normal interval.
+
+        A stale feed or a rejected push is a successful read of the remote.
+        Neither one may grow the transport backoff, or a later fix sits
+        unseen until the delay hits 15 minutes.
+        """
+
+        if self._closed:
+            self._schedule_poll(now)
+            return
+        if not self.stale and not self._needs_push:
+            self._clear_overlay()
+            self.last_error = ""
+            _LOG.info("github-poller updated" if changed else "github-poller unchanged")
+        elif self.stale:
+            _LOG.info("github-poller stale")
+        self._schedule_poll(now)
+
+    def _schedule_poll(self, now: datetime) -> None:
+        self._schedule(now, failed=False)
+
+    def _schedule_transport_failure(self, now: datetime) -> None:
+        self._schedule(now, failed=True)
 
     def _schedule(self, now: datetime, *, failed: bool) -> None:
         interval = self._interval()

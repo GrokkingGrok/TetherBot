@@ -20,7 +20,9 @@ Steps:
    details, Routines, the routine, Webhook) and then run
    `tetherbotctl secret set <bot>-actions` in my own terminal so I paste the URL
    and key there myself. Then set [bots.<bot>] webhook_slot in
-   ~/.config/tetherbot/config.toml.
+   ~/.config/tetherbot/config.toml. mode = "webhook-only" does not enable the
+   sender. [adapters.webhook-sender] enabled has to be true, which
+   `tetherbotctl enable webhook` does.
 4. Optional repo: ask whether I want bot-to-desktop updates. If yes, start from
    template-repo/ and a private repository I create. Walk me through making a
    fine-grained GitHub token limited to that one repo (Contents read and write,

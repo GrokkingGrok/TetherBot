@@ -521,6 +521,79 @@ def test_three_rejected_pushes_stay_degraded(tmp_path: Path):
     assert script.names.count("pull") == 2
 
 
+def test_rejected_push_does_not_delay_the_next_poll(tmp_path: Path):
+    repo = tmp_path / "repo"
+    _git(None, "init", "-b", "main", str(repo))
+    _git(repo, "config", "receive.denyCurrentBranch", "refuse")
+    _write_json(repo / "feed" / "primary.json", _feed())
+    _git(repo, "add", "feed/primary.json")
+    _git(repo, "commit", "-m", "seed feed")
+    remote = repo.resolve().as_uri()
+    run, calls = _recording(tmp_path / "state" / "git-home")
+    daemon, clock = _start(tmp_path, remote, git=run)
+    daemon.tick_poller()
+    assert daemon.reason == "push rejected"
+    assert daemon.poller._backoff == 0
+    assert daemon.poller.next_poll() == int((clock.current + timedelta(seconds=60)).timestamp())
+
+    def poll_once() -> None:
+        clock.current += timedelta(seconds=60)
+        mark = len(calls)
+        daemon.tick_poller()
+        assert calls[mark][0] == "ls-remote"
+        assert daemon.poller._backoff == 0
+        assert daemon.poller.next_poll() == int((clock.current + timedelta(seconds=60)).timestamp())
+
+    poll_once()
+    payload = _feed("Ship the sample")
+    payload["items"][0]["updated_at"] = "2026-10-17T11:50:00+00:00"
+    _write_json(repo / "feed" / "primary.json", payload)
+    _git(repo, "add", "feed/primary.json")
+    _git(repo, "commit", "-m", "retitle")
+    poll_once()
+    assert daemon.store.get(KEY).title == "Ship the sample"
+
+    broken = _feed("Ship the sample")
+    broken["schema"] = "tetherbot/2"
+    broken["items"][0]["updated_at"] = "2026-10-17T11:55:00+00:00"
+    _write_json(repo / "feed" / "primary.json", broken)
+    _git(repo, "add", "feed/primary.json")
+    _git(repo, "commit", "-m", "future schema")
+    poll_once()
+    assert daemon.store.get(KEY).title == "Ship the sample"
+    assert "unsupported schema tetherbot/2" in daemon.reason
+    assert daemon.poller.stale == ["feed/primary.json"]
+
+    fixed = _feed("Recovered sample")
+    fixed["items"][0]["updated_at"] = "2026-10-17T12:10:00+00:00"
+    _write_json(repo / "feed" / "primary.json", fixed)
+    _git(repo, "add", "feed/primary.json")
+    _git(repo, "commit", "-m", "schema restored")
+    poll_once()
+    assert daemon.store.get(KEY).title == "Recovered sample"
+    assert daemon.poller.stale == []
+    assert daemon.poller._backoff == 0
+
+
+def test_ls_remote_failure_still_backs_off(tmp_path: Path):
+    remote = (tmp_path / "missing.git").resolve().as_uri()
+
+    def run(args: list[str], cwd: Path | None) -> GitResult:
+        del args, cwd
+        return GitResult(1, "", "ls-remote failed")
+
+    daemon, clock = _start(tmp_path, remote, git=run)
+    daemon.tick_poller()
+    assert daemon.poller.next_poll() == int((clock.current + timedelta(seconds=60)).timestamp())
+    clock.current += timedelta(seconds=60)
+    daemon.tick_poller()
+    assert daemon.poller.next_poll() == int((clock.current + timedelta(seconds=120)).timestamp())
+    mark_next = daemon.poller.next_poll()
+    clock.current += timedelta(seconds=60)
+    daemon.tick_poller()
+    assert daemon.poller.next_poll() == mark_next
+
+
 def test_import_does_not_load_gi():
     env = os.environ.copy()
     env["PYTHONPATH"] = str(ROOT / "bridge")

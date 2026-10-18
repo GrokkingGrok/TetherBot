@@ -10,7 +10,8 @@ from datetime import timedelta
 from io import StringIO
 from pathlib import Path
 
-from tests.helpers import NOW
+from tests.helpers import NOW, make_item
+from tetherbot import __version__
 from tetherbot.adapters.webhook_sender import (
     PROFILE,
     HttpOutcome,
@@ -63,6 +64,8 @@ class Clock:
 def test_accept_posts_one_bearer_batch_and_records_a_poll_burst(tmp_path: Path):
     script = Script([200])
     daemon, _clock, seen, log = _boot(tmp_path, script)
+    assert daemon.store is not None
+    daemon.store.replace_origin("feed", [make_item()], now=NOW)
     _enqueue(daemon, "a-ok1", NOW - timedelta(seconds=30))
     _enqueue(daemon, "a-ok2", NOW - timedelta(seconds=25))
     daemon.tick_webhook()
@@ -72,9 +75,14 @@ def test_accept_posts_one_bearer_batch_and_records_a_poll_burst(tmp_path: Path):
     assert key == WEBHOOK_KEY
     assert body["schema"] == "tetherbot/1"
     assert body["type"] == "actions"
-    assert body["client"] == {"host": "desktop", "name": "tetherbot", "version": "0.0.0"}
+    assert body["client"] == {"host": "desktop", "name": "tetherbot", "version": __version__}
+    assert __version__ == "0.1.0"
     actions = body["actions"]
     assert [row["action_id"] for row in actions] == ["a-ok1", "a-ok2"]
+    assert actions[0]["title"] == "Approve the sample"
+    assert actions[0]["kind"] == "ask"
+    assert ("PropertiesChanged", (("QueueLength", "Counts"),)) in seen
+    assert daemon.api.properties()["QueueLength"] == 0
     assert WEBHOOK_KEY not in json.dumps(body)
     assert daemon.queue.snapshot() == ()
     assert ("ActionResult", ("a-ok1", "accepted", "")) in seen
@@ -100,6 +108,8 @@ def test_coalesce_and_pace_send_one_post(tmp_path: Path):
     daemon.tick_webhook()
     assert len(script.calls) == 1
     assert len(script.calls[0][2]["actions"]) == 2
+    assert "title" not in script.calls[0][2]["actions"][0]
+    assert "kind" not in script.calls[0][2]["actions"][0]
     _enqueue(daemon, "a-pace1", clock.moment)
     clock.moment = NOW + timedelta(seconds=40)
     daemon.tick_webhook()
@@ -153,7 +163,7 @@ def test_rate_cap_parks_on_the_eighth_try(tmp_path: Path):
 
 def test_rejected_key_stops_the_route_until_retry(tmp_path: Path):
     script = Script([401, 200])
-    daemon, clock, seen, _log = _boot(tmp_path, script)
+    daemon, clock, seen, log = _boot(tmp_path, script)
     _enqueue(daemon, "a-key1", NOW - timedelta(seconds=30))
     _enqueue(daemon, "a-key2", NOW - timedelta(seconds=30))
     daemon.tick_webhook()
@@ -163,6 +173,13 @@ def test_rejected_key_stops_the_route_until_retry(tmp_path: Path):
     assert daemon.state == "degraded"
     assert daemon.reason == "re-paste key"
     assert daemon.webhook.status().state == "rejected-key"
+    posted = log.getvalue() + (tmp_path / "state" / "bridge.log").read_text(encoding="utf-8")
+    assert "result=rejected_key" in posted
+    assert "status=401" in posted
+    assert WEBHOOK_URL not in posted
+    assert WEBHOOK_KEY not in posted
+    assert ("PropertiesChanged", (("QueueLength", "Counts"),)) in seen
+    assert daemon.api.properties()["QueueLength"] == 0
     notice = next(item for item in seen if item[0] == "NotificationRequested")
     payload = json.loads(notice[1][0])
     assert notice[1][1] == "re-paste"
@@ -309,6 +326,43 @@ def test_plan_table_matches_the_spec():
     done = plan_for(HttpOutcome("timeout"), timeout_retry=True, attempts=2)
     assert done.detail == "timeout"
     assert PROFILE == "routine-webhook-2026-10"
+
+
+def test_locked_keyring_holds_the_action_until_unlock(tmp_path: Path):
+    backend = MemoryBackend()
+    script = Script([200])
+    clock = Clock()
+    log = StringIO()
+    (tmp_path / "config.toml").write_text(_CONFIG, encoding="utf-8")
+    daemon = BridgeDaemon(
+        config_path=tmp_path / "config.toml",
+        state_dir=tmp_path / "state",
+        log_stream=log,
+        clock=clock,
+        secrets=SecretStore(backend),
+        webhook_post=script,
+        webhook_jitter=lambda _delay: 0,
+    )
+    daemon.start()
+    daemon.secrets.put_webhook("primary-actions", WEBHOOK_URL, WEBHOOK_KEY)
+    _enqueue(daemon, "a-lock1", NOW - timedelta(seconds=30))
+    backend._status = "locked"
+    daemon.tick_adapters()
+    assert daemon.state == "degraded"
+    assert daemon.reason == "keyring locked"
+    assert script.calls == []
+    row = daemon.queue.snapshot()[0]
+    assert row.state == "pending"
+    assert row.attempts == 0
+    assert "bridge degraded: keyring locked" in log.getvalue()
+    assert WEBHOOK_URL not in log.getvalue()
+    assert WEBHOOK_KEY not in log.getvalue()
+    backend._status = "available"
+    daemon.tick_adapters()
+    assert len(script.calls) == 1
+    assert daemon.queue.snapshot() == ()
+    assert daemon.state == "ok"
+    assert daemon.reason == ""
 
 
 def test_import_does_not_load_gi():

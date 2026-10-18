@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 """tetherbotctl: status, enable, secret set, and a webhook ping."""
 
+import json
 import os
 import subprocess
 import sys
@@ -75,6 +76,28 @@ def test_status_uses_the_running_bridge():
     assert "mode: full" in lines
     assert "queue: 2" in lines
     assert "running: yes" in lines
+    assert not any(line.startswith("parked:") for line in lines)
+
+
+def test_status_counts_pending_and_parked_separately():
+    context = _context(
+        Path("/unused"),
+        properties=lambda: {
+            "state": "degraded",
+            "reason": "re-paste key",
+            "mode": "full",
+            "queue": 0,
+        },
+        queue=lambda: [
+            {"action_id": "a-1", "state": "parked"},
+            {"action_id": "a-2", "state": "pending"},
+        ],
+    )
+    assert main(["status"], context) == 0
+    lines = _out(context)
+    assert "queue: 0" in lines
+    assert "parked: 1" in lines
+    assert lines[0] == "degraded"
 
 
 def test_enable_rewrites_only_the_named_adapter(tmp_path: Path):
@@ -254,7 +277,13 @@ def test_post_ping_sends_a_bearer_ping_and_returns_the_status():
     request, timeout = opener.seen
     assert timeout == 30
     assert request.get_method() == "POST"
-    assert request.data == b'{"schema":"tetherbot/1","type":"ping"}'
+    payload = json.loads(request.data)
+    assert payload["schema"] == "tetherbot/1"
+    assert payload["type"] == "ping"
+    assert payload["client"] == {"host": "desktop", "name": "tetherbot", "version": "0.1.0"}
+    assert payload["sent_at"]
+    assert WEBHOOK_KEY.encode() not in request.data
+    assert WEBHOOK_URL.encode() not in request.data
     assert request.get_header("Authorization") == f"Bearer {WEBHOOK_KEY}"
     assert request.get_header("Content-type") == "application/json"
 

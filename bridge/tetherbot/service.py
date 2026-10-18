@@ -284,6 +284,15 @@ class BridgeApi:
     def emit_action_result(self, action_id: str, result: str, detail: str) -> None:
         self._emit("ActionResult", action_id, result, mask_secrets(detail))
 
+    def emit_queue_changed(self) -> None:
+        """Tell property watchers that QueueLength and Counts.queued changed.
+
+        Both counts are pending actions only. Parked actions stay in GetQueue
+        and are not included, so a park and an accept both emit this.
+        """
+
+        self._emit_properties("QueueLength", "Counts")
+
     def emit_notification(self, item_json: str, reason: str) -> None:
         self._emit("NotificationRequested", mask_secrets(item_json), reason)
 

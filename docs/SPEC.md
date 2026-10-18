@@ -201,10 +201,12 @@ The normative field tables, JSON examples, and repository ownership rules are in
 
 ### 5.2 Items and actions
 
-- The global key is `<bot>/<id>`.
+- The global key is `<bot>/<id>`. The prefix is the bot id: the same id as `[bots.<id>]` and `feed/<id>.json`. It is not a display name. The webhook slot (`webhook_slot`, for example `primary-actions`) only names the secret. The bridge routes a click to that slot by the bot id.
 - `snooze` does not leave the machine by default.
-- The action POST body carries no secret. The key is only in the `Authorization: Bearer` header.
+- The action POST body carries no secret. The key is only in the `Authorization: Bearer` header. Each action may include the item's `title` and `kind` when the bridge still has that item. Receivers on schema `tetherbot/1` ignore those fields when they are absent.
+- Actions in one batch are in `created` order, oldest first. If the batch has more than one action for the same item, the receiver applies them in that order and the last one wins.
 - `action_id` is stable so the bot can drop a duplicate after an ambiguous timeout.
+- A ping may include `sent_at` and `client` (`name`, `version`, `host`). `host` is the label `desktop`, not the machine's hostname. A body that is only `schema` and `type` is still a ping.
 - The secret guard in PROTOCOL.md redacts secret-shaped item text before it reaches a todo file or a notification.
 
 ### 5.3 Legacy inbox mapping
@@ -226,15 +228,15 @@ Lists of items pass as JSON strings (`s`), so the item model can grow without br
 
 | Name | Type | Meaning |
 |---|---|---|
-| `Version` | s | Bridge version, such as `0.1.0` |
+| `Version` | s | Bridge version. This milestone reports `0.1.0` |
 | `ProtocolVersions` | as | For example `["tetherbot/1"]` |
 | `State` | s | `unconfigured`, `ok`, `degraded`, `offline`, `failed_closed`, `paused` |
 | `StateReason` | s | Short human text for the current state |
 | `Mode` | s | `webhook-only`, `repo-only`, `full` |
-| `Counts` | a{su} | `asks`, `todos`, `watch`, `notifications`, `waiting`, `queued` |
+| `Counts` | a{su} | `asks`, `todos`, `watch`, `notifications`, `waiting`, `queued`. `queued` matches `QueueLength` |
 | `Bots` | s | JSON list: `{name, display_name, state, summary, last_seen, routes:{outbound: bool}}` |
 | `LastSync` | x | Unix time of the last successful poll (0 if never) |
-| `QueueLength` | u | Pending outbound actions |
+| `QueueLength` | u | Pending outbound actions. Parked actions are not included. `GetQueue` lists both. `tetherbotctl status` prints `queue:` for this count and `parked:` for the parked count. A send that accepts or parks emits `PropertiesChanged` for `QueueLength` and `Counts`, including the change to 0 |
 
 ### 6.2 Methods
 
@@ -302,7 +304,7 @@ Unknown, so **TBD, verify** each before relying on it: maximum body size, requir
 Behavior to implement in v0.1:
 
 1. **Routes.** `config.toml` maps each bot to at most one outbound route: `[bots.primary] webhook_slot = "primary-actions"`. The URL and key both live in the secret service under that slot. The URL is sensitive too, because it may carry an id.
-2. **Coalesce.** Actions for one bot wait in a debounce window (default 20 s, max 120 s) and go out as one batch, one POST, one run.
+2. **Coalesce.** Actions for one bot wait in a debounce window (default 20 s, max 120 s) and go out as one batch, one POST, one run. The batch lists actions in `created` order. Conflicting actions for one item are all sent; the receiver applies last-wins.
 3. **Pace.** At most 1 POST per route per 60 s, and at most 30 per route per day (configurable). Over budget, actions wait in the queue and `Counts.queued` shows it.
 4. **Queue.** Every action is written to the state `queue/<action_id>.json` (mode 0600, no secrets) with `fsync` before `PerformAction` returns. A restart resumes the queue.
 5. **Retry and backoff:**
@@ -316,8 +318,8 @@ Behavior to implement in v0.1:
 | 408, 429, 5xx, network error, TLS error | Backoff as for 400, no try limit while offline (`Gio.NetworkMonitor`) |
 | Timeout after the request was sent | Ambiguous: the run may have started. Retry once after backoff with the same `action_id`, so the bot can drop the duplicate. |
 
-6. **Re-paste key.** The notification action calls `RequestSecretEntry("<slot>")`. The dialog names where the key lives ("Bot details, Routines, the routine, Webhook, key") and has two fields (URL and key). After saving, the bridge sends a `{"type":"ping"}` test only if the user ticks "Send a test now", because a test spends usage. The dialog is not built yet, and `RequestSecretEntry` returns false. Until it exists, `tetherbotctl secret set <slot>` stores the secret and, when the bridge is on the bus, retries parked actions for bots that use that slot. HTTP 400 always uses the rate-cap table: the invalid-payload wording is still **TBD, verify**. A 200 records the section 7.3 poll burst. It does not start `github-poller`; a running poller consumes those times.
-7. **Test path.** `tetherbotctl webhook test <bot>` POSTs `{"schema":"tetherbot/1","type":"ping"}` with `Authorization: Bearer` and `Content-Type: application/json`. It prints the status code, never the key or the URL, and does not follow redirects.
+6. **Re-paste key.** The notification action calls `RequestSecretEntry("<slot>")`. The dialog names where the key lives ("Bot details, Routines, the routine, Webhook, key") and has two fields (URL and key). After saving, the bridge sends a ping (section 7.2 item 7) only if the user ticks "Send a test now", because a test spends usage. The dialog is not built yet, and `RequestSecretEntry` returns false. Until it exists, `tetherbotctl secret set <slot>` stores the secret and, when the bridge is on the bus, retries parked actions for bots that use that slot. HTTP 400 always uses the rate-cap table: the invalid-payload wording is still **TBD, verify**. A 200 records the section 7.3 poll burst. It does not start `github-poller`; a running poller consumes those times. The journal line for a completed POST is `webhook post bot=<id> result=<result> status=<code>`. It includes the HTTP status so 401 and 403 can be told apart. It does not include the body, the URL, or the key.
+7. **Test path.** `tetherbotctl webhook test <bot>` POSTs a ping: `schema`, `type` of `ping`, plus optional `sent_at` and `client` (`name`, `version`, `host`). `host` is `desktop`. `Authorization: Bearer` and `Content-Type: application/json` are set. It prints the status code, never the key or the URL, and does not follow redirects. A receiver that only reads `schema` and `type` still accepts the ping.
 
 The routine on the bot side (prompt A) treats the body as data: it acts only on known `action` values for items it owns, and treats `note` text as a message from the user, not as instructions that widen what the routine may do.
 
@@ -328,9 +330,9 @@ The routine on the bot side (prompt A) treats the body as data: it acts only on 
   - `ssh-deploy-key`: a repo-only deploy key via `core.sshCommand`. No token at all.
 - **v0.1 transport.** Git runs for a `file://` remote with an absolute path and no userinfo, and for `https-token` (a plain `https://github.com/...` URL). The https clone gets `credential.helper` reset to empty, then `git-credential-tetherbot --slot github-token`, and `credential.useHttpPath=true`, on that clone only. `ls-remote` and `clone` pass the same helper with `git -c`, because those commands do not have a clone config yet. The helper answers only `protocol=https`, `host=github.com`, and the exact path of the configured remote. If the helper executable is missing, https fails closed without spawning git (`credential helper is not installed`). `ssh-deploy-key` stays deferred: it is accepted in config and then fails closed without spawning git (`deploy key is not configured`). A URL with userinfo is refused. `desktop/outbox` stays v0.2.
 - **Cheap change check.** Every poll first runs `git ls-remote <remote> refs/heads/<branch>` and compares the SHA with the last one seen. Only on a change does it run `git pull --rebase --autostash` and re-read files. An optional REST mode (`GET /repos/{owner}/{repo}/commits/{branch}` with `If-None-Match`) can replace `ls-remote`. GitHub documents that a 304 to an authenticated conditional request does not count against the primary rate limit (5,000 requests per hour for a token). The client reads `x-ratelimit-remaining` and backs off below 10%. It sends the token as an `Authorization` header, through the same helper code path, never in a URL. Rate limits for plain git over HTTPS are not published in detail (**TBD, verify**). Polling every 2 minutes is about 720 checks a day.
-- **Interval.** Default 120 s, minimum 60 s, maximum 900 s. Pause while offline (`Gio.NetworkMonitor`) and stretch to 600 s while the screen is locked (`org.gnome.ScreenSaver` `ActiveChanged`). After a webhook 200, run a **burst**: polls at +30 s, +60 s, +120 s, +240 s, then back to normal. On errors, back off: 2x up to 15 m.
+- **Interval.** Default 120 s, minimum 60 s, maximum 900 s. Pause while offline (`Gio.NetworkMonitor`) and stretch to 600 s while the screen is locked (`org.gnome.ScreenSaver` `ActiveChanged`). After a webhook 200, run a **burst**: polls at +30 s, +60 s, +120 s, +240 s, then back to normal. Transport errors (ls-remote, clone, pull, network) back off: 2x up to 15 m. A stale feed or a rejected push does not. The next poll stays at `poll_seconds`, so a corrected feed is fetched within one interval and a failed push cannot stop polling.
 - **Reading.** Parse `feed/*.json` (schema-gated) and `desktop/state.json`. A JSON parse error in one file marks that source stale. It never wipes items.
-- **Write-back.** Only owned paths (section 4.3), plus any paths a enabled sink explicitly owns. Commit identity for bridge-owned paths: `TetherBot <noreply@localhost>`. Push rejected: `pull --rebase` and retry, max 3. A rebase conflict aborts the rebase and fails closed.
+- **Write-back.** Only owned paths (section 4.3), plus any paths a enabled sink explicitly owns. Commit identity for bridge-owned paths: `TetherBot <noreply@localhost>`. Push rejected: `pull --rebase` and retry, max 3, then stay degraded with reason `push rejected` and try again on the next poll. A non-bare checkout rejects that push; the rehearsal remote in the manual checks is a bare repo. A rebase conflict aborts the rebase and fails closed. A rejected push does not hide a stale-feed reason: when the feed is stale, that schema message stays the bridge reason.
 - **Repo-only outbox.** If a bot has no webhook route, actions append to `desktop/outbox/YYYY-MM.jsonl` (same envelope as PROTOCOL.md) and the bot sees them on its next scheduled run. This is slow and spends no extra runs. Grok Bot git-hosting routine triggers cover PR, review, CI, and issue-assigned events, not plain pushes, so a push to the data repo cannot wake a bot by itself.
 
 ### 7.4 `official` (stub)
@@ -351,7 +353,7 @@ Generic module only. See section 11. Off by default. A concrete legacy inbox for
 
 - Secrets live only in libsecret (GNOME Keyring, login collection). They do not go in `config.toml`, gsettings, dconf, environment variables, unit files, logs, the queue, D-Bus messages, or the extension.
 - libsecret schema `io.github.grokkinggrok.TetherBot.Secret` with attributes `{kind: "webhook" | "github-token", slot: "<slot>"}`. Webhook items store a JSON blob `{url, key}`. Labels are readable in Seahorse, for example "tetherbot: primary actions webhook".
-- If the keyring is locked or missing, the affected adapters wait in state `degraded: keyring locked`, and the bridge shows one notification. It never falls back to a plain file.
+- If the keyring is locked or missing, the affected adapters wait in state `degraded: keyring locked`, and the bridge shows one notification. It never falls back to a plain file. Locked means the default collection (the login keyring) is locked, even when another collection is still open. The bridge reads that Locked property on each tick, logs `bridge degraded: keyring locked` when the lock appears, and does not prompt for the password. A queued action stays `pending` with no attempt until the collection is unlocked, then it sends. Unlocking clears the reason on a later tick.
 - The git token is optional, fine-grained, one repo, and the user picks the expiry. If REST mode sees the `github-authentication-token-expiration` header, warn 7 days ahead.
 - The token goes only through the git credential helper, never in a URL.
 - Redaction: one logging filter masks secret-shaped patterns, plus the exact stored values, before writing to the journal or `bridge.log`.
@@ -386,6 +388,8 @@ Implementation notes for GNOME Shell 50: ESM imports (`resource:///org/gnome/she
 The indicator shows asks plus todos, and dims when the bridge is down, `unconfigured`, or `failed_closed`. The popup lists bots, asks, and todos. Money, watch, the webhook-only sentence, and prefs content stay v0.2. A todo's Done button is shown only when that bot has an outbound route and the item lists `done`. There is no bus method for marking done locally. The prefs window is still the empty page.
 
 ### 9.2 Webhook-only mode (no git token)
+
+`mode = "webhook-only"` does not enable an adapter. The user still sets `[adapters.webhook-sender] enabled = true` (or `tetherbotctl enable webhook`). With no adapter enabled, status stays `unconfigured`.
 
 Works: quick actions per bot ("Run now", plus user presets defined in `config.toml` as fixed `note` texts), the queue, delivery status, retry, and accepted or failed notifications.
 Missing: bot status, counts, asks, todos, and notifications about bot-side events. No path exists today for a bot to push to the desktop without the repo. The popup is meant to say so in one line and link to the docs. That sentence is not in the popup yet. If Grok Bot later ships outbound webhooks, status events, or a desktop hook, that lands as the `official` adapter.

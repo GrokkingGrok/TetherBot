@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import TextIO
 from urllib.parse import urlsplit
 
+from tetherbot.adapters.webhook_sender import ping_body
 from tetherbot.config import ConfigError, load_config, save_adapter_enabled
 from tetherbot.daemon import default_config_path
 from tetherbot.dbus_service import BUS_NAME, INTERFACE, OBJECT_PATH
@@ -32,7 +33,6 @@ _ADAPTERS = {
     "repo": "github-poller",
     "official": "official",
 }
-_PING = b'{"schema":"tetherbot/1","type":"ping"}'
 _POST_TIMEOUT = 30
 
 
@@ -51,6 +51,7 @@ class CtlContext:
     set_enabled: Callable[[str, bool], None] | None
     post: Callable[[str, str], int]
     resume: Callable[[str], None] | None = None
+    queue: Callable[[], list[Mapping[str, object]] | None] | None = None
 
 
 def main(argv: list[str] | None = None, context: CtlContext | None = None) -> int:
@@ -84,6 +85,7 @@ def default_context() -> CtlContext:
         set_enabled=_set_enabled_live(path),
         post=post_ping,
         resume=_resume_live(path),
+        queue=_live_queue,
     )
 
 
@@ -95,7 +97,7 @@ def post_ping(url: str, key: str, *, opener: urllib.request.OpenerDirector | Non
         raise CtlError("webhook url must be https")
     request = urllib.request.Request(
         url,
-        data=_PING,
+        data=ping_body(),
         method="POST",
         headers={
             "Authorization": f"Bearer {key}",
@@ -170,6 +172,15 @@ def dbus_set_adapter(name: str, enabled: bool) -> None:
         )
     except Exception:
         raise CtlError("cannot update the running bridge") from None
+
+
+def _live_queue() -> list[dict[str, object]] | None:
+    if dbus_properties() is None:
+        return None
+    try:
+        return dbus_get_queue()
+    except CtlError:
+        return None
 
 
 def dbus_get_queue() -> list[dict[str, object]]:
@@ -249,11 +260,20 @@ def _status(context: CtlContext) -> int:
             reason=str(live["reason"]),
             mode=str(live["mode"]) or None,
             queue=int(live["queue"]),
+            parked=_parked_count(context),
             running=True,
         )
         return 0
     state, reason, mode = _local_status(context.config_path)
-    _write_status(context.stdout, state=state, reason=reason, mode=mode, queue=None, running=False)
+    _write_status(
+        context.stdout,
+        state=state,
+        reason=reason,
+        mode=mode,
+        queue=None,
+        parked=None,
+        running=False,
+    )
     return 0
 
 
@@ -318,6 +338,17 @@ def _local_status(path: Path) -> tuple[str, str, str | None]:
     return "degraded", "not started: " + ", ".join(enabled), config.mode
 
 
+def _parked_count(context: CtlContext) -> int | None:
+    """Parked rows from GetQueue. Pending actions stay on the ``queue:`` line."""
+
+    if context.queue is None:
+        return None
+    rows = context.queue()
+    if rows is None:
+        return None
+    return sum(1 for row in rows if row.get("state") == "parked")
+
+
 def _write_status(
     stdout: TextIO,
     *,
@@ -325,6 +356,7 @@ def _write_status(
     reason: str,
     mode: str | None,
     queue: int | None,
+    parked: int | None,
     running: bool,
 ) -> None:
     print(state, file=stdout)
@@ -333,6 +365,8 @@ def _write_status(
         print(f"mode: {mode}", file=stdout)
     if queue is not None:
         print(f"queue: {queue}", file=stdout)
+    if parked is not None:
+        print(f"parked: {parked}", file=stdout)
     print("running: yes" if running else "running: no", file=stdout)
 
 

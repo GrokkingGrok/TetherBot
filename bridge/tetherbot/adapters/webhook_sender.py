@@ -161,7 +161,7 @@ class WebhookSender:
         secret = self._lookup(ctx, bot)
         if secret is None:
             return
-        body = _envelope(batch, ctx.now())
+        body = _envelope(batch, ctx.now(), _item_index(ctx))
         timeout_retry = any(action.detail.startswith(_TIMEOUT_PREFIX) for action in batch)
         self._inflight = True
         generation = self._generation
@@ -202,15 +202,15 @@ class WebhookSender:
         except Exception:
             status = "missing"
         if status != "available":
-            self._set_overlay("degraded", "keyring locked")
+            self._hold_for_keyring()
             return None
         try:
             secret = ctx.secrets.get_webhook(bot_config.webhook_slot)
         except SecretLocked:
-            self._set_overlay("degraded", "keyring locked")
+            self._hold_for_keyring()
             return None
         except SecretUnavailable:
-            self._set_overlay("degraded", "keyring locked")
+            self._hold_for_keyring()
             return None
         except SecretError:
             self._set_overlay("degraded", "webhook secret is unreadable")
@@ -274,7 +274,15 @@ class WebhookSender:
         ids = [action.action_id for action in batch]
         if plan.count_post:
             ctx.queue.mark_attempt(bot, ids, now=ctx.now())
-            _LOG.info("webhook post bot=%s result=%s", bot, plan.result)
+            if outcome.status is None:
+                _LOG.info("webhook post bot=%s result=%s", bot, plan.result)
+            else:
+                _LOG.info(
+                    "webhook post bot=%s result=%s status=%s",
+                    bot,
+                    plan.result,
+                    outcome.status,
+                )
         if plan.result == "accepted":
             self._accept(ctx, bot, ids)
             return
@@ -288,6 +296,7 @@ class WebhookSender:
 
     def _accept(self, ctx: Any, bot: str, ids: list[str]) -> None:
         ctx.queue.accept(ids)
+        ctx.api.emit_queue_changed()
         for action_id in ids:
             ctx.api.emit_action_result(action_id, "accepted", "")
         now = ctx.now()
@@ -312,6 +321,7 @@ class WebhookSender:
         for action_id in ids:
             ctx.queue.park(action_id, plan.detail)
             ctx.api.emit_action_result(action_id, plan.result, plan.detail)
+        ctx.api.emit_queue_changed()
         self._stopped[bot] = plan.detail
         self._write_stops()
         self._set_overlay("degraded", plan.detail)
@@ -326,8 +336,15 @@ class WebhookSender:
         for action_id in ids:
             ctx.queue.park(action_id, plan.detail)
             ctx.api.emit_action_result(action_id, plan.result, plan.detail)
+        ctx.api.emit_queue_changed()
         if plan.notify and plan.title:
             self._notify_once(bot, plan.detail, plan.title, plan.detail, "")
+
+    def _hold_for_keyring(self) -> None:
+        """Stay pending. A locked login collection must not count as an attempt."""
+
+        self._set_overlay("degraded", "keyring locked")
+        _LOG.info("webhook waiting: keyring locked")
 
     def _clear_stop(self, bot: str) -> None:
         if bot not in self._stopped:
@@ -517,25 +534,66 @@ def _counted_retry(outcome: HttpOutcome) -> bool:
     return status == 400 or status in {301, 302, 303, 307, 308, 408, 429} or status >= 500
 
 
-def _envelope(batch: tuple[Any, ...], now: datetime) -> bytes:
+def client_info() -> dict[str, str]:
+    """Client label on outbound JSON. ``host`` is not the machine name."""
+
+    return {"name": "tetherbot", "version": __version__, "host": "desktop"}
+
+
+def ping_body(now: datetime | None = None) -> bytes:
+    """Ping POST body. ``sent_at`` and ``client`` are optional for old receivers."""
+
+    moment = datetime.now(UTC) if now is None else now
+    payload = {
+        "schema": SCHEMA_VERSION,
+        "type": "ping",
+        "sent_at": moment.isoformat(),
+        "client": client_info(),
+    }
+    return json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+
+
+def _envelope(batch: tuple[Any, ...], now: datetime, items: dict[str, Any] | None = None) -> bytes:
     payload = {
         "schema": SCHEMA_VERSION,
         "type": "actions",
         "batch_id": f"b-{secrets.token_hex(4)}",
         "sent_at": now.isoformat(),
-        "client": {"name": "tetherbot", "version": __version__, "host": "desktop"},
-        "actions": [
-            {
-                "action_id": action.action_id,
-                "item": action.item,
-                "action": action.action,
-                "args": action.args,
-                "created": action.created,
-            }
-            for action in batch
-        ],
+        "client": client_info(),
+        "actions": [_action_row(action, _known_item(items, action.item)) for action in batch],
     }
     return json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+
+
+def _known_item(items: dict[str, Any] | None, key: str) -> Any:
+    if items is None:
+        return None
+    return items.get(key)
+
+
+def _item_index(ctx: Any) -> dict[str, Any]:
+    store = getattr(ctx, "store", None)
+    if store is None:
+        return {}
+    return {item.key: item for item in store.items()}
+
+
+def _action_row(action: Any, item: Any) -> dict[str, Any]:
+    row: dict[str, Any] = {
+        "action": action.action,
+        "action_id": action.action_id,
+        "args": action.args,
+        "created": action.created,
+        "item": action.item,
+    }
+    if item is not None:
+        title = getattr(item, "title", None)
+        kind = getattr(item, "kind", None)
+        if isinstance(title, str) and title:
+            row["title"] = title
+        if isinstance(kind, str) and kind:
+            row["kind"] = kind
+    return row
 
 
 def _notify_body(plan: Plan) -> str:

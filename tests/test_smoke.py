@@ -5,7 +5,7 @@ import json
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from tetherbot import SCHEMA_VERSION
+from tetherbot import SCHEMA_VERSION, __version__
 from tetherbot.adapters.fake import FakeAdapter
 from tetherbot.dbus_service import (
     BUS_NAME,
@@ -49,7 +49,7 @@ def test_fake_adapter_poll_and_send():
                 "created": "2026-10-17T12:00:00+00:00",
             }
         ],
-        client={"name": "tetherbot", "version": "0.0.0"},
+        client={"name": "tetherbot", "version": __version__},
     )
     sent = adapter.send("primary", [envelope])
     assert sent.status == "accepted"

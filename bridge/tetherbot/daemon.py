@@ -289,6 +289,7 @@ class BridgeDaemon:
             self.base_state = "degraded"
             self.base_reason = "keyring locked"
             self._apply_overlay()
+            logging.getLogger("tetherbot").info("bridge %s: %s", self.state, self.reason)
             if self.api is not None:
                 self.api.publish_state()
             return
@@ -298,6 +299,7 @@ class BridgeDaemon:
                 self.reload_config()
             finally:
                 self._in_keyring_refresh = False
+            logging.getLogger("tetherbot").info("bridge %s: %s", self.state, self.reason)
             if self.api is not None:
                 self.api.publish_state()
 

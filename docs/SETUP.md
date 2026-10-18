@@ -45,4 +45,4 @@ Target machine: Fedora 44, GNOME Shell 50, Wayland, Python 3.13+. Other distribu
 - The extension preferences window only requests that the bridge open its own dialog (`RequestSecretEntry`). The secret never crosses D-Bus.
 - A terminal fallback, `tetherbotctl secret set <slot>`, reads with `getpass` and does not echo.
 
-If the keyring is locked, affected adapters wait in a degraded state. They do not fall back to a plain file.
+If the login keyring is locked, affected adapters wait in a degraded state with reason `keyring locked`. They do not prompt and they do not fall back to a plain file. A queued action stays pending until the keyring is unlocked.

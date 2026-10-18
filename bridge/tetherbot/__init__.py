@@ -10,7 +10,7 @@ implemented. ``webhook-sender`` posts only when that adapter is enabled.
 ``ssh-deploy-key``, the key dialog, and ``repo setup`` are not built yet.
 """
 
-__version__ = "0.0.0"
+__version__ = "0.1.0"
 
 SCHEMA_NAME = "tetherbot"
 SCHEMA_MAJOR = 1

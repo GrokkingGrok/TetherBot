@@ -96,7 +96,7 @@ Leave it running.
 
 **Preconditions.** The "Desktop actions" routine exists. You can see **POST to** and **key** in its Webhook section. M2's bridge is running.
 
-**Commands.** Edit `~/.config/tetherbot/config.toml` so the bot and the slot exist. Adapters can stay disabled for the test command. Example, with your bot id in place of `primary`:
+**Commands.** Edit `~/.config/tetherbot/config.toml` so the bot, the slot, and the webhook sender exist. `mode = "webhook-only"` does not enable an adapter by itself. With the sender left disabled, status stays `unconfigured` (`no adapter is enabled`) even after a test POST returns 200. The test command below posts from `tetherbotctl`, and later clicks post from the bridge, so the sender has to be enabled too. Example, with your bot id in place of `primary`:
 
 ```toml
 schema = "tetherbot/1"
@@ -105,11 +105,19 @@ schema = "tetherbot/1"
 mode = "webhook-only"
 
 [adapters.webhook-sender]
-enabled = false
+enabled = true
 
 [bots.primary]
 webhook_slot = "primary-actions"
 ```
+
+Restart so the bridge reads that file:
+
+```bash
+systemctl --user restart tetherbot
+```
+
+`tetherbotctl enable webhook` is the same switch if the file already has the bot and the slot.
 
 Store the URL and the key. The prompts do not echo. Paste **POST to** at the first prompt and **key** at the second. Paste them nowhere else.
 
@@ -128,8 +136,9 @@ tetherbotctl webhook test primary
 **Look for.**
 
 - The terminal prints `200` and no URL and no key.
-- In that bot's chat, a reply that says `Desktop bridge connected`.
-- `journalctl --user -u tetherbot -n 50 --no-pager` does not contain the key or the URL.
+- In that bot's chat, a reply that says `Desktop bridge connected`. The ping body may include `sent_at` and `client`. The bot treats that as a ping.
+- `tetherbotctl status` is not `unconfigured`. With only the webhook sender enabled it is `ok` and the reason line is empty.
+- `journalctl --user -u tetherbot -n 50 --no-pager` does not contain the key or the URL. The test POST is made by `tetherbotctl`, so the journal may not have a `webhook post` line for it.
 
 Write down the HTTP status. The exact success body is still an open question (**TBD, verify** in [ROADMAP.md](ROADMAP.md)). A status other than 200 means no run started. Do not paste the response body into a chat.
 
@@ -139,17 +148,27 @@ Write down the HTTP status. The exact success body is still an open question (**
 
 **Preconditions.** M3's webhook secret is stored. M14's extension is enabled (log out and back in first). The popup shows an open ask. That ask comes from `feed/<bot>.json` after M10, or from the local rehearsal repo below.
 
-**Local rehearsal, if you have not done M10.** This does not contact GitHub.
+**Local rehearsal, if you have not done M10.** This does not contact GitHub. The bridge pushes `desktop/state.json`. Point it at a bare repo. A normal checkout rejects that push.
 
 ```bash
+rm -rf "$HOME/tetherbot-rehearsal" "$HOME/tetherbot-rehearsal.git"
 mkdir -p "$HOME/tetherbot-rehearsal"
 cp -a template-repo/. "$HOME/tetherbot-rehearsal/"
 git -C "$HOME/tetherbot-rehearsal" init -b main
 git -C "$HOME/tetherbot-rehearsal" add .
 git -C "$HOME/tetherbot-rehearsal" -c user.name=TetherBot -c user.email=noreply@localhost commit -m "Example feed"
+git init --bare -b main "$HOME/tetherbot-rehearsal.git"
+git -C "$HOME/tetherbot-rehearsal" remote add origin "$HOME/tetherbot-rehearsal.git"
+git -C "$HOME/tetherbot-rehearsal" push -u origin main
 ```
 
-In `~/.config/tetherbot/config.toml`, set:
+Edit the feed in `$HOME/tetherbot-rehearsal` and push to the bare repo. The bridge's remote is the bare repo, not the checkout.
+
+In `~/.config/tetherbot/config.toml`, set `remote` to `file://` plus the absolute path of the bare repo:
+
+```bash
+git -C "$HOME/tetherbot-rehearsal.git" rev-parse --absolute-git-dir
+```
 
 ```toml
 [bridge]
@@ -157,12 +176,12 @@ mode = "full"
 
 [adapters.github-poller]
 enabled = true
-remote = "file:///home/YOUR_USER/tetherbot-rehearsal"
+remote = "file:///ABSOLUTE/PATH/tetherbot-rehearsal.git"
 branch = "main"
 poll_seconds = 60
 ```
 
-Use the absolute path `git -C "$HOME/tetherbot-rehearsal" rev-parse --show-toplevel` prints, with a `file://` prefix. No token in the URL.
+No token in the URL. Leave `[adapters.webhook-sender] enabled = true` from M3.
 
 ```bash
 tetherbotctl enable webhook
@@ -183,8 +202,9 @@ gdbus monitor --session --dest io.github.grokkinggrok.TetherBot1
 **Look for.**
 
 - One `ActionResult` whose result is `accepted`.
-- The bot's chat shows the approval. The routine's instruction says to deliver the result there.
-- `tetherbotctl status` shows `queue: 0` after the send.
+- A `PropertiesChanged` signal whose `QueueLength` is 0. The extension reads that signal for the queued count.
+- The bot's chat shows the approval. The routine's instruction says to deliver the result there. The POST may include the item `title` and `kind`.
+- `tetherbotctl status` shows `queue: 0` after the send. `queue:` counts pending actions only.
 
 **Reset.** Leave the ask. You can veto or ignore later items. Stop the monitor with Ctrl+C.
 
@@ -304,9 +324,9 @@ gdbus call --session \
 **Look for.**
 
 - Status is `degraded` and the reason is `re-paste key`.
-- The queued action is `parked`.
+- The action is `parked` in `GetQueue`. `tetherbotctl status` shows `queue: 0` and `parked: 1`. `queue:` is pending actions only. Parked actions stay in `GetQueue` and do not count as pending. They are not sent again until you store the real key or call `RetryParked`.
 - A notification titled `Re-paste key`. The button does not open a dialog in this release. That is expected.
-- Write down the HTTP status if you can see it in the journal as a result line. The bridge treats 401 and 403 as a bad key. Whether the live routine uses 401 or 403 is **TBD, verify**. If you see a different status, stop and note the number in the open checks. Do not copy a response body into a chat.
+- The journal has a line `webhook post bot=<id> result=rejected_key status=<code>`. Write down that code. The bridge treats 401 and 403 as a bad key. Whether the live routine uses 401 or 403 is **TBD, verify**. If you see a different status, stop and note the number in the open checks. The line has no response body, no URL, and no key. Do not copy a response body into a chat.
 
 Put the real key back. Paste the real URL and the real key at the hidden prompts:
 
@@ -417,7 +437,7 @@ tetherbotctl status
 - The reason names `feed/<bot>.json`, says `unsupported schema tetherbot/2`, and says `update tetherbot`.
 - The previous ask is still listed. It is stale: new fields from the `tetherbot/2` file are not invented, and the old item was not wiped.
 
-**Reset.** Change the schema back to `tetherbot/1`, push, and wait one poll. Status returns to `ok` when the file is readable again and nothing else is wrong.
+**Reset.** Change the schema back to `tetherbot/1`, push, and wait one poll interval. On the rehearsal repo, commit in the checkout and push to the bare remote. A degraded feed does not slow the next poll: the fix shows up within `poll_seconds`, including when an earlier push was rejected. Status returns to `ok` when the file is readable again and nothing else is wrong. If the journal still says `push rejected`, the remote is not the bare repo from M4. Polling continues; desktop state is not updated until a push succeeds.
 
 ## M12. Lock the keyring
 
@@ -440,8 +460,10 @@ tetherbotctl status
 
 **Look for.**
 
-- Status is `degraded` and the reason is `keyring locked`.
+- Within a few seconds, status is `degraded` and the reason is `keyring locked`. This is the login collection. Another collection that is still open does not keep status at `ok`.
+- `journalctl --user -u tetherbot -n 20 --no-pager` has a line `bridge degraded: keyring locked`.
 - No new file appears under `~/.config/tetherbot` or `~/.local/state/tetherbot` that you did not create. The bridge does not write a plain-file copy of the token or the key. M13 checks that directly.
+- Optional: click one action while the keyring stays locked. It remains `pending` with `attempts` 0. There is no `webhook post` line. Status stays `degraded` / `keyring locked`, and `queue:` is 1.
 
 **Reset.** Unlock the login keyring. This asks for your login password in a dialog:
 
@@ -452,7 +474,7 @@ busctl --user call org.freedesktop.secrets \
   Unlock ao 1 /org/freedesktop/secrets/collection/login
 ```
 
-Within a few seconds, `tetherbotctl status` leaves `keyring locked`.
+Within a few seconds, `tetherbotctl status` leaves `keyring locked`. An action that was waiting goes out on the next send. Do not click it again.
 
 ## M13. Secret sweep
 

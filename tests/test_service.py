@@ -66,7 +66,7 @@ def test_properties_and_filtered_items(tmp_path: Path):
     api = daemon.api
     assert api is not None
     props = api.properties()
-    assert props["Version"] == "0.0.0"
+    assert props["Version"] == "0.1.0"
     assert props["ProtocolVersions"] == ["tetherbot/1"]
     assert props["State"] == "unconfigured"
     assert props["Mode"] == "webhook-only"

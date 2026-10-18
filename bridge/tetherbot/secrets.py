@@ -171,20 +171,42 @@ class LibsecretBackend:
         self._schema = build_schema()
 
     def status(self) -> str:
-        secret, service = _secret_service()
+        """Report the login collection, not whichever other collection is open.
+
+        Secrets are stored in the default alias (the login keyring). A session
+        collection can stay unlocked after that login collection is locked.
+        The Locked property is read from the service so a cached proxy value
+        from startup cannot hide a later lock.
+        """
+
+        module, service = _secret_service()
         if service is None:
             return "missing"
         try:
             service.load_collections_sync(None)
-            collections = service.get_collections() or []
+            collections = list(service.get_collections() or [])
+            default = module.Collection.for_alias_sync(
+                service,
+                "default",
+                module.CollectionFlags.NONE,
+                None,
+            )
         except Exception:
             return "missing"
-        del secret
-        if not collections:
-            return "missing"
-        if all(bool(collection.get_locked()) for collection in collections):
-            return "locked"
-        return "available"
+        default_locked: bool | None = None
+        if default is not None:
+            default_locked = _collection_locked(default)
+        else:
+            login = _login_collection(collections)
+            if login is not None:
+                default_locked = _collection_locked(login)
+        locks: list[bool] = []
+        for collection in collections:
+            try:
+                locks.append(_collection_locked(collection))
+            except Exception:
+                continue
+        return keyring_availability(default_locked=default_locked, collection_locks=locks)
 
     def store(self, kind: str, slot: str, label: str, secret: str) -> None:
         module = _secret_module()
@@ -271,6 +293,70 @@ def _secret_service() -> tuple[object, object | None]:
     except Exception:
         return module, None
     return module, service
+
+
+def keyring_availability(*, default_locked: bool | None, collection_locks: list[bool]) -> str:
+    """``available``, ``locked``, or ``missing``.
+
+    ``default_locked`` is the login collection (the ``default`` alias). A
+    locked login collection is locked even when another collection is open.
+    When that alias is absent, every collection has to be locked.
+    """
+
+    if default_locked is True:
+        return "locked"
+    if default_locked is False:
+        return "available"
+    if not collection_locks:
+        return "missing"
+    if all(collection_locks):
+        return "locked"
+    return "available"
+
+
+def _collection_locked(collection: object) -> bool:
+    """Read Locked from the bus. Fall back to the proxy if that call fails."""
+
+    try:
+        import gi
+
+        gi.require_version("Gio", "2.0")
+        gi.require_version("GLib", "2.0")
+        from gi.repository import Gio, GLib
+
+        result = collection.call_sync(  # type: ignore[attr-defined]
+            "org.freedesktop.DBus.Properties.Get",
+            GLib.Variant("(ss)", ("org.freedesktop.Secret.Collection", "Locked")),
+            Gio.DBusCallFlags.NONE,
+            2000,
+            None,
+        )
+        return _locked_value(result.unpack())
+    except Exception:
+        getter = getattr(collection, "get_locked", None)
+        if getter is None:
+            return False
+        return bool(getter())
+
+
+def _locked_value(value: object) -> bool:
+    current = value
+    if isinstance(current, tuple):
+        current = current[0] if current else False
+    unpack = getattr(current, "unpack", None)
+    if unpack is not None:
+        current = unpack()
+    if isinstance(current, tuple):
+        current = current[0] if current else False
+    return bool(current)
+
+
+def _login_collection(collections: list[object]) -> object | None:
+    for collection in collections:
+        path = str(getattr(collection, "get_object_path", lambda: "")() or "")
+        if path.rstrip("/").endswith("/login"):
+            return collection
+    return None
 
 
 def _from_service(exc: Exception) -> SecretError:

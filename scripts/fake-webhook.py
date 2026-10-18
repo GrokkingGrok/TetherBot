@@ -25,11 +25,22 @@ working while it is set. Paste the URL and a throwaway key into
 from __future__ import annotations
 
 import argparse
+import os
 import ssl
 import subprocess
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+
+# Distro stores. OpenSSL on Fedora often leaves cafile unset and uses the
+# pki bundle, or only a capath directory.
+_CA_FILES = (
+    "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem",
+    "/etc/pki/tls/certs/ca-bundle.crt",
+    "/etc/ssl/certs/ca-certificates.crt",
+    "/etc/ssl/cert.pem",
+    "/etc/ssl/certs/ca-bundle.crt",
+)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -63,10 +74,11 @@ class Handler(BaseHTTPRequestHandler):
 
     def log_message(self, fmt: str, *args: object) -> None:
         del fmt, args
-        sys.stderr.write("fake-webhook: request handled\n")
+        _say(sys.stderr, "fake-webhook: request handled")
 
 
 def main(argv: list[str] | None = None) -> int:
+    _configure_stdio()
     parser = argparse.ArgumentParser(prog="fake-webhook")
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--dir", type=Path, default=None)
@@ -88,19 +100,19 @@ def main(argv: list[str] | None = None) -> int:
     context.load_cert_chain(certfile=cert, keyfile=key)
     server.socket = context.wrap_socket(server.socket, server_side=True)
     url = f"https://127.0.0.1:{args.port}/hook"
-    print(f"URL: {url}")
-    print(f"bundle: {bundle}")
-    print("Trust this bundle for the check only:")
-    print(f"  systemctl --user set-environment SSL_CERT_FILE={bundle}")
-    print("  systemctl --user restart tetherbot")
-    print("When finished:")
-    print("  systemctl --user unset-environment SSL_CERT_FILE")
-    print("  systemctl --user restart tetherbot")
-    print("This server returns HTTP 400 and does not print the request.")
+    _say(sys.stdout, f"URL: {url}")
+    _say(sys.stdout, f"bundle: {bundle}")
+    _say(sys.stdout, "Trust this bundle for the check only:")
+    _say(sys.stdout, f"  systemctl --user set-environment SSL_CERT_FILE={bundle}")
+    _say(sys.stdout, "  systemctl --user restart tetherbot")
+    _say(sys.stdout, "When finished:")
+    _say(sys.stdout, "  systemctl --user unset-environment SSL_CERT_FILE")
+    _say(sys.stdout, "  systemctl --user restart tetherbot")
+    _say(sys.stdout, "This server returns HTTP 400 and does not print the request.")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("stopped", file=sys.stderr)
+        _say(sys.stderr, "stopped")
     finally:
         server.server_close()
     return 0
@@ -114,8 +126,6 @@ def _default_dir() -> Path:
 
 
 def os_runtime() -> Path | None:
-    import os
-
     value = os.environ.get("XDG_RUNTIME_DIR", "").strip()
     if not value:
         return None
@@ -156,17 +166,97 @@ def _certificate(cert: Path, key: Path) -> bool:
 
 
 def _bundle(cert: Path, bundle: Path) -> bool:
-    cafile = ssl.get_default_verify_paths().cafile
-    if not cafile:
-        print("the system certificate store was not found", file=sys.stderr)
-        return False
-    system = Path(cafile)
-    if not system.is_file():
-        print("the system certificate store was not found", file=sys.stderr)
+    system = system_ca_file(exclude=bundle)
+    if system is None:
+        _say(sys.stderr, "the system certificate store was not found")
         return False
     bundle.write_bytes(system.read_bytes() + b"\n" + cert.read_bytes())
     bundle.chmod(0o600)
     return True
+
+
+def system_ca_file(*, exclude: Path | None = None) -> Path | None:
+    """First readable CA bundle. Fedora's OpenSSL often has no default cafile."""
+
+    skip = None if exclude is None else exclude.resolve()
+    for candidate in _ca_candidates():
+        try:
+            if skip is not None and candidate.resolve() == skip:
+                continue
+        except OSError:
+            continue
+        if candidate.is_file():
+            return candidate
+    return _bundle_capath()
+
+
+def _ca_candidates() -> list[Path]:
+    found: list[Path] = []
+    env = os.environ.get("SSL_CERT_FILE", "").strip()
+    if env:
+        found.append(Path(env))
+    paths = ssl.get_default_verify_paths()
+    if paths.cafile:
+        found.append(Path(paths.cafile))
+    found.extend(Path(item) for item in _CA_FILES)
+    return found
+
+
+def _bundle_capath() -> Path | None:
+    """Concatenate PEM files from the OpenSSL capath when no single bundle exists."""
+
+    paths = ssl.get_default_verify_paths()
+    capath = paths.capath
+    if not capath:
+        return None
+    directory = Path(capath)
+    if not directory.is_dir():
+        return None
+    chunks: list[bytes] = []
+    for path in sorted(directory.iterdir()):
+        if not path.is_file():
+            continue
+        if path.suffix not in {".pem", ".crt"}:
+            continue
+        try:
+            data = path.read_bytes()
+        except OSError:
+            continue
+        if b"BEGIN CERTIFICATE" not in data:
+            continue
+        chunks.append(data)
+    if not chunks:
+        return None
+    return _write_capath_bundle(chunks)
+
+
+def _write_capath_bundle(chunks: list[bytes]) -> Path:
+    runtime = os_runtime()
+    directory = runtime if runtime is not None else Path.home() / ".local" / "state" / "tetherbot"
+    directory.mkdir(parents=True, exist_ok=True)
+    target = directory / "tetherbot-ca-capath.pem"
+    target.write_bytes(b"\n".join(chunks) + b"\n")
+    target.chmod(0o600)
+    return target
+
+
+def _configure_stdio() -> None:
+    """Line-buffer stdout and stderr when they are not a terminal."""
+
+    for stream in (sys.stdout, sys.stderr):
+        if stream is None or stream.isatty():
+            continue
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        try:
+            reconfigure(line_buffering=True)
+        except (OSError, ValueError):
+            continue
+
+
+def _say(stream: object, text: str) -> None:
+    print(text, file=stream, flush=True)
 
 
 if __name__ == "__main__":

@@ -20,7 +20,10 @@ from tetherbot.secrets import (
     SecretUnavailable,
     SecretValueError,
     UnavailableBackend,
+    _locked_value,
+    _login_collection,
     build_schema,
+    keyring_availability,
     open_secret_store,
 )
 
@@ -140,6 +143,56 @@ def test_open_store_does_not_create_a_file(
         pytest.skip("Secret-1 typelib is not installed")
     assert store.status() in {"available", "locked", "missing"}
     assert list(tmp_path.iterdir()) == []
+
+
+def test_login_collection_lock_wins_over_an_unlocked_session_collection():
+    assert keyring_availability(default_locked=True, collection_locks=[True, False]) == "locked"
+    assert keyring_availability(default_locked=False, collection_locks=[True]) == "available"
+    assert keyring_availability(default_locked=None, collection_locks=[]) == "missing"
+    assert keyring_availability(default_locked=None, collection_locks=[True, True]) == "locked"
+    assert keyring_availability(default_locked=None, collection_locks=[False, True]) == "available"
+
+
+def test_locked_property_is_read_from_the_bus_value():
+    class Boxed:
+        def unpack(self) -> tuple[bool]:
+            return (True,)
+
+    assert _locked_value(Boxed()) is True
+    assert _locked_value((False,)) is False
+
+    class Collection:
+        def __init__(self, path: str) -> None:
+            self.path = path
+
+        def get_object_path(self) -> str:
+            return self.path
+
+    login = Collection("/org/freedesktop/secrets/collection/login")
+    session = Collection("/org/freedesktop/secrets/collection/session")
+    found = _login_collection([session, login])
+    assert found is login
+
+
+def test_live_locked_property_beats_a_stale_cache():
+    gi = pytest.importorskip("gi")
+    del gi
+
+    class Reply:
+        def unpack(self) -> tuple[bool]:
+            return (True,)
+
+    class Collection:
+        def call_sync(self, method: str, *_args: object) -> Reply:
+            assert method == "org.freedesktop.DBus.Properties.Get"
+            return Reply()
+
+        def get_locked(self) -> bool:
+            return False
+
+    from tetherbot.secrets import _collection_locked
+
+    assert _collection_locked(Collection()) is True
 
 
 def test_import_does_not_load_secret():

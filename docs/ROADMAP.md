@@ -13,8 +13,8 @@ TetherBot is pre-alpha. Check items off as they land. Design detail is in [SPEC.
 - [x] `tetherbotctl` for status, enable, secret set, and webhook test
 - [x] `webhook-sender`: POST, bearer header, retry table in SPEC section 7.2, re-paste flow
 - [x] `github-poller`: change check, schema gate, owned-path writes, fail closed on rebase conflicts
-- [ ] Minimal extension: indicator counts, popup (bots, todos, asks), notifications with actions
-- [ ] Extension talks only D-Bus; proxy and handlers dropped in `disable()`
+- [x] Minimal extension: indicator counts, popup (bots, todos, asks), notifications with actions
+- [x] Extension talks only D-Bus; proxy and handlers dropped in `disable()`
 - [ ] Manual checks M1–M8 and M10–M14
 - [x] Concrete legacy inbox format stays out of this public repo. The in-tree `legacy-todo` sink stays generic.
 - [ ] Manual checks M15 and M16 only if a sink outside this repo is enabled

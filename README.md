@@ -2,7 +2,7 @@
 
 Keep your GNOME desktop tethered to your AI bots.
 
-**Status: pre-alpha, under construction.** Config, the item store, the action queue, the bridge process, the session bus service, secret-service storage, `tetherbotctl`, `webhook-sender`, and `github-poller` are in place. The sender posts only when that adapter is enabled. `tetherbotctl webhook test` can also send one ping. The poller reads a `file://` repository and does not run git for `https` or `ssh` until the credential helper exists. The key dialog, `repo setup`, and the extension UI are still stubs.
+**Status: pre-alpha, under construction.** Config, the item store, the action queue, the bridge process, the session bus service, secret-service storage, `tetherbotctl`, `webhook-sender`, and `github-poller` are in place. The sender posts only when that adapter is enabled. `tetherbotctl webhook test` can also send one ping. The poller reads a `file://` repository and does not run git for `https` or `ssh` until the credential helper exists. The extension shows an indicator, a bots/asks/todos popup, and notifications, and it talks only over the session bus. The key dialog, `repo setup`, money and watch, and the prefs page are still stubs.
 
 **Unofficial, not affiliated with xAI.**
 

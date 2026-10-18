@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Session bus interface for TetherBot.
+  This file is the source of truth. The bus name is frozen.
+  Bump the interface to io.github.grokkinggrok.TetherBot2 only for a breaking change.
+  Lists of items are JSON strings so the item model can grow.
+  Secrets are never passed through this interface.
+-->
+<node>
+  <interface name="io.github.grokkinggrok.TetherBot1">
+    <property name="Version" type="s" access="read"/>
+    <property name="ProtocolVersions" type="as" access="read"/>
+    <property name="State" type="s" access="read"/>
+    <property name="StateReason" type="s" access="read"/>
+    <property name="Mode" type="s" access="read"/>
+    <property name="Counts" type="a{su}" access="read"/>
+    <property name="Bots" type="s" access="read"/>
+    <property name="LastSync" type="x" access="read"/>
+    <property name="QueueLength" type="u" access="read"/>
+
+    <method name="GetItems">
+      <arg name="filter_json" type="s" direction="in"/>
+      <arg name="items_json" type="s" direction="out"/>
+    </method>
+    <method name="GetItem">
+      <arg name="key" type="s" direction="in"/>
+      <arg name="item_json" type="s" direction="out"/>
+    </method>
+    <method name="PerformAction">
+      <arg name="key" type="s" direction="in"/>
+      <arg name="action" type="s" direction="in"/>
+      <arg name="args_json" type="s" direction="in"/>
+      <arg name="action_id" type="s" direction="out"/>
+    </method>
+    <method name="Snooze">
+      <arg name="key" type="s" direction="in"/>
+      <arg name="until_iso" type="s" direction="in"/>
+      <arg name="ok" type="b" direction="out"/>
+    </method>
+    <method name="MarkSeen">
+      <arg name="keys" type="as" direction="in"/>
+    </method>
+    <method name="SendToBot">
+      <arg name="bot" type="s" direction="in"/>
+      <arg name="payload_json" type="s" direction="in"/>
+      <arg name="action_id" type="s" direction="out"/>
+    </method>
+    <method name="SyncNow"/>
+    <method name="OpenChat">
+      <arg name="bot" type="s" direction="in"/>
+      <arg name="launched" type="b" direction="out"/>
+    </method>
+    <method name="GetAdapters">
+      <arg name="adapters_json" type="s" direction="out"/>
+    </method>
+    <method name="SetAdapterEnabled">
+      <arg name="name" type="s" direction="in"/>
+      <arg name="enabled" type="b" direction="in"/>
+    </method>
+    <method name="RequestSecretEntry">
+      <arg name="slot" type="s" direction="in"/>
+      <arg name="opened" type="b" direction="out"/>
+    </method>
+    <method name="ForgetSecret">
+      <arg name="slot" type="s" direction="in"/>
+    </method>
+    <method name="GetQueue">
+      <arg name="queue_json" type="s" direction="out"/>
+    </method>
+    <method name="RetryParked">
+      <arg name="action_id" type="s" direction="in"/>
+    </method>
+    <method name="DropQueued">
+      <arg name="action_id" type="s" direction="in"/>
+    </method>
+
+    <signal name="ItemsChanged">
+      <arg name="added" type="as"/>
+      <arg name="updated" type="as"/>
+      <arg name="removed" type="as"/>
+    </signal>
+    <signal name="NotificationRequested">
+      <arg name="item_json" type="s"/>
+      <arg name="reason" type="s"/>
+    </signal>
+    <signal name="ActionResult">
+      <arg name="action_id" type="s"/>
+      <arg name="result" type="s"/>
+      <arg name="detail" type="s"/>
+    </signal>
+    <signal name="StateChanged">
+      <arg name="state" type="s"/>
+      <arg name="reason" type="s"/>
+    </signal>
+  </interface>
+</node>

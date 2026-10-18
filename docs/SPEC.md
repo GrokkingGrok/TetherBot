@@ -132,7 +132,8 @@ data/
   io.github.grokkinggrok.TetherBot1.xml     D-Bus introspection XML (source of truth)
   config.example.toml
 extension/                      GNOME 50 ESM skeleton
-  metadata.json  extension.js  prefs.js  stylesheet.css
+  metadata.json  extension.js  view.js  prefs.js  stylesheet.css
+  io.github.grokkinggrok.TetherBot1.xml   copy of the bus interface, checked against data/
 systemd/                        user unit and D-Bus activation templates
 scripts/install.sh  uninstall.sh
 docs/
@@ -375,14 +376,14 @@ Generic module only. See section 11. Off by default. A concrete legacy inbox for
 - **Empty and error states** are explicit, including "Bridge not running", "Webhook-only mode: bot updates need the repo adapter", and "This feed uses a newer protocol. Update TetherBot."
 - **Prefs** (`prefs.js`, Adw): which counts drive the badge, show or hide each section, notification on or off per bot, and "Set up keys...". UI settings only, in the extension's gsettings schema. The schema file arrives with the prefs milestone. The scaffold prefs window is an empty page.
 
-Implementation notes for GNOME Shell 50: ESM imports (`resource:///org/gnome/shell/...`), `Gio.DBusProxy` built from the shipped XML with `Gio.DBusProxy.makeProxyWrapper`, all calls async, and proxy plus signal handlers dropped in `disable()`. Watch the bus name (`Gio.bus_watch_name`) so the indicator flips state when the bridge starts or stops. Check the exact `MessageTray.Notification` and `addAction` API for GNOME 50 before coding (**TBD, verify**, as it changed in 46). On Wayland, shell code reloads only after a logout and login, so develop in a nested devkit session (`dbus-run-session gnome-shell --devkit` on 49 and later, **TBD, verify** the flag and package on Fedora 44).
+Implementation notes for GNOME Shell 50: ESM imports (`resource:///org/gnome/shell/...`), `Gio.DBusProxy` built from the shipped XML with `Gio.DBusProxy.makeProxyWrapper`, all calls async (`*Remote`, no `*Sync`), and the proxy, signal handlers, notification source, and indicator dropped in `disable()`. Watch the bus name (`Gio.bus_watch_name`) so the indicator flips state when the bridge starts or stops. The proxy is created with `DO_NOT_AUTO_START`. Notifications use `MessageTray.Notification({source, title, body})` and `addAction(label, callback)` (the Shell 49/50 shape). On Wayland, shell code reloads only after a logout and login, so develop in a nested devkit session (`dbus-run-session gnome-shell --devkit` on 49 and later, **TBD, verify** the flag and package on Fedora 44).
 
-The scaffold indicator is an empty status-area button. It does not connect to the bus yet.
+The indicator shows asks plus todos, and dims when the bridge is down, `unconfigured`, or `failed_closed`. The popup lists bots, asks, and todos. Money, watch, the webhook-only sentence, and prefs content stay v0.2. A todo's Done button is shown only when that bot has an outbound route and the item lists `done`. There is no bus method for marking done locally. The prefs window is still the empty page.
 
 ### 9.2 Webhook-only mode (no git token)
 
 Works: quick actions per bot ("Run now", plus user presets defined in `config.toml` as fixed `note` texts), the queue, delivery status, retry, and accepted or failed notifications.
-Missing: bot status, counts, asks, todos, and notifications about bot-side events. No path exists today for a bot to push to the desktop without the repo. The popup says so in one line and links to the docs. If Grok Bot later ships outbound webhooks, status events, or a desktop hook, that lands as the `official` adapter.
+Missing: bot status, counts, asks, todos, and notifications about bot-side events. No path exists today for a bot to push to the desktop without the repo. The popup is meant to say so in one line and link to the docs. That sentence is not in the popup yet. If Grok Bot later ships outbound webhooks, status events, or a desktop hook, that lands as the `official` adapter.
 
 ### 9.3 Later
 
@@ -442,13 +443,13 @@ Already present:
 - D-Bus API: filters, enqueue, snooze, queue retry and drop, adapter enable saved back to `config.toml`, and secret methods refused without echoing a secret. When `dbus-run-session` and PyGObject are installed, a private bus test calls `GetItems`, introspection, a property, and the not-found error.
 - Secret store: webhook `{url, key}` and a github token under `io.github.grokkinggrok.TetherBot.Secret`, attributes `kind` and `slot`. A locked or missing service raises and writes no file. The log filter learns the exact stored values.
 - CLI: a missing config prints `unconfigured` first. Enable rewrites that adapter's flag. Secret set stores the value and does not print it. Webhook test prints only the status code. Importing `tetherbot.ctl` does not import GLib.
+- Extension mapping, with `gjs -m extension/test_view.js` (no shell): the proxy wrapper from the shipped XML exposes the remote methods, and the menu model covers the badge, bridge-down banner, ask buttons, routed Done, snooze, and re-paste. A source test rejects Soup, sockets, and spawn in `extension/`.
 
 Still to write, with the milestones that need them:
 
 - Webhook adapter against a local fake server: 200, 400 then 200, 400 eight times then parked, 401 stops the route, 404, timeout retry with the same `action_id`, header present, key absent from logs.
 - Credential helper: answers only for the configured host and path; empty output otherwise.
 - D-Bus: start the service on a private bus (`dbus-run-session`), call every method, check signals.
-- Extension: a small GJS test for the proxy wrapper and for item-to-menu mapping, run with `gjs -m` (no shell needed).
 
 ### 12.2 Manual checks
 

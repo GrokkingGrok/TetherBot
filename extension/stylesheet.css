@@ -1,5 +1,45 @@
-/* TetherBot indicator styles. Empty on purpose in the scaffold. */
+/* TetherBot top-bar indicator and popup. Colors follow the shell theme
+   except the attention and dimmed states. */
 
 .tetherbot-indicator {
     icon-size: 16px;
+}
+
+.tetherbot-dimmed {
+    opacity: 0.45;
+}
+
+.tetherbot-attention {
+    color: #e5a50a;
+}
+
+.tetherbot-badge {
+    font-weight: bold;
+    margin-left: 4px;
+}
+
+.tetherbot-subtle {
+    font-size: 0.85em;
+}
+
+.tetherbot-dot {
+    margin-right: 4px;
+}
+
+.tetherbot-dot-ok {
+    color: #26a269;
+}
+
+.tetherbot-dot-degraded,
+.tetherbot-dot-offline {
+    color: #e5a50a;
+}
+
+.tetherbot-dot-failed_closed,
+.tetherbot-dot-unconfigured {
+    color: #c01c28;
+}
+
+.tetherbot-action {
+    margin-left: 6px;
 }

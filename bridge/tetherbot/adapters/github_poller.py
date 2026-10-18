@@ -6,10 +6,11 @@ SHA changes. Feed files are schema-gated: a bad file stays stale and is not
 replaced with an empty list. The bridge stages only ``desktop/`` and
 ``log/desktop/``. A rebase conflict aborts the rebase and fails closed.
 
-``https-token`` and ``ssh-deploy-key`` wait for the v0.2 credential helper.
-Until then those remotes do not run git, so a token cannot ride along in
-argv, the environment, ``.git/config``, or the log. ``desktop/outbox`` is
-also still a v0.2 path. Importing this module does not import PyGObject.
+``https-token`` runs git through ``git-credential-tetherbot``. The token
+stays in libsecret and is not put in a remote URL, ``.git/config``, argv,
+or the log. ``ssh-deploy-key`` stays deferred and does not spawn git.
+``desktop/outbox`` is still a v0.2 path. Importing this module does not
+import PyGObject.
 """
 
 from __future__ import annotations
@@ -26,6 +27,7 @@ from urllib.parse import urlsplit
 
 from tetherbot import SCHEMA_VERSION
 from tetherbot.adapters.base import AdapterStatus, PollResult, SendResult
+from tetherbot.credential import find_credential_helper, helper_spec
 from tetherbot.files import ensure_private_dir, write_private_json
 from tetherbot.model import Item, looks_like_secret, mask_secrets
 from tetherbot.store import StoreUpdate
@@ -107,10 +109,14 @@ class GitHubPoller:
         git: GitRun | None = None,
         online: Callable[[], bool] | None = None,
         locked: Callable[[], bool] | None = None,
+        credential_helper: str | None = None,
     ) -> None:
         self._git = git
         self._online = online if online is not None else (lambda: True)
         self._locked = locked if locked is not None else (lambda: False)
+        self._credential_helper = credential_helper
+        self._discovered_helper: str | None = None
+        self._https_ready: set[str] = set()
         self._ctx: object | None = None
         self._running = False
         self._closed = False
@@ -170,13 +176,25 @@ class GitHubPoller:
             return
         self._consume_burst(now)
         remote = self._remote()
-        transport = _transport(remote)
-        if transport != "file":
-            self._refuse(transport)
+        kind = self._route_kind()
+        if kind == "https" and self._keyring_locked():
+            self.last_error = "keyring locked"
+            self._set_overlay("degraded", "keyring locked")
+            self._schedule(now, failed=True)
+            return
+        if kind == "https" and not self._resolved_helper():
+            self._refuse("https")
+            self._schedule(now, failed=True)
+            return
+        if kind not in {"file", "https"}:
+            self._refuse(kind)
             self._schedule(now, failed=True)
             return
         clone = self._clone_dir(remote)
         if clone is None:
+            self._schedule(now, failed=True)
+            return
+        if (clone / ".git").is_dir() and not self._ensure_https_credentials(clone):
             self._schedule(now, failed=True)
             return
         sha = self._ls_remote(remote)
@@ -233,30 +251,41 @@ class GitHubPoller:
             _LOG.info("github-poller refused an unowned path")
             return False
         remote = self._remote()
-        if _transport(remote) != "file":
+        kind = self._route_kind()
+        if kind == "https":
+            if not self._resolved_helper():
+                return False
+        elif kind != "file":
             return False
         clone = self._clone_dir(remote)
         if clone is None or not (clone / ".git").is_dir():
+            return False
+        if not self._ensure_https_credentials(clone):
             return False
         for path in paths:
             if not (clone / path).is_file():
                 return False
         if not self._porcelain(clone, paths):
             return True
-        added = self._run(["add", "--", *paths], clone)
+        added = self._run_scoped(["add", "--", *paths], clone)
         if added.code != 0:
             return False
-        committed = self._run(["commit", "-m", _COMMIT_MESSAGE], clone)
+        committed = self._run_scoped(["commit", "-m", _COMMIT_MESSAGE], clone)
         if committed.code != 0:
             return False
         return self._push_with_retry(clone)
 
     def _inspect(self) -> None:
-        remote = self._remote()
-        transport = _transport(remote)
-        if transport == "file":
+        kind = self._route_kind()
+        if kind == "file":
             return
-        self._refuse(transport)
+        if kind == "https" and self._keyring_locked():
+            self.last_error = "keyring locked"
+            self._set_overlay("degraded", "keyring locked")
+            return
+        if kind == "https" and self._resolved_helper():
+            return
+        self._refuse(kind)
 
     def _refuse(self, transport: str) -> None:
         if transport == "https":
@@ -265,7 +294,7 @@ class GitHubPoller:
             reason = "deploy key is not configured"
         elif transport == "credentials":
             reason = "remote must not contain credentials"
-        elif transport == "":
+        elif transport in {"", "missing"}:
             reason = "remote is missing"
         else:
             reason = "remote is not allowed"
@@ -327,16 +356,16 @@ class GitHubPoller:
 
     def _push_with_retry(self, clone: Path) -> bool:
         for attempt in range(_PUSH_TRIES):
-            pushed = self._run(["push"], clone)
+            pushed = self._run_scoped(["push"], clone)
             if pushed.code == 0:
                 self._needs_push = False
                 return True
             if attempt == _PUSH_TRIES - 1:
                 break
-            pulled = self._run(["pull", "--rebase", "--autostash"], clone)
+            pulled = self._run_scoped(["pull", "--rebase", "--autostash"], clone)
             if pulled.code != 0:
                 if _rebase_in_progress(clone):
-                    self._run(["rebase", "--abort"], clone)
+                    self._run_scoped(["rebase", "--abort"], clone)
                 self._needs_push = True
                 self._close("rebase conflict")
                 return False
@@ -349,7 +378,7 @@ class GitHubPoller:
     def _clone(self, remote: str, dest: Path) -> bool:
         branch = self._branch()
         dest.parent.mkdir(parents=True, exist_ok=True)
-        result = self._run(
+        result = self._run_scoped(
             ["clone", "--branch", branch, "--", remote, str(dest)],
             None,
         )
@@ -358,14 +387,16 @@ class GitHubPoller:
             self._set_overlay("degraded", "clone failed")
             _LOG.info("github-poller clone failed")
             return False
-        return True
+        return self._ensure_https_credentials(dest)
 
     def _pull(self, clone: Path) -> bool:
-        result = self._run(["pull", "--rebase", "--autostash"], clone)
+        if not self._ensure_https_credentials(clone):
+            return False
+        result = self._run_scoped(["pull", "--rebase", "--autostash"], clone)
         if result.code == 0:
             return True
         if _rebase_in_progress(clone):
-            self._run(["rebase", "--abort"], clone)
+            self._run_scoped(["rebase", "--abort"], clone)
             self._close("rebase conflict")
             return False
         self.last_error = "pull failed"
@@ -374,13 +405,13 @@ class GitHubPoller:
         return False
 
     def _ls_remote(self, remote: str) -> str | None:
-        result = self._run(["ls-remote", "--", remote, f"refs/heads/{self._branch()}"], None)
+        result = self._run_scoped(["ls-remote", "--", remote, f"refs/heads/{self._branch()}"], None)
         if result.code != 0:
             return None
         return _parse_sha(result.stdout)
 
     def _porcelain(self, clone: Path, paths: list[str]) -> bool:
-        result = self._run(["status", "--porcelain", "--", *paths], clone)
+        result = self._run_scoped(["status", "--porcelain", "--", *paths], clone)
         return bool(result.stdout.strip())
 
     def _run(self, args: list[str], cwd: Path | None) -> GitResult:
@@ -392,6 +423,89 @@ class GitHubPoller:
             runner = SubprocessGit(home)
             self._git = runner
         return runner(args, cwd)
+
+    def _run_scoped(self, args: list[str], cwd: Path | None) -> GitResult:
+        if self._route_kind() == "https":
+            prefix = self._credential_prefix()
+            if prefix:
+                args = [*prefix, *args]
+        return self._run(args, cwd)
+
+    def _credential_prefix(self) -> list[str]:
+        helper = self._resolved_helper()
+        if not helper:
+            return []
+        spec = helper_spec(helper)
+        if looks_like_secret(spec):
+            return []
+        return [
+            "-c",
+            "credential.helper=",
+            "-c",
+            f"credential.helper={spec}",
+            "-c",
+            "credential.useHttpPath=true",
+        ]
+
+    def _resolved_helper(self) -> str:
+        if self._credential_helper is not None:
+            return self._credential_helper
+        if self._discovered_helper is None:
+            found = find_credential_helper()
+            self._discovered_helper = found or ""
+        return self._discovered_helper
+
+    def _ensure_https_credentials(self, clone: Path) -> bool:
+        if self._route_kind() != "https":
+            return True
+        key = str(clone)
+        if key in self._https_ready:
+            return True
+        helper = self._resolved_helper()
+        if not helper:
+            self._refuse("https")
+            return False
+        if not configure_https_credentials(self._run, clone, helper):
+            self.last_error = "credential helper is not installed"
+            self._set_overlay("degraded", self.last_error)
+            _LOG.info("github-poller credential setup failed")
+            return False
+        self._https_ready.add(key)
+        return True
+
+    def _keyring_locked(self) -> bool:
+        ctx = self._ctx
+        secrets = None if ctx is None else getattr(ctx, "secrets", None)
+        if secrets is None:
+            return False
+        try:
+            return secrets.status() == "locked"
+        except Exception:
+            return False
+
+    def _route_kind(self) -> str:
+        remote = self._remote()
+        transport = _transport(remote)
+        if transport == "file":
+            return "file"
+        if transport == "credentials":
+            return "credentials"
+        if self._auth() == "ssh-deploy-key" or transport == "ssh":
+            return "ssh"
+        if transport == "https":
+            return "https"
+        if not transport:
+            return "missing"
+        return transport
+
+    def _auth(self) -> str:
+        ctx = self._ctx
+        if ctx is None or ctx.config is None:
+            return ""
+        row = ctx.config.adapters.get(self.name)
+        if row is None or not row.auth:
+            return ""
+        return str(row.auth)
 
     def _clone_dir(self, remote: str) -> Path | None:
         ctx = self._ctx
@@ -524,6 +638,25 @@ class GitHubPoller:
             ctx.state_dir / "poller.json",
             {"schema": SCHEMA_VERSION, "sha": self._sha},
         )
+
+
+def configure_https_credentials(git: GitRun, clone: Path, helper: str) -> bool:
+    """Point one clone at the bridge helper. The token is not written.
+
+    ``credential.helper`` is reset to empty, then set to the helper, and
+    ``credential.useHttpPath`` is turned on. The change is local to ``clone``.
+    """
+
+    if not helper or looks_like_secret(helper) or not (clone / ".git").is_dir():
+        return False
+    spec = helper_spec(helper)
+    if looks_like_secret(spec):
+        return False
+    git(["config", "--local", "--unset-all", "credential.helper"], clone)
+    blank = git(["config", "--local", "--add", "credential.helper", ""], clone)
+    added = git(["config", "--local", "--add", "credential.helper", spec], clone)
+    flag = git(["config", "--local", "credential.useHttpPath", "true"], clone)
+    return blank.code == 0 and added.code == 0 and flag.code == 0
 
 
 def owned_repo_path(path: str) -> bool:

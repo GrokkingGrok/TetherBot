@@ -114,7 +114,7 @@ Decided: a concrete legacy inbox format stays out of this public repository. It 
 
 ## Private data repository
 
-Users create a **private** repository from `template-repo/` (added in v0.2). Each path has one writer.
+Users create a **private** repository from `template-repo/`. Each path has one writer.
 
 | Path | Written by | Read by |
 |---|---|---|

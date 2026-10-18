@@ -1,14 +1,16 @@
 [Unit]
 Description=TetherBot bridge
 After=graphical-session.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
 
 [Service]
-Type=simple
-# The process is `python -m tetherbot`. ExecStart stays /bin/false until
-# scripts/install.sh installs %h/.local/bin/tetherbot. D-Bus activation
-# stays /bin/false until the service is exported.
-ExecStart=/bin/false
-Restart=no
+Type=dbus
+BusName=io.github.grokkinggrok.TetherBot1
+ExecStart=%h/.local/bin/tetherbot
+Restart=on-failure
+RestartSec=3
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 NoNewPrivileges=yes
 LockPersonality=yes
 RestrictRealtime=yes

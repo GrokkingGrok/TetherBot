@@ -1,0 +1,27 @@
+{
+  "schema": "tetherbot/1",
+  "bot": "primary",
+  "updated_at": "2026-10-17T12:00:00+00:00",
+  "status": {
+    "state": "needs_you",
+    "summary": "1 open ask.",
+    "last_run": "2026-10-17T11:00:00+00:00",
+    "next_run": "2026-10-18T11:00:00+00:00"
+  },
+  "items": [
+    {
+      "id": "primary-20261017-01",
+      "kind": "ask",
+      "title": "Approve the sample request or turn it down",
+      "body": "Example text only. Not a real task.",
+      "status": "open",
+      "created": "2026-10-17T11:40:00+00:00",
+      "updated_at": "2026-10-17T11:40:00+00:00",
+      "priority": 2,
+      "due": "2026-11-09",
+      "actions": ["approve", "veto", "snooze", "open_chat"],
+      "notify": true,
+      "source": {"bot": "primary", "routine": "daily"}
+    }
+  ]
+}

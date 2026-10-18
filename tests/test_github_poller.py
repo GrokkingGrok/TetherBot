@@ -1,5 +1,9 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
-"""github-poller against a local bare repo. https and ssh never run git."""
+"""github-poller against a local bare repo.
+
+ssh never runs git. https runs git only when a credential helper is configured,
+and the token is not part of the git command.
+"""
 
 import json
 import os
@@ -16,6 +20,7 @@ from tetherbot.adapters.github_poller import (
     GitHubPoller,
     GitResult,
     SubprocessGit,
+    configure_https_credentials,
     owned_repo_path,
 )
 from tetherbot.config import AdapterConfig, BridgeConfig, QueueConfig
@@ -157,6 +162,7 @@ def _start(
     online=None,
     locked=None,
     auth: str | None = None,
+    credential_helper: str | None = None,
 ):
     clock = Clock()
     path = tmp_path / "config.toml"
@@ -170,6 +176,7 @@ def _start(
         poller_git=git,
         poller_online=online,
         poller_locked=locked,
+        poller_credential_helper=credential_helper,
     )
     daemon.start()
     return daemon, clock
@@ -419,6 +426,7 @@ def test_https_ssh_and_userinfo_do_not_run_git(tmp_path: Path):
         tmp_path,
         "https://github.com/owner/repo.git",
         git=explode,
+        credential_helper="",
     )
     assert https.reason == "credential helper is not installed"
     https.tick_poller()
@@ -535,3 +543,64 @@ def test_secret_shaped_git_args_do_not_spawn(tmp_path: Path, monkeypatch):
     )
     assert result.code == 1
     assert result.stdout == ""
+
+
+def test_https_runs_git_with_the_helper_and_not_the_token(tmp_path: Path):
+    token = "ghp_" + ("b" * 36)
+    calls: list[list[str]] = []
+
+    def run(args: list[str], cwd: Path | None) -> GitResult:
+        del cwd
+        calls.append(list(args))
+        assert token not in " ".join(args)
+        return GitResult(1, "", "")
+
+    helper = "/opt/tetherbot/git-credential-tetherbot"
+    daemon, _clock = _start(
+        tmp_path,
+        "https://github.com/owner/repo.git",
+        git=run,
+        auth="https-token",
+        credential_helper=helper,
+    )
+    daemon.tick_poller()
+    assert calls
+    flat = " ".join(calls[0])
+    assert "ls-remote" in flat
+    assert "credential.helper=" in flat
+    assert f"credential.helper={helper} --slot github-token" in flat
+    assert "credential.useHttpPath=true" in flat
+    assert "https://github.com/owner/repo.git" in flat
+    assert "@" not in flat
+    assert token not in flat
+    assert daemon.poller.last_error == "ls-remote failed"
+
+
+def test_https_clone_config_scopes_the_helper_and_omits_the_token(tmp_path: Path):
+    token = "ghp_" + ("d" * 36)
+    clone = tmp_path / "clone"
+    _git(None, "init", "-b", "main", str(clone))
+    helper = "/opt/tetherbot/git-credential-tetherbot"
+    git = SubprocessGit(tmp_path / "git-home")
+    assert configure_https_credentials(git, clone, helper) is True
+    text = (clone / ".git" / "config").read_text(encoding="utf-8")
+    assert token not in text
+    assert helper in text
+    assert "useHttpPath" in text
+    listed = git.run(["config", "--local", "--get-all", "credential.helper"], clone)
+    assert listed.code == 0
+    values = listed.stdout.splitlines()
+    assert "" in values
+    assert f"{helper} --slot github-token" in values
+    assert all(token not in value for value in values)
+
+
+def test_template_feed_and_state_pass_the_schema_gate():
+    feed = ROOT / "template-repo" / "feed" / "primary.json"
+    state = ROOT / "template-repo" / "desktop" / "state.json"
+    from tetherbot.adapters.github_poller import _read_feed, _read_state
+
+    items, problem = _read_feed(feed, "feed/primary.json")
+    assert problem is None
+    assert items and items[0].bot == "primary"
+    assert _read_state(state) is None

@@ -29,8 +29,11 @@ STATES = (
 
 
 def interface_xml_path() -> Path:
-    """Return the introspection XML path in a source checkout."""
+    """Return the introspection XML shipped beside the package, or the checkout copy."""
 
+    packaged = Path(__file__).resolve().parent / "io.github.grokkinggrok.TetherBot1.xml"
+    if packaged.is_file():
+        return packaged
     return Path(__file__).resolve().parents[2] / "data" / "io.github.grokkinggrok.TetherBot1.xml"
 
 

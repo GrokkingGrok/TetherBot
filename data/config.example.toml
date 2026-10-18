@@ -24,8 +24,9 @@ enabled = false
 # branch = "main"
 # poll_seconds = 120
 # auth = "https-token"   # or ssh-deploy-key
-# v0.1 polls a file:// URL with an absolute path. https-token and
-# ssh-deploy-key wait for the v0.2 credential helper and do not run git.
+# A file:// URL with an absolute path needs no token.
+# https-token uses git-credential-tetherbot. The token is not part of
+# this URL. ssh-deploy-key is accepted here and does not run git yet.
 
 [adapters.official]
 enabled = false

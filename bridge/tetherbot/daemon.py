@@ -71,6 +71,7 @@ class BridgeDaemon:
         poller_git: Callable[..., object] | None = None,
         poller_online: Callable[[], bool] | None = None,
         poller_locked: Callable[[], bool] | None = None,
+        poller_credential_helper: str | None = None,
     ) -> None:
         self.config_path = default_config_path() if config_path is None else config_path
         self.state_dir = default_state_dir() if state_dir is None else state_dir
@@ -94,6 +95,7 @@ class BridgeDaemon:
         self._poller_git = poller_git
         self._poller_online = poller_online
         self._poller_locked = poller_locked
+        self._poller_credential_helper = poller_credential_helper
         self.webhook = None
         self.poller = None
         self.base_state = self.state
@@ -116,12 +118,10 @@ class BridgeDaemon:
         return self._clock()
 
     def _apply_keyring_state(self) -> None:
-        try:
-            status = self.secrets.status()
-        except Exception:
-            logging.getLogger("tetherbot").error("secret service is not available")
+        if self.base_state in {"failed_closed", "unconfigured"}:
             return
-        if status not in {"locked", "missing"} or self.base_state == "failed_closed":
+        status = self._secret_status()
+        if status not in {"locked", "missing"}:
             return
         self.base_state = "degraded"
         self.base_reason = "keyring locked"
@@ -154,6 +154,7 @@ class BridgeDaemon:
         )
         self._sync_webhook()
         self._sync_poller()
+        self.refresh_keyring()
 
     def run(self, *, install_signals: bool = False) -> int:
         """Start, then block in the main loop until ``stop``.
@@ -263,8 +264,49 @@ class BridgeDaemon:
         self._sync_poller()
 
     def tick_adapters(self) -> None:
+        self.refresh_keyring()
+        if self.base_reason == "keyring locked":
+            return
         self.tick_webhook()
         self.tick_poller()
+
+    def refresh_keyring(self) -> None:
+        """Notice a keyring that was locked or unlocked after startup.
+
+        An ``unconfigured`` bridge stays unconfigured: nothing is asking for
+        a secret yet. ``missing`` is handled at process start. A lock that
+        happens later is ``locked``.
+        """
+
+        if not self._started or self.base_state in {"failed_closed", "unconfigured"}:
+            return
+        if getattr(self, "_in_keyring_refresh", False):
+            return
+        status = self._secret_status()
+        if status == "locked":
+            if self.base_reason == "keyring locked":
+                return
+            self.base_state = "degraded"
+            self.base_reason = "keyring locked"
+            self._apply_overlay()
+            if self.api is not None:
+                self.api.publish_state()
+            return
+        if status == "available" and self.base_reason == "keyring locked":
+            self._in_keyring_refresh = True
+            try:
+                self.reload_config()
+            finally:
+                self._in_keyring_refresh = False
+            if self.api is not None:
+                self.api.publish_state()
+
+    def _secret_status(self) -> str:
+        try:
+            return str(self.secrets.status())
+        except Exception:
+            logging.getLogger("tetherbot").error("secret service is not available")
+            return "missing"
 
     def tick_webhook(self) -> None:
         sender = self.webhook
@@ -340,6 +382,8 @@ class BridgeDaemon:
                 kwargs["online"] = self._poller_online
             if self._poller_locked is not None:
                 kwargs["locked"] = self._poller_locked
+            if self._poller_credential_helper is not None:
+                kwargs["credential_helper"] = self._poller_credential_helper
             self.poller = GitHubPoller(**kwargs)
             self.poller.start(self)
         elif not enabled and self.poller is not None:

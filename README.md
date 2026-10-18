@@ -2,7 +2,7 @@
 
 Keep your GNOME desktop tethered to your AI bots.
 
-**Status: pre-alpha, under construction.** Config, the item store, the action queue, the bridge process, the session bus service, secret-service storage, `tetherbotctl`, `webhook-sender`, and `github-poller` are in place. The sender posts only when that adapter is enabled. `tetherbotctl webhook test` can also send one ping. The poller reads a `file://` repository and does not run git for `https` or `ssh` until the credential helper exists. The extension shows an indicator, a bots/asks/todos popup, and notifications, and it talks only over the session bus. The key dialog, `repo setup`, money and watch, and the prefs page are still stubs.
+**Status: pre-alpha.** Config, the item store, the action queue, the bridge process, the session bus service, secret-service storage, `tetherbotctl`, `webhook-sender`, and `github-poller` are in place. `scripts/install.sh` installs the app and the launchers, and the user unit starts `%h/.local/bin/tetherbot`. The sender posts only when that adapter is enabled. `tetherbotctl webhook test` can also send one ping. The poller reads a `file://` repository and an `https://github.com` repository through `git-credential-tetherbot`. `ssh-deploy-key` does not run git yet. The extension shows an indicator, a bots/asks/todos popup, and notifications, and it talks only over the session bus. The key dialog, `repo setup`, money and watch, and the prefs page are still stubs. Desktop checks are in [docs/MANUAL-CHECKS.md](docs/MANUAL-CHECKS.md).
 
 **Unofficial, not affiliated with xAI.**
 
@@ -44,16 +44,16 @@ Desktop to bot uses a documented routine webhook: an authenticated HTTP POST. Bo
 
 ## What you need to set up
 
-The scaffold does not complete this setup. The list is the target, written out in [docs/SETUP.md](docs/SETUP.md).
+The human checklist is [docs/SETUP.md](docs/SETUP.md). The copy-paste checks are [docs/MANUAL-CHECKS.md](docs/MANUAL-CHECKS.md).
 
 1. GNOME Shell 50 on Wayland. Fedora 44 is the reference system.
 2. Python 3.13 or newer, the OS package `python3-gobject` (PyGObject), the libsecret typelib (`Secret-1`), and `git`.
 3. Grok Bot, signed in, plus a routine whose trigger is a webhook. [docs/prompts/bot-setup.md](docs/prompts/bot-setup.md) is the prompt to paste into the bot.
 4. The webhook URL and key, stored in the desktop secret service by a bridge command. They never go in a chat, a config file, or this repository.
-5. Optional, for bot-to-desktop updates: a private repository created from the future `template-repo/`, and a fine-grained token stored the same way.
-6. Opt in per adapter, then enable the user service. Log out and back in before enabling the extension on Wayland.
+5. Optional, for bot-to-desktop updates: a private repository created from `template-repo/`, and a fine-grained token stored the same way (`tetherbotctl secret set github-token`).
+6. Opt in per adapter, then enable the user service (`systemctl --user enable --now tetherbot`, or `scripts/install.sh --enable`). Log out and back in before enabling the extension on Wayland.
 
-[docs/prompts/coding-agent-setup.md](docs/prompts/coding-agent-setup.md) is the prompt for a coding agent that walks through install on your machine. `tetherbotctl repo setup` is not implemented, and the installer still does not place a launcher. The agent should stop when a command is missing.
+[docs/prompts/coding-agent-setup.md](docs/prompts/coding-agent-setup.md) is the prompt for a coding agent that walks through install on your machine. `tetherbotctl repo setup` is not a command. Enabling the repo adapter clones the remote. The agent should stop when a command is missing.
 
 ## Repository map
 
@@ -62,12 +62,14 @@ The scaffold does not complete this setup. The list is the target, written out i
 | [docs/SPEC.md](docs/SPEC.md) | Architecture source of truth |
 | [docs/PROTOCOL.md](docs/PROTOCOL.md) | Item model, action envelope, schema rules |
 | [docs/SETUP.md](docs/SETUP.md) | Human setup checklist |
+| [docs/MANUAL-CHECKS.md](docs/MANUAL-CHECKS.md) | M1–M8 and M10–M14 on one desktop |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | v0.1, v0.2, and v1.0 checklists, plus open questions |
 | [docs/prompts/](docs/prompts/) | Copy-paste setup prompts |
-| `bridge/tetherbot/` | Python package skeleton |
-| `extension/` | GNOME 50 extension skeleton |
-| `systemd/` | User unit and D-Bus activation templates |
-| `scripts/` | Idempotent install and uninstall stubs |
+| `bridge/tetherbot/` | Python package |
+| `extension/` | GNOME 50 extension |
+| `template-repo/` | Private data repository skeleton |
+| `systemd/` | User unit and D-Bus activation |
+| `scripts/` | Idempotent install, uninstall, extension install, fake webhook, secret sweep |
 | `data/` | D-Bus XML and example config |
 | `tests/` | Pytest smoke test using the fake adapter |
 
@@ -83,7 +85,7 @@ ruff check .
 
 Runtime Python dependencies are none. PyGObject, libsecret, and git come from the operating system. GitHub Actions runs the same lint and tests on Python 3.13 from [.github/workflows/ci.yml](.github/workflows/ci.yml).
 
-`scripts/install.sh` only copies templates into your user directories. It does not enable the service. The unit's `ExecStart` is still `/bin/false`; the installer does not place `~/.local/bin/tetherbot` or `~/.local/bin/tetherbotctl` yet. `scripts/uninstall.sh` removes those templates and leaves the secret service alone. From a checkout, `python -m tetherbot` loads config and state and then waits in the main loop. `python -m tetherbot.ctl` is the status, enable, secret set, and webhook test command.
+`scripts/install.sh` copies the app, launchers, unit, and D-Bus activation file. It does not enable the service unless you pass `--enable`. `scripts/uninstall.sh` removes those files and leaves the secret service alone. `--purge` also removes config, state, and clones. From a checkout, `python -m tetherbot` is the bridge and `python -m tetherbot.ctl` is `tetherbotctl`. `make install-extension` copies the extension into your user extensions directory. Log out and back in before enabling it on Wayland.
 
 ## License
 

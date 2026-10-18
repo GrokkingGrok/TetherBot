@@ -15,17 +15,21 @@ TetherBot is pre-alpha. Check items off as they land. Design detail is in [SPEC.
 - [x] `github-poller`: change check, schema gate, owned-path writes, fail closed on rebase conflicts
 - [x] Minimal extension: indicator counts, popup (bots, todos, asks), notifications with actions
 - [x] Extension talks only D-Bus; proxy and handlers dropped in `disable()`
-- [ ] Manual checks M1–M8 and M10–M14
+- [x] Installer places the app, launchers, unit, and D-Bus activation. `ExecStart` is `%h/.local/bin/tetherbot`
+- [x] `git-credential-tetherbot` for `https-token` (token stays in libsecret). `ssh-deploy-key` stays deferred
+- [x] `template-repo/` for the private data repository
+- [x] `docs/MANUAL-CHECKS.md` for M1–M8 and M10–M14
+- [ ] Manual checks M1–M8 and M10–M14 (a person runs these on Fedora 44 / GNOME Shell 50)
 - [x] Concrete legacy inbox format stays out of this public repo. The in-tree `legacy-todo` sink stays generic.
 - [ ] Manual checks M15 and M16 only if a sink outside this repo is enabled
 
 ## v0.2 — early adopters
 
-- [ ] `template-repo/` for the private data repository
+- [x] `template-repo/` for the private data repository
 - [ ] `feed/<bot>.json` for more than one bot
-- [ ] `https-token` mode and `git-credential-tetherbot`
+- [x] `https-token` mode and `git-credential-tetherbot`
 - [ ] `desktop/outbox` for repo-only actions
-- [ ] Polish `scripts/install.sh` and `scripts/uninstall.sh` against a real daemon
+- [x] Polish `scripts/install.sh` and `scripts/uninstall.sh` against a real daemon
 - [ ] Review the two prompts in `docs/prompts/` against the running app
 - [ ] `docs/privacy.md` (session-bus trust boundary, what leaves the machine)
 - [ ] GTK4 key dialog owned by the bridge process

@@ -19,6 +19,7 @@ from tetherbot.daemon import (
     default_state_dir,
 )
 from tetherbot.queue import ActionQueue
+from tetherbot.secrets import MemoryBackend, SecretStore, UnavailableBackend
 from tetherbot.store import ItemStore
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -43,12 +44,14 @@ class ScriptedLoop:
 def _daemon(tmp_path: Path, **kwargs: object) -> BridgeDaemon:
     loop = kwargs.pop("loop", None)
     clock = kwargs.pop("clock", lambda: NOW)
+    secrets = kwargs.pop("secrets", None)
     return BridgeDaemon(
         config_path=kwargs.pop("config_path", tmp_path / "config.toml"),  # type: ignore[arg-type]
         state_dir=kwargs.pop("state_dir", tmp_path / "state"),  # type: ignore[arg-type]
         loop=loop,  # type: ignore[arg-type]
         log_stream=StringIO(),
         clock=clock,  # type: ignore[arg-type]
+        secrets=secrets,  # type: ignore[arg-type]
         repos_dir=kwargs.pop("repos_dir", tmp_path / "repos"),  # type: ignore[arg-type]
     )
 
@@ -229,6 +232,50 @@ def test_default_paths_follow_xdg(monkeypatch: pytest.MonkeyPatch, tmp_path: Pat
     assert default_config_path() == tmp_path / ".config" / "tetherbot" / "config.toml"
     assert default_state_dir() == tmp_path / ".local" / "state" / "tetherbot"
     assert default_repos_dir() == tmp_path / ".local" / "share" / "tetherbot" / "repos"
+
+
+def test_locked_keyring_is_reported_and_then_cleared(tmp_path: Path):
+    backend = MemoryBackend()
+    _write_config(
+        tmp_path / "config.toml",
+        'schema = "tetherbot/1"\n[bridge]\nmode = "webhook-only"\n'
+        "[adapters.webhook-sender]\nenabled = true\n",
+    )
+    daemon = _daemon(tmp_path, secrets=SecretStore(backend))
+    daemon.start()
+    assert daemon.state == "ok"
+    backend._status = "locked"
+    daemon.tick_adapters()
+    assert daemon.state == "degraded"
+    assert daemon.reason == "keyring locked"
+    backend._status = "available"
+    daemon.tick_adapters()
+    assert daemon.state == "ok"
+    assert daemon.reason == ""
+
+
+def test_unconfigured_stays_unconfigured_when_the_keyring_is_locked(tmp_path: Path):
+    backend = MemoryBackend(status="locked")
+    daemon = _daemon(tmp_path, secrets=SecretStore(backend))
+    daemon.start()
+    daemon._apply_keyring_state()
+    daemon.tick_adapters()
+    assert daemon.state == "unconfigured"
+    assert daemon.reason == "config.toml is missing"
+
+
+def test_missing_secret_service_holds_an_enabled_adapter(tmp_path: Path):
+    _write_config(
+        tmp_path / "config.toml",
+        'schema = "tetherbot/1"\n[bridge]\nmode = "webhook-only"\n'
+        "[adapters.webhook-sender]\nenabled = true\n",
+    )
+    daemon = _daemon(tmp_path, secrets=SecretStore(UnavailableBackend()))
+    daemon.start()
+    assert daemon.state == "ok"
+    daemon._apply_keyring_state()
+    assert daemon.state == "degraded"
+    assert daemon.reason == "keyring locked"
 
 
 def test_failed_closed_overlay_wins_while_the_base_state_is_ok(tmp_path: Path):

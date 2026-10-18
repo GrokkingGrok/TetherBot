@@ -1,6 +1,7 @@
 [D-BUS Service]
 Name=io.github.grokkinggrok.TetherBot1
-# TODO(v0.1): D-Bus activation should start tetherbot.service only.
-# /bin/false keeps a premature activation from launching a stub process.
-Exec=/bin/false
+# scripts/install.sh replaces the next line with the absolute launcher path.
+# The session bus starts tetherbot.service. Exec is the fallback when
+# systemd activation is not available.
+Exec=@TETHERBOT_LAUNCHER@
 SystemdService=tetherbot.service

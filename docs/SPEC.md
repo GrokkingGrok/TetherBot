@@ -244,7 +244,10 @@ Lists of items pass as JSON strings (`s`), so the item model can grow without br
 
 | Signature | Behavior |
 |---|---|
-| `GetItems(s filter_json) -> s items_json` | Filter keys: `kinds`, `bots`, `status`, `include_snoozed`. Returns sorted items. |
+| `GetItems(s filter_json) -> s items_json` | Filter keys: `kinds`, `bots`, `status`, `include_snoozed`, `tags`, `query`, `view`, `include_done_days`, `sort`. `query` accepts `@tag`, `due:today`, `due:overdue`, and `p:1`. `view` is `all`, `mine`, `bots`, `waiting`, or `today`. Returns sorted items with chip labels. |
+| `GetTags() -> s tags_json` | Tags on open items, with counts and palette colors |
+| `OpenWindow(s item_key) -> b` | Launch or raise the TetherBot window on that item. An empty key opens the list |
+| `Undo(s item_key) -> s result_json` | Drop a queued Done that has not been sent, or send `reopen` once it has gone out |
 | `GetItem(s key) -> s item_json` | One item, or D-Bus error `io.github.grokkinggrok.TetherBot1.Error.NotFound` |
 | `PerformAction(s key, s action, s args_json) -> s action_id` | Validates that the action is listed on the item, enqueues it, returns at once. The result arrives later as `ActionResult`. |
 | `Snooze(s key, s until_iso) -> b` | Local only. Hides the item and suppresses notifications until then. |

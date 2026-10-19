@@ -24,6 +24,7 @@ ENVELOPE_ACTIONS = frozenset({"approve", "veto", "done", "reopen", "run_now", "n
 ITEM_STATUSES = frozenset({"open", "done", "dropped", "expired"})
 
 _ID = re.compile(r"^[a-z0-9-]{3,64}$")
+_TAG = re.compile(r"^[a-z0-9_-]{1,32}$")
 _BOT = re.compile(r"^[a-z0-9-]{1,64}$")
 _DUE_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _DUE_TIME = re.compile(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$")
@@ -58,6 +59,8 @@ _KNOWN_FIELDS = frozenset(
         "expires_at",
         "source",
         "links",
+        "tags",
+        "body_format",
     }
 )
 
@@ -139,6 +142,8 @@ class Item:
     notify: bool = False
     expires_at: str | None = None
     links: list[dict[str, str]] = field(default_factory=list)
+    tags: list[str] = field(default_factory=list)
+    body_format: str = "plain"
     extra: dict[str, Any] = field(default_factory=dict)
     snoozed_until: str | None = None
     seen: bool = False
@@ -164,6 +169,7 @@ class Item:
             waiting=None if self.waiting is None else dict(self.waiting),
             actions=list(self.actions),
             links=[dict(link) for link in self.links],
+            tags=list(self.tags),
             extra=dict(self.extra),
             acted=None if self.acted is None else dict(self.acted),
             redacted_fields=tuple(self.redacted_fields),
@@ -192,6 +198,8 @@ class Item:
             "expires_at": self.expires_at,
             "source": dict(self.source),
             "links": [dict(link) for link in self.links],
+            "tags": list(self.tags),
+            "body_format": self.body_format,
             "extra": dict(self.extra),
         }
 
@@ -222,7 +230,10 @@ class Item:
         item_id = _require_id(data.get("id"))
         kind = _require_text(data.get("kind"), "kind")
         title = _require_title(data.get("title"))
-        body = _optional_body(data.get("body", ""))
+        body_format = _optional_body_format(data.get("body_format"))
+        body_limit = 8000 if kind == "todo" and body_format == "markdown" else 1000
+        body = _optional_body(data.get("body", ""), limit=body_limit)
+        tags = _optional_tags(data.get("tags"))
         status = _require_status(data.get("status", "open"))
         created = _require_timestamp(data.get("created"), "created")
         updated_at = _require_timestamp(data.get("updated_at"), "updated_at")
@@ -243,6 +254,7 @@ class Item:
         title, body, amount, waiting = _guard_secrets(
             title, body, amount, waiting, redacted
         )
+        tags = _guard_tags(tags, redacted)
         if redacted:
             logging.getLogger("tetherbot").info(
                 "redacted %s on %s",
@@ -271,6 +283,8 @@ class Item:
             notify=notify,
             expires_at=expires_at,
             links=links,
+            tags=tags,
+            body_format=body_format,
             extra=extra,
             redacted_fields=tuple(redacted),
         )
@@ -396,12 +410,45 @@ def _require_title(value: object) -> str:
     return value
 
 
-def _optional_body(value: object) -> str:
+def _optional_body(value: object, *, limit: int = 1000) -> str:
     if not isinstance(value, str):
         raise ValueError("body must be a string")
-    if len(value) > 1000:
-        raise ValueError("body must be at most 1000 characters")
+    if len(value) > limit:
+        raise ValueError(f"body must be at most {limit} characters")
     return value
+
+
+def _optional_body_format(value: object) -> str:
+    if value is None:
+        return "plain"
+    if value not in {"plain", "markdown"}:
+        raise ValueError("body_format must be plain or markdown")
+    return value
+
+
+def _optional_tags(value: object) -> list[str]:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ValueError("tags must be a list")
+    if len(value) > 8:
+        raise ValueError("tags has a maximum of 8")
+    tags: list[str] = []
+    for entry in value:
+        if not isinstance(entry, str) or _TAG.fullmatch(entry) is None:
+            raise ValueError("a tag must be 1 to 32 characters of a-z, 0-9, hyphen, or underscore")
+        tags.append(entry)
+    return tags
+
+
+def _guard_tags(tags: list[str], redacted: list[str]) -> list[str]:
+    kept: list[str] = []
+    for tag in tags:
+        if looks_like_secret(tag):
+            redacted.append("tags")
+            continue
+        kept.append(tag)
+    return kept
 
 
 def _require_status(value: object) -> str:
@@ -470,6 +517,12 @@ def _optional_waiting(value: object) -> dict[str, str] | None:
             raise ValueError("waiting.check_back must be YYYY-MM-DD")
         datetime.strptime(check_back, "%Y-%m-%d")
         parsed["check_back"] = check_back
+    since = value.get("since")
+    if since is not None:
+        if not isinstance(since, str) or _DUE_DATE.fullmatch(since) is None:
+            raise ValueError("waiting.since must be YYYY-MM-DD")
+        datetime.strptime(since, "%Y-%m-%d")
+        parsed["since"] = since
     return parsed or None
 
 

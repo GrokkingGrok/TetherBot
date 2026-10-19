@@ -38,7 +38,9 @@ python3 tools/feed_write.py --repo owner/name --bot primary --dry-run \
 
 `--repo` may also come from `TETHERBOT_FEED_REPO`. `--bot` defaults to `primary` (`TETHERBOT_FEED_BOT` overrides that default). `--token-env` names the variable that holds the token.
 
-`add-todo` writes `kind: todo`, `status: open`, and `actions: ["done"]`. `--todo-kind` is `task` or `bill`. `--due` accepts `YYYY-MM-DD`, `YYYY-MM-DD HH:MM`, or an ISO 8601 timestamp, and is stored in the protocol form. Omit `--key` and the id is `<bot>-YYYYMMDD-NN`. `add-ask` writes `actions: ["approve", "veto"]`.
+`add-todo` writes `kind: todo`, `status: open`, `actions: ["done"]`, `owner: user` unless `--owner bot` is set, and `body_format: markdown` unless `--no-markdown` is set. Repeat `--tag`. `--priority` is 1, 2, or 3. `--waiting-on` stores `waiting.on` and `waiting.since`. `--body-file` reads Markdown from a path. `--todo-kind` is `task` or `bill`. `--due` accepts `YYYY-MM-DD`, `YYYY-MM-DD HH:MM`, or an ISO 8601 timestamp, and is stored in the protocol form. Omit `--key` and the id is `<bot>-YYYYMMDD-NN`. `add-ask` writes `actions: ["approve", "veto"]`.
+
+`edit --key` changes title, body, due, tags, priority, or waiting on an existing item. `tag-color --tag NAME --color PALETTE` sets the feed's `tag_colors` map. Palette names are `red`, `orange`, `yellow`, `green`, `teal`, `blue`, `purple`, `pink`, and `gray`.
 
 Adding a todo or ask whose title and body match an existing open item of the same kind prints that item and does not create a second one. A closed item with the same title is not a match.
 

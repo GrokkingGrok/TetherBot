@@ -73,6 +73,17 @@
     <method name="DropQueued">
       <arg name="action_id" type="s" direction="in"/>
     </method>
+    <method name="OpenWindow">
+      <arg name="item_key" type="s" direction="in"/>
+      <arg name="launched" type="b" direction="out"/>
+    </method>
+    <method name="GetTags">
+      <arg name="tags_json" type="s" direction="out"/>
+    </method>
+    <method name="Undo">
+      <arg name="item_key" type="s" direction="in"/>
+      <arg name="result_json" type="s" direction="out"/>
+    </method>
 
     <signal name="ItemsChanged">
       <arg name="added" type="as"/>

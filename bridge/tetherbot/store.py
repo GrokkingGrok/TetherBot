@@ -20,9 +20,11 @@ from tetherbot import SCHEMA_VERSION
 from tetherbot.files import write_private_json
 from tetherbot.model import Item, looks_like_secret, parse_acted, parse_iso8601, resolved_status
 from tetherbot.notify_policy import Notice, NotifyPolicy
+from tetherbot.todos import PALETTE_NAMES
 from tetherbot.version_gate import check_schema
 
 _BOT = re.compile(r"[a-z0-9-]{1,64}")
+_TAG = re.compile(r"^[a-z0-9_-]{1,32}$")
 FEED_STATES = frozenset({"idle", "working", "needs_you", "error"})
 _SUMMARY_LIMIT = 200
 
@@ -57,6 +59,7 @@ class FeedView:
     last_run: str | None = None
     next_run: str | None = None
     stale: bool = False
+    tag_colors: tuple[tuple[str, str], ...] = ()
 
 
 class ItemStore:
@@ -125,6 +128,15 @@ class ItemStore:
         if update.diff.updated or update.notifications:
             self._save()
         return update
+
+    def tag_color_map(self) -> dict[str, str]:
+        """Palette overrides from every feed. The first bot id wins a clash."""
+
+        merged: dict[str, str] = {}
+        for bot in sorted(self._feeds):
+            for tag, color in self._feeds[bot].tag_colors:
+                merged.setdefault(tag, color)
+        return merged
 
     def feed(self, bot: str) -> FeedView | None:
         return self._feeds.get(bot)
@@ -469,6 +481,7 @@ def parse_feed_view(payload: Mapping[str, object]) -> FeedView:
         summary=summary,
         last_run=last_run,
         next_run=next_run,
+        tag_colors=_tag_colors(payload.get("tag_colors")),
     )
 
 
@@ -531,6 +544,7 @@ def _load_feeds(value: object) -> dict[str, FeedView]:
             last_run=_optional_time(raw.get("last_run")),
             next_run=_optional_time(raw.get("next_run")),
             stale=raw.get("stale") is True,
+            tag_colors=_stored_tag_colors(raw.get("tag_colors")),
         )
     return feeds
 
@@ -549,4 +563,40 @@ def _feed_payload(view: FeedView) -> dict[str, object]:
         payload["next_run"] = view.next_run
     if view.stale:
         payload["stale"] = True
+    if view.tag_colors:
+        payload["tag_colors"] = [[tag, color] for tag, color in view.tag_colors]
     return payload
+
+
+def _tag_colors(value: object) -> tuple[tuple[str, str], ...]:
+    """Keep palette entries. A bad map does not fail the feed."""
+
+    if not isinstance(value, Mapping):
+        return ()
+    rows = []
+    for tag, color in value.items():
+        if (
+            isinstance(tag, str)
+            and _TAG.fullmatch(tag) is not None
+            and isinstance(color, str)
+            and color in PALETTE_NAMES
+            and not looks_like_secret(tag)
+        ):
+            rows.append((tag, color))
+    return tuple(sorted(rows))
+
+
+def _stored_tag_colors(value: object) -> tuple[tuple[str, str], ...]:
+    if not isinstance(value, list):
+        return ()
+    rows = []
+    for entry in value:
+        if (
+            isinstance(entry, list)
+            and len(entry) == 2
+            and isinstance(entry[0], str)
+            and isinstance(entry[1], str)
+            and entry[1] in PALETTE_NAMES
+        ):
+            rows.append((entry[0], entry[1]))
+    return tuple(rows)

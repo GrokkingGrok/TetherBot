@@ -23,6 +23,7 @@ import urllib.parse
 import urllib.request
 from collections.abc import Callable
 from datetime import datetime, timezone
+from pathlib import Path
 
 # datetime.UTC arrived in 3.11. This file stays runnable on 3.10.
 UTC = timezone.utc  # noqa: UP017
@@ -43,6 +44,7 @@ EXIT_TRANSPORT = 5
 _REPO = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 _BOT = re.compile(r"^[a-z0-9-]{1,64}$")
 _ID = re.compile(r"^[a-z0-9-]{3,64}$")
+_TAG = re.compile(r"^[a-z0-9_-]{1,32}$")
 _FEED_PATH = re.compile(r"^feed/[a-z0-9-]{1,64}\.json$")
 _SCHEMA_MAJOR = re.compile(r"^tetherbot/1(?:\.\d+)?$")
 _DUE_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -57,6 +59,10 @@ _KINDS = frozenset({"ask", "todo", "watch", "notification", "status"})
 _ITEM_STATUSES = frozenset({"open", "done", "dropped", "expired"})
 _ACTIONS = frozenset({"approve", "veto", "done", "snooze", "open_chat"})
 _CLOSE_STATUSES = frozenset({"done", "dropped"})
+_PALETTE = frozenset(
+    {"red", "orange", "yellow", "green", "teal", "blue", "purple", "pink", "gray"}
+)
+_OWNERS = frozenset({"user", "bot"})
 
 Request = Callable[[str, str, dict[str, str], bytes | None], tuple[int, object, bytes]]
 
@@ -131,14 +137,42 @@ def _require_title(value: object, field: str = "title") -> str:
     return value
 
 
-def _optional_body(value: object) -> str:
+def _optional_body(value: object, *, limit: int = 1000) -> str:
     if value is None:
         return ""
     if not isinstance(value, str):
         raise FeedWriteError("body must be a string", EXIT_USAGE)
-    if len(value) > 1000:
-        raise FeedWriteError("body must be at most 1000 characters", EXIT_USAGE)
+    if len(value) > limit:
+        raise FeedWriteError(f"body must be at most {limit} characters", EXIT_USAGE)
     _reject_secret(value, "body")
+    return value
+
+
+def _body_limit(kind: str, body_format: str) -> int:
+    if kind == "todo" and body_format == "markdown":
+        return 8000
+    return 1000
+
+
+def _read_body_file(path: str) -> str:
+    if not isinstance(path, str) or not path or "\x00" in path:
+        raise FeedWriteError("body file path is invalid", EXIT_USAGE)
+    try:
+        text = Path(path).read_text(encoding="utf-8")
+    except OSError as exc:
+        raise FeedWriteError("body file could not be read", EXIT_USAGE) from exc
+    if text.startswith("\ufeff"):
+        text = text[1:]
+    return text.rstrip("\n")
+
+
+def _clean_tag(value: str) -> str:
+    if not isinstance(value, str) or _TAG.fullmatch(value) is None:
+        raise FeedWriteError(
+            "a tag must be 1 to 32 characters of a-z, 0-9, hyphen, or underscore",
+            EXIT_USAGE,
+        )
+    _reject_secret(value, "tag")
     return value
 
 
@@ -259,6 +293,8 @@ def validate_feed(doc: object, bot: str) -> None:
     status = doc.get("status")
     if status is not None:
         _validate_status(status)
+    if "tag_colors" in doc:
+        _validate_tag_colors(doc.get("tag_colors"))
     for item in _items(doc):
         _validate_item(item, bot)
 
@@ -295,8 +331,18 @@ def _validate_item(item: object, bot: str) -> None:
     if item.get("kind") not in _KINDS:
         raise FeedWriteError("item kind is not in the protocol", EXIT_USAGE)
     _require_title(item.get("title"))
+    body_format = item.get("body_format", "plain")
+    if body_format not in {"plain", "markdown"}:
+        raise FeedWriteError("body_format must be plain or markdown", EXIT_USAGE)
     if "body" in item:
-        _optional_body(item.get("body"))
+        _optional_body(item.get("body"), limit=_body_limit(str(item.get("kind")), str(body_format)))
+    tags = item.get("tags", [])
+    if not isinstance(tags, list) or len(tags) > 8:
+        raise FeedWriteError("tags has a maximum of 8", EXIT_USAGE)
+    for tag in tags:
+        if not isinstance(tag, str):
+            raise FeedWriteError("tags must be a list of strings", EXIT_USAGE)
+        _clean_tag(tag)
     if item.get("status") not in _ITEM_STATUSES:
         raise FeedWriteError("item status must be open, done, dropped, or expired", EXIT_USAGE)
     _parse_timestamp(item.get("created"), "created")
@@ -324,6 +370,18 @@ def _validate_item(item: object, bot: str) -> None:
         raise FeedWriteError("source.routine must be a string", EXIT_USAGE)
     if isinstance(routine, str):
         _reject_secret(routine, "source.routine")
+
+
+def _validate_tag_colors(value: object) -> None:
+    if not isinstance(value, dict):
+        raise FeedWriteError("tag_colors must be an object", EXIT_USAGE)
+    for tag, color in value.items():
+        if not isinstance(tag, str):
+            raise FeedWriteError("tag_colors keys must be tags", EXIT_USAGE)
+        _clean_tag(tag)
+        if color not in _PALETTE:
+            names = ", ".join(sorted(_PALETTE))
+            raise FeedWriteError(f"tag color must be a palette name: {names}", EXIT_USAGE)
 
 
 def _existing_due(value: object) -> None:
@@ -408,15 +466,29 @@ def add_item(
     key: str | None = None,
     due: str | None = None,
     todo_kind: str | None = None,
+    tags: list[str] | None = None,
+    priority: int | None = None,
+    owner: str | None = None,
+    waiting_on: str | None = None,
+    markdown: bool = False,
 ) -> tuple[bool, dict, str]:
     """Append an ask or todo. An open item with the same title and body is reused."""
 
     title = _require_title(title)
-    body = _optional_body(body)
+    body_format = "markdown" if markdown and kind == "todo" else "plain"
+    body = _optional_body(body, limit=_body_limit(kind, body_format))
     if due is not None:
         due = normalize_due(due)
     if todo_kind is not None and (kind != "todo" or todo_kind not in {"task", "bill"}):
         raise FeedWriteError("todo_kind must be task or bill", EXIT_USAGE)
+    clean_tags = [_clean_tag(tag) for tag in (tags or [])]
+    if len(clean_tags) > 8 or len(set(clean_tags)) != len(clean_tags):
+        raise FeedWriteError("tags has a maximum of 8 unique tags", EXIT_USAGE)
+    if priority is not None and priority not in {1, 2, 3}:
+        raise FeedWriteError("priority must be 1, 2, or 3", EXIT_USAGE)
+    if owner is not None and owner not in _OWNERS:
+        raise FeedWriteError("owner must be user or bot", EXIT_USAGE)
+    waiting = _waiting_on(waiting_on, moment) if waiting_on else None
     items = _items(doc)
     existing = _match_open(items, kind, title, body)
     if existing is not None:
@@ -435,13 +507,23 @@ def add_item(
     }
     if body:
         item["body"] = body
+    if body_format == "markdown":
+        item["body_format"] = "markdown"
     item["status"] = "open"
     item["created"] = when
     item["updated_at"] = when
     if due is not None:
         item["due"] = due
+    if priority is not None:
+        item["priority"] = priority
+    if owner is not None:
+        item["owner"] = owner
+    if waiting is not None:
+        item["waiting"] = waiting
     if todo_kind is not None:
         item["todo_kind"] = todo_kind
+    if clean_tags:
+        item["tags"] = clean_tags
     item["actions"] = list(actions)
     item["notify"] = True
     item["source"] = {"bot": bot}
@@ -449,6 +531,163 @@ def add_item(
     doc["updated_at"] = when
     label = "todo" if kind == "todo" else "ask"
     return True, _public_item(bot, item), f"Add {label} {item_id}: {title}"
+
+
+def _waiting_on(text: str, moment: datetime) -> dict[str, str]:
+    if not isinstance(text, str) or not text or len(text) > 40 or "\n" in text or "\r" in text:
+        raise FeedWriteError("waiting-on must be a single line of 1 to 40 characters", EXIT_USAGE)
+    _reject_secret(text, "waiting.on")
+    return {"on": text, "since": moment.astimezone(UTC).strftime("%Y-%m-%d")}
+
+
+def _find_item(doc: dict, bot: str, key: str) -> dict:
+    item_id = parse_item_id(bot, key)
+    for item in _items(doc):
+        if isinstance(item, dict) and item.get("id") == item_id:
+            return item
+    raise FeedWriteError(f"item {bot}/{item_id} was not found", EXIT_NOT_FOUND)
+
+
+def edit_item(
+    doc: dict,
+    *,
+    bot: str,
+    key: str,
+    moment: datetime,
+    title: str | None = None,
+    body: str | None = None,
+    due: str | None = None,
+    clear_due: bool = False,
+    add_tags: list[str] | None = None,
+    remove_tags: list[str] | None = None,
+    priority: int | None = None,
+    waiting_on: str | None = None,
+    clear_waiting: bool = False,
+    markdown: bool | None = None,
+) -> tuple[bool, dict, str]:
+    """Change fields the bot owns. An empty edit does not write."""
+
+    if clear_due and due is not None:
+        raise FeedWriteError("pass due or clear-due, not both", EXIT_USAGE)
+    if clear_waiting and waiting_on is not None:
+        raise FeedWriteError("pass waiting-on or clear-waiting, not both", EXIT_USAGE)
+    found = _find_item(doc, bot, key)
+    changed = False
+    if title is not None:
+        title = _require_title(title)
+        if found.get("title") != title:
+            found["title"] = title
+            changed = True
+    if markdown is True:
+        if found.get("body_format") != "markdown":
+            found["body_format"] = "markdown"
+            changed = True
+    elif markdown is False and found.get("body_format") == "markdown":
+        found.pop("body_format", None)
+        changed = True
+    if body is not None:
+        kind = str(found.get("kind") or "")
+        body_format = "markdown" if found.get("body_format") == "markdown" else "plain"
+        body = _optional_body(body, limit=_body_limit(kind, body_format))
+        if body:
+            if found.get("body") != body:
+                found["body"] = body
+                changed = True
+        elif "body" in found:
+            found.pop("body")
+            changed = True
+    if due is not None:
+        due = normalize_due(due)
+        if found.get("due") != due:
+            found["due"] = due
+            changed = True
+    if clear_due and "due" in found:
+        found.pop("due")
+        changed = True
+    if priority is not None:
+        if priority not in {1, 2, 3}:
+            raise FeedWriteError("priority must be 1, 2, or 3", EXIT_USAGE)
+        if found.get("priority") != priority:
+            found["priority"] = priority
+            changed = True
+    tags = found.get("tags")
+    if not isinstance(tags, list):
+        tags = []
+    tag_list = [tag for tag in tags if isinstance(tag, str)]
+    for tag in add_tags or []:
+        clean = _clean_tag(tag)
+        if clean not in tag_list:
+            tag_list.append(clean)
+            changed = True
+    for tag in remove_tags or []:
+        clean = _clean_tag(tag)
+        if clean in tag_list:
+            tag_list = [entry for entry in tag_list if entry != clean]
+            changed = True
+    if len(tag_list) > 8:
+        raise FeedWriteError("tags has a maximum of 8", EXIT_USAGE)
+    if tag_list:
+        if found.get("tags") != tag_list:
+            found["tags"] = tag_list
+            changed = True
+    elif "tags" in found:
+        found.pop("tags")
+        changed = True
+    if waiting_on is not None:
+        waiting = _waiting_on(waiting_on, moment)
+        if found.get("waiting") != waiting:
+            found["waiting"] = waiting
+            changed = True
+    if clear_waiting and "waiting" in found:
+        found.pop("waiting")
+        changed = True
+    if not changed:
+        return False, _public_item(bot, found), ""
+    when = stamp(moment)
+    found["updated_at"] = when
+    doc["updated_at"] = when
+    return True, _public_item(bot, found), f"Edit {found['id']}"
+
+
+def set_tag_color(
+    doc: dict,
+    *,
+    tag: str,
+    color: str,
+    moment: datetime,
+) -> tuple[bool, dict, str]:
+    """Set one feed-level palette entry."""
+
+    tag = _clean_tag(tag)
+    if color not in _PALETTE:
+        names = ", ".join(sorted(_PALETTE))
+        raise FeedWriteError(f"tag color must be a palette name: {names}", EXIT_USAGE)
+    colors = doc.get("tag_colors")
+    if not isinstance(colors, dict):
+        colors = {}
+        _insert_before_items(doc, "tag_colors", colors)
+    if colors.get(tag) == color:
+        return False, {"tag": tag, "color": color}, ""
+    colors[tag] = color
+    doc["tag_colors"] = colors
+    doc["updated_at"] = stamp(moment)
+    return True, {"tag": tag, "color": color}, f"Set color for {tag}"
+
+
+def _insert_before_items(doc: dict, key: str, value: object) -> None:
+    rebuilt: dict = {}
+    placed = False
+    for name, current in doc.items():
+        if name == "items" and not placed:
+            rebuilt[key] = value
+            placed = True
+        if name == key:
+            continue
+        rebuilt[name] = current
+    if not placed:
+        rebuilt[key] = value
+    doc.clear()
+    doc.update(rebuilt)
 
 
 def set_item_status(
@@ -732,6 +971,17 @@ def _build_parser() -> argparse.ArgumentParser:
     add_todo.add_argument("--due", help="YYYY-MM-DD, YYYY-MM-DD HH:MM, or ISO 8601")
     add_todo.add_argument("--todo-kind", choices=("task", "bill"))
     add_todo.add_argument("--key", help="item id or bot/id; default <bot>-YYYYMMDD-NN")
+    add_todo.add_argument("--tag", action="append", default=[], help="repeatable tag")
+    add_todo.add_argument("--priority", type=int, choices=(1, 2, 3))
+    add_todo.add_argument("--owner", choices=("user", "bot"))
+    add_todo.add_argument("--waiting-on")
+    add_todo.add_argument("--body-file", help="read the Markdown body from this path")
+    add_todo.add_argument(
+        "--markdown",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="store body_format markdown (default)",
+    )
 
     add_ask = commands.add_parser("add-ask", help="append an open ask")
     add_ask.add_argument("--title", required=True)
@@ -752,7 +1002,35 @@ def _build_parser() -> argparse.ArgumentParser:
 
     listing = commands.add_parser("list", help="print items as JSON")
     listing.add_argument("--open", action="store_true", help="only status open")
+
+    edit = commands.add_parser("edit", help="change one item")
+    edit.add_argument("--key", required=True)
+    edit.add_argument("--title")
+    edit.add_argument("--body")
+    edit.add_argument("--body-file")
+    edit.add_argument("--due")
+    edit.add_argument("--clear-due", action="store_true")
+    edit.add_argument("--add-tag", action="append", default=[])
+    edit.add_argument("--remove-tag", action="append", default=[])
+    edit.add_argument("--priority", type=int, choices=(1, 2, 3))
+    edit.add_argument("--waiting-on")
+    edit.add_argument("--clear-waiting", action="store_true")
+    edit.add_argument("--markdown", action=argparse.BooleanOptionalAction, default=None)
+
+    paint = commands.add_parser("tag-color", help="set a tag palette color")
+    paint.add_argument("--tag", required=True)
+    paint.add_argument("--color", required=True, choices=tuple(sorted(_PALETTE)))
     return parser
+
+
+def _command_body(args: argparse.Namespace) -> str | None:
+    body_file = getattr(args, "body_file", None)
+    body = getattr(args, "body", None)
+    if body_file and body:
+        raise FeedWriteError("pass body or body-file, not both", EXIT_USAGE)
+    if body_file:
+        return _read_body_file(body_file)
+    return body
 
 
 def main(
@@ -792,12 +1070,17 @@ def main(
                     bot=bot,
                     kind="todo",
                     title=args.title,
-                    body=args.body,
+                    body=_command_body(args) or "",
                     moment=when,
                     actions=["done"],
                     key=args.key,
                     due=args.due,
                     todo_kind=args.todo_kind,
+                    tags=args.tag,
+                    priority=args.priority,
+                    owner=args.owner or "user",
+                    waiting_on=args.waiting_on,
+                    markdown=bool(args.markdown),
                 )
             if args.command == "add-ask":
                 return add_item(
@@ -828,6 +1111,25 @@ def main(
                     status="open",
                     moment=when,
                 )
+            if args.command == "edit":
+                return edit_item(
+                    doc,
+                    bot=bot,
+                    key=args.key,
+                    moment=when,
+                    title=args.title,
+                    body=_command_body(args),
+                    due=args.due,
+                    clear_due=args.clear_due,
+                    add_tags=args.add_tag,
+                    remove_tags=args.remove_tag,
+                    priority=args.priority,
+                    waiting_on=args.waiting_on,
+                    clear_waiting=args.clear_waiting,
+                    markdown=args.markdown,
+                )
+            if args.command == "tag-color":
+                return set_tag_color(doc, tag=args.tag, color=args.color, moment=when)
             return set_feed_status(
                 doc,
                 state=args.state,
@@ -837,7 +1139,7 @@ def main(
                 last_run=args.last_run,
             )
 
-        create = args.command in {"add-todo", "add-ask", "status"}
+        create = args.command in {"add-todo", "add-ask", "status", "tag-color"}
         payload, text = _commit(
             client,
             bot,

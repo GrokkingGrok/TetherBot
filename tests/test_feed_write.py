@@ -413,6 +413,61 @@ def test_normalize_due_and_auto_id():
     assert fake.document()["items"][1]["id"] == "primary-20261017-02"
 
 
+def test_add_todo_tags_priority_owner_and_markdown(tmp_path):
+    fake = FakeGitHub()
+    body = tmp_path / "note.md"
+    body.write_text("# Send the note\n\n- one\n", encoding="utf-8")
+    code = _run(
+        fake,
+        "add-todo",
+        "--title", "Send the note",
+        "--body-file", str(body),
+        "--tag", "home",
+        "--tag", "errand",
+        "--priority", "1",
+        "--owner", "bot",
+        "--waiting-on", "reply",
+        "--due", "2026-10-20 10:00",
+    )
+    assert code == 0
+    item = fake.document()["items"][0]
+    assert item["body"] == "# Send the note\n\n- one"
+    assert item["body_format"] == "markdown"
+    assert item["tags"] == ["home", "errand"]
+    assert item["priority"] == 1
+    assert item["owner"] == "bot"
+    assert item["waiting"] == {"on": "reply", "since": "2026-10-17"}
+    assert item["due"] == "2026-10-20 10:00"
+    assert _run(fake, "tag-color", "--tag", "home", "--color", "teal") == 0
+    assert fake.document()["tag_colors"]["home"] == "teal"
+    assert _run(
+        fake,
+        "edit",
+        "--key", "primary/primary-20261017-01",
+        "--add-tag", "bills",
+        "--remove-tag", "errand",
+        "--clear-waiting",
+        "--priority", "2",
+    ) == 0
+    edited = fake.document()["items"][0]
+    assert edited["tags"] == ["home", "bills"]
+    assert "waiting" not in edited
+    assert edited["priority"] == 2
+    assert edited["updated_at"] == "2026-10-17T12:00:00+00:00"
+
+
+def test_writer_rejects_a_secret_tag_and_keeps_desktop_untouched(capsys):
+    fake = FakeGitHub()
+    secret = "abcdef0123456789abcdef0123456789"
+    code = _run(fake, "add-todo", "--title", "Send the note", "--tag", secret)
+    assert code == 1
+    assert _puts(fake) == []
+    err = capsys.readouterr().err
+    assert "tag looks like a secret" in err
+    assert secret not in err
+    assert all("desktop" not in call[1] for call in fake.calls)
+
+
 def test_put_404_is_not_found(capsys):
     fake = FakeGitHub()
     fake.forced["PUT"] = 404

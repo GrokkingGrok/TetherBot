@@ -39,8 +39,8 @@ TetherBot is pre-alpha. Check items off as they land. Design detail is in [SPEC.
 - [x] Undo drops a queued Done before it is sent, and sends `reopen` only after it has gone out
 - [x] `tools/feed_write.py` gains tags, priority, owner, waiting-on, body-file, edit, and tag-color
 - [x] TetherBot window (GTK4 and libadwaita): list, detail Markdown, `.desktop` file, and `OpenWindow`
-- [ ] Popup: chips, search, at most 8 todos, Open TetherBot, and a 5-second Undo
-- [ ] Manual checks M18–M24 for the rich todo view. M17 stays the uninstall check
+- [x] Popup: chips, search, at most 8 todos, Open TetherBot, and a 5-second Undo
+- [ ] Manual checks M18–M24 for the rich todo view. The steps are in [MANUAL-CHECKS.md](MANUAL-CHECKS.md). They have not been run on the desktop yet.
 
 ## v0.2 — early adopters
 

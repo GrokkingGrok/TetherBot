@@ -487,6 +487,13 @@ Still to write, with the milestones that need them:
 - M15. Legacy sink, if enabled: shadow comparison is clean, cut over, the next bot run reports done items. Roll back and forward once.
 - M16. A new todo item appears in the local todo consumer without a shell restart. Checking it off lands in the bridge-owned state on the next run.
 - M17. `scripts/uninstall.sh` removes units and files and, after confirming `--purge`, config and state. Secret-service items stay unless a future explicit command deletes them.
+- M18. A todo with tags, a due time, priority, and a Markdown body shows those chips in the popup and the window.
+- M19. A word that appears only in a body is found from the popup search and the window search.
+- M20. Two tag chips show only items with both tags. All, Mine, Bots, Waiting, and Today match their rules.
+- M21. An open item renders headings, lists, code, and a link. The link opens in the browser after a click.
+- M22. Done in the detail pane hides the item in the popup and the window, and the bot receives it. Undo within 5 seconds drops a still-queued Done.
+- M23. A feed with none of the new fields still shows the title, bot, and due date as before.
+- M24. The window opens from the popup and from the app grid, holds no secrets, and makes no network requests. The extension does not spawn it.
 
 ## 13. Milestones
 

@@ -499,9 +499,9 @@ Checklists live in [ROADMAP.md](ROADMAP.md).
 ### v0.1.x: bot-written todos (next)
 
 - The bot writes the feed, including a `kind: todo` captured from a phone message while the user is away, and a daily summary of that day's asks and todos. The desktop shows new items on the next poll or at boot. Done in the popup still reports over the webhook, and the bridge records the item closed.
-- Write access is a credential scoped to the private data repo only, held on the bot side, never on the desktop or in this repository. Fine-grained token versus deploy key is **TBD, verify**.
+- Write access is a fine-grained personal access token scoped to the private data repo only (Contents read and write, plus Metadata read, nothing else), held on the bot side as a bot secret. An expired token must fail visibly.
 - TetherBot is the single todo tracker. An older local todo sync is retired after cutover, not run beside it.
-- `feed/<bot>.json` for more than one bot. More than one desktop may read the same feed. A non-GNOME client is out of scope. On a second machine the bot side is how todos are added. Per-desktop `desktop/state.json` when two desktops share one feed is **TBD, verify**.
+- `feed/<bot>.json` for more than one bot. More than one desktop may read the same feed. A non-GNOME client is out of scope. On a second machine the bot side is how todos are added. Proposed, not urgent: each desktop writes only `desktop/<machine-id>.json` (a stable random id from install, not the hostname). Every desktop hides an item any machine has resolved. Snooze stays local. **TBD, verify** before a second GNOME desktop exists.
 - An always-on local device, such as a single-board computer, as an indicator or hub is optional later. The private repo is already the always-on middle.
 
 ### v0.2: early adopters
@@ -538,18 +538,17 @@ GNOME already has chat-style AI clients: Newelle (GTK4, MCP), Alpaca (Ollama), a
 - **Naming.** Bus name and interface `io.github.grokkinggrok.TetherBot1`. Object path `/io/github/grokkinggrok/TetherBot1`. Schema string stays `tetherbot/1`. Extension UUID `tetherbot@grokkinggrok.github.io`. Libsecret schema `io.github.grokkinggrok.TetherBot.Secret`. Do not change the bus name after release.
 - **Unofficial labelling.** The README and `extension/metadata.json` say the project is unofficial and not affiliated with xAI.
 - **Legacy inbox format.** A concrete legacy inbox format stays out of this public repository. The `legacy-todo` sink stays generic and does not publish a field map.
-- **Bot write access.** A credential scoped to the private data repo only, held on the bot side. It is never stored on the desktop or in this repository.
+- **Bot write credential.** A fine-grained personal access token scoped to the private data repo only. Permissions are Contents read and write, plus Metadata read (GitHub requires it), and nothing else. Held on the bot side as a bot secret, never on the desktop or in this repository. The bot writes over HTTPS and the REST contents API, which an SSH-only deploy key cannot do, and this matches the desktop's `https-token` mode. Fine-grained tokens expire (maximum 1 year). The bot owner sets a renewal reminder before expiry. An expired token must fail visibly: the bot reports it, and posting does not stop in silence.
 
 ### Still open
 
 1. Webhook response details: exact status and body for the shared rate cap (reported as 400), bad key (401 or 403?), max body size, and whether a run id comes back. **TBD, verify** with a test routine during manual checks M3 and M7.
 2. Key rotation: is there a way to get a new key without recreating the routine? **TBD, verify.**
 3. Deep link to open a specific bot's chat in the Grok Bot Linux app, and its desktop entry id. **TBD, verify.** Fallback is launching the app.
-4. How the bot authenticates writes to the data repo: a fine-grained token or a deploy key. **TBD, verify.** The credential stays on the bot side either way.
-5. Will Grok Bot ship outbound webhooks, status events, or a local hook that replaces the repo poller? Watch release notes. The `official` stub is the seam.
-6. Should a local todo consumer move to D-Bus `GetItems`, or keep parsing its own file? Decide after v0.1.
-7. Should `done` on a legacy todo from the popup write the local todo file (one source of truth) or only send a webhook? Proposed: write the file when that sink is the source of truth.
-8. Git-over-HTTPS polling limits for `ls-remote` every 2 minutes. **TBD, verify.** Fall back to REST with ETag if throttled.
-9. GNOME 50 specifics: `MessageTray.Notification` action API and the nested devkit command on Fedora 44. **TBD, verify** before coding the extension UI.
-10. Which `systemd --user` sandboxing options work on Fedora 44 without breaking libsecret or git. **TBD, verify.**
-11. Two desktops sharing one feed: how `desktop/state.json` keeps per-desktop acted and closed state without both machines pushing conflicting state. **TBD, verify.**
+4. Will Grok Bot ship outbound webhooks, status events, or a local hook that replaces the repo poller? Watch release notes. The `official` stub is the seam.
+5. Should a local todo consumer move to D-Bus `GetItems`, or keep parsing its own file? Decide after v0.1.
+6. Should `done` on a legacy todo from the popup write the local todo file (one source of truth) or only send a webhook? Proposed: write the file when that sink is the source of truth.
+7. Git-over-HTTPS polling limits for `ls-remote` every 2 minutes. **TBD, verify.** Fall back to REST with ETag if throttled.
+8. GNOME 50 specifics: `MessageTray.Notification` action API and the nested devkit command on Fedora 44. **TBD, verify** before coding the extension UI.
+9. Which `systemd --user` sandboxing options work on Fedora 44 without breaking libsecret or git. **TBD, verify.**
+10. Proposed, not urgent (only once a second GNOME desktop exists): each desktop writes only `desktop/<machine-id>.json`. `machine-id` is a stable random id generated at install, not the hostname. No two machines write the same file, so pushes cannot conflict. A tap on one desktop resolves the item; every desktop reads all `desktop/*.json` files and hides an item that any desktop has resolved. Snooze stays local to one machine. The current single-desktop `desktop/state.json` is read as a legacy file and renamed on first run. **TBD, verify** before building it.

@@ -52,6 +52,7 @@ class CtlContext:
     post: Callable[[str, str], int]
     resume: Callable[[str], None] | None = None
     queue: Callable[[], list[Mapping[str, object]] | None] | None = None
+    call_method: Callable[[str, str, tuple[object, ...]], object] | None = None
 
 
 def main(argv: list[str] | None = None, context: CtlContext | None = None) -> int:
@@ -248,6 +249,8 @@ def _dispatch(args: argparse.Namespace, context: CtlContext) -> int:
         return _secret_set(args.slot, context)
     if args.command == "webhook":
         return _webhook_test(args.bot, context)
+    if args.command == "timer":
+        return _timer(args, context)
     raise CtlError("unknown command")
 
 
@@ -380,6 +383,57 @@ def _set_enabled_live(path: Path) -> Callable[[str, bool], None]:
     return _set
 
 
+def _timer(args: argparse.Namespace, context: CtlContext) -> int:
+    action = args.timer_command
+    if action == "status":
+        payload = _timer_call(context, "GetTimer", "()", ())
+    elif action == "start":
+        payload = _timer_call(context, "StartTimer", "(s)", (args.item or "",))
+    elif action == "pause":
+        payload = _timer_call(context, "PauseTimer", "()", ())
+    elif action == "resume":
+        payload = _timer_call(context, "ResumeTimer", "()", ())
+    elif action == "stop":
+        payload = _timer_call(context, "StopTimer", "()", ())
+    else:
+        raise CtlError("unknown command")
+    print(payload if isinstance(payload, str) else json.dumps(payload), file=context.stdout)
+    return 0
+
+
+def _timer_call(context: CtlContext, method: str, signature: str, args: tuple[object, ...]) -> str:
+    if context.call_method is not None:
+        result = context.call_method(method, signature, args)
+        return result if isinstance(result, str) else json.dumps(result)
+    return _dbus_timer(method, signature, args)
+
+
+def _dbus_timer(method: str, signature: str, args: tuple[object, ...]) -> str:
+    bus = _session_bus()
+    if bus is None or not _name_owned(bus):
+        raise CtlError("bridge is not running")
+    glib, gio = _gio()
+    out = "(s)"
+    try:
+        reply = bus.call_sync(  # type: ignore[attr-defined]
+            BUS_NAME,
+            OBJECT_PATH,
+            INTERFACE,
+            method,
+            glib.Variant(signature, args),
+            glib.VariantType(out),
+            gio.DBusCallFlags.NONE,
+            8000,
+            None,
+        )
+    except Exception as exc:
+        raise CtlError("could not save the timer") from exc
+    unpacked = reply.unpack()
+    if isinstance(unpacked, tuple) and unpacked:
+        return str(unpacked[0])
+    return str(unpacked)
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="tetherbotctl")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -396,6 +450,14 @@ def _parser() -> argparse.ArgumentParser:
     webhook_commands = webhook.add_subparsers(dest="webhook_command", required=True)
     test = webhook_commands.add_parser("test")
     test.add_argument("bot")
+    timer = commands.add_parser("timer")
+    timer_commands = timer.add_subparsers(dest="timer_command", required=True)
+    timer_commands.add_parser("status")
+    start = timer_commands.add_parser("start")
+    start.add_argument("--item", default="")
+    timer_commands.add_parser("pause")
+    timer_commands.add_parser("resume")
+    timer_commands.add_parser("stop")
     return parser
 
 

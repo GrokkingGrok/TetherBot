@@ -18,6 +18,7 @@ from tetherbot.config import ConfigError, save_adapter_enabled
 from tetherbot.dbus_service import INTERFACE
 from tetherbot.model import ENVELOPE_ACTIONS, looks_like_secret, mask_secrets, parse_iso8601
 from tetherbot.queue import QueueError
+from tetherbot.timer import TimerError
 from tetherbot.todos import (
     SORTS,
     VIEWS,
@@ -34,6 +35,8 @@ NOT_FOUND = f"{INTERFACE}.Error.NotFound"
 INVALID_ARGS = f"{INTERFACE}.Error.InvalidArgs"
 UNAVAILABLE = f"{INTERFACE}.Error.Unavailable"
 FAILED = f"{INTERFACE}.Error.Failed"
+TIMER_BUSY = f"{INTERFACE}.Error.TimerBusy"
+NO_TIMER = f"{INTERFACE}.Error.NoTimer"
 
 SYNC_LIMIT_SECONDS = 30
 _FILTER_KEYS = frozenset(
@@ -75,6 +78,14 @@ METHOD_OUT: dict[str, str | None] = {
     "OpenWindow": "(b)",
     "GetTags": "(s)",
     "Undo": "(s)",
+    "StartTimer": "(s)",
+    "PauseTimer": "(s)",
+    "ResumeTimer": "(s)",
+    "StopTimer": "(s)",
+    "UndoStopTimer": "(b)",
+    "GetTimer": "(s)",
+    "ResolveTimerWarning": "(s)",
+    "AssignStoppedTimer": "(b)",
 }
 
 PROPERTY_TYPES = {
@@ -94,6 +105,7 @@ SIGNAL_SIGNATURES = {
     "NotificationRequested": "(ss)",
     "ActionResult": "(sss)",
     "StateChanged": "(ss)",
+    "TimerChanged": "(s)",
 }
 
 
@@ -189,7 +201,10 @@ class BridgeApi:
                 continue
             rows.append(item)
         rows.sort(key=lambda item: sort_key(item, sort, now, zone))
-        return (_dumps([_item_payload(item, now, zone, colors) for item in rows]),)
+        totals = self._tracked()
+        return (
+            _dumps([_item_payload(item, now, zone, colors, totals) for item in rows]),
+        )
 
     def _get_item(self, key: str) -> tuple[str]:
         item = self._daemon.store.get(key)
@@ -199,7 +214,17 @@ class BridgeApi:
         zone = now.tzinfo
         if zone is None:
             raise ServiceError(FAILED, "clock must be timezone-aware")
-        return (_dumps(_item_payload(item, now, zone, self._daemon.store.tag_color_map())),)
+        return (
+            _dumps(
+                _item_payload(
+                    item,
+                    now,
+                    zone,
+                    self._daemon.store.tag_color_map(),
+                    self._tracked(),
+                )
+            ),
+        )
 
     def _get_tags(self) -> tuple[str]:
         now = self._daemon.now()
@@ -229,6 +254,110 @@ class BridgeApi:
         except Exception:
             opened = False
         return (opened,)
+
+    def note_timer(self) -> None:
+        timer = getattr(self._daemon, "timer", None)
+        if timer is None:
+            return
+        self._emit("TimerChanged", _dumps(timer.view()))
+
+    def _tracked(self) -> dict[str, int]:
+        timer = getattr(self._daemon, "timer", None)
+        if timer is None:
+            return {}
+        return timer.totals()
+
+    def _timer_call(self, action: str, *args: Any) -> Any:
+        timer = getattr(self._daemon, "timer", None)
+        if timer is None:
+            raise ServiceError(FAILED, "Could not save the timer")
+        try:
+            return getattr(timer, action)(*args)
+        except TimerError as exc:
+            raise _timer_error(exc) from exc
+
+    def _start_timer(self, item_key: str) -> tuple[str]:
+        if not isinstance(item_key, str):
+            raise ServiceError(INVALID_ARGS, "item_key is invalid")
+        timer = getattr(self._daemon, "timer", None)
+        if timer is not None and timer.active() is not None:
+            raise ServiceError(TIMER_BUSY, "a timer is already running")
+        title = ""
+        if item_key:
+            if _bad_item_key(item_key):
+                raise ServiceError(INVALID_ARGS, "item_key is invalid")
+            item = self._daemon.store.get(item_key)
+            if item is None or item.kind != "todo" or item.status != "open":
+                raise ServiceError(NOT_FOUND, "item not found")
+            title = item.title
+        payload = self._timer_call("start", item_key, title)
+        self._emit("TimerChanged", _dumps(payload))
+        return (_dumps(payload),)
+
+    def _pause_timer(self) -> tuple[str]:
+        payload = self._timer_call("pause")
+        self._emit("TimerChanged", _dumps(payload))
+        return (_dumps(payload),)
+
+    def _resume_timer(self) -> tuple[str]:
+        payload = self._timer_call("resume")
+        self._emit("TimerChanged", _dumps(payload))
+        return (_dumps(payload),)
+
+    def _stop_timer(self) -> tuple[str]:
+        result = self._timer_call("stop")
+        self.note_timer()
+        return (_dumps(result),)
+
+    def _undo_stop_timer(self, timer_id: str) -> tuple[bool]:
+        if not isinstance(timer_id, str) or not timer_id:
+            raise ServiceError(INVALID_ARGS, "timer_id is invalid")
+        ok = bool(self._timer_call("undo_stop", timer_id))
+        if ok:
+            self.note_timer()
+        return (ok,)
+
+    def _get_timer(self) -> tuple[str]:
+        timer = getattr(self._daemon, "timer", None)
+        if timer is None:
+            return (_dumps({"schema": "tetherbot/1", "state": "idle"}),)
+        changed = bool(timer.poll())
+        payload = timer.view()
+        if changed:
+            self._emit("TimerChanged", _dumps(payload))
+        return (_dumps(payload),)
+
+    def _resolve_timer_warning(self, choice: str, seconds: int) -> tuple[str]:
+        if not isinstance(choice, str):
+            raise ServiceError(INVALID_ARGS, "choice is invalid")
+        if not isinstance(seconds, int) or isinstance(seconds, bool):
+            raise ServiceError(INVALID_ARGS, "seconds is invalid")
+        payload = self._timer_call("resolve", choice, seconds)
+        self.note_timer()
+        return (_dumps(payload),)
+
+    def _assign_stopped_timer(self, timer_id: str, item_key: str) -> tuple[bool]:
+        if not isinstance(timer_id, str) or not timer_id:
+            raise ServiceError(INVALID_ARGS, "timer_id is invalid")
+        if not isinstance(item_key, str) or _bad_item_key(item_key):
+            raise ServiceError(INVALID_ARGS, "item_key is invalid")
+        item = self._daemon.store.get(item_key)
+        if item is None or item.kind != "todo" or item.status != "open":
+            raise ServiceError(NOT_FOUND, "item not found")
+        ok = bool(self._timer_call("assign", timer_id, item_key))
+        if ok:
+            self.note_timer()
+        return (ok,)
+
+    def _stop_owned_timer(self, key: str) -> None:
+        timer = getattr(self._daemon, "timer", None)
+        if timer is None:
+            return
+        current = timer.active()
+        if current is None or current.get("item_key") != key:
+            return
+        self._timer_call("stop")
+        self.note_timer()
 
     def _undo(self, item_key: str) -> tuple[str]:
         if not isinstance(item_key, str) or _bad_item_key(item_key):
@@ -282,6 +411,8 @@ class BridgeApi:
         args = _object(args_json, "args_json")
         if args:
             raise ServiceError(INVALID_ARGS, "this action does not take arguments")
+        if action == "done":
+            self._stop_owned_timer(key)
         bot = key.split("/", 1)[0]
         return (self._enqueue(bot, key, action, args),)
 
@@ -744,11 +875,31 @@ def _snoozed(until: str | None, now: datetime) -> bool:
     return parse_iso8601(until, field_name="snoozed_until") > now
 
 
-def _item_payload(item: Any, now: datetime, zone: Any, colors: Mapping[str, str]) -> dict[str, Any]:
+def _timer_error(exc: TimerError) -> ServiceError:
+    names = {
+        "busy": TIMER_BUSY,
+        "no_timer": NO_TIMER,
+        "not_found": NOT_FOUND,
+        "invalid": INVALID_ARGS,
+        "failed": FAILED,
+    }
+    return ServiceError(names.get(exc.code, FAILED), str(exc))
+
+
+def _item_payload(
+    item: Any,
+    now: datetime,
+    zone: Any,
+    colors: Mapping[str, str],
+    totals: Mapping[str, int] | None = None,
+) -> dict[str, Any]:
     payload = item.protocol_dict()
     payload["key"] = item.key
     payload["origin"] = item.origin
     payload["chips"] = chips(item, now, zone, colors)
+    tracked = 0 if totals is None else int(totals.get(item.key, 0))
+    if tracked > 0:
+        payload["time_tracked_s"] = tracked
     local: dict[str, Any] = {
         "done_locally": item.done_locally,
         "seen": item.seen,

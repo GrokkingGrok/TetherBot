@@ -16,7 +16,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Protocol, TextIO
+from typing import Any, Protocol, TextIO
 
 from tetherbot.config import BridgeConfig, ConfigError, QueueConfig, load_config
 from tetherbot.dbus_service import STATES
@@ -26,6 +26,7 @@ from tetherbot.queue import ActionQueue
 from tetherbot.secrets import SecretStore, UnavailableBackend, open_secret_store
 from tetherbot.service import BridgeApi
 from tetherbot.store import ItemStore
+from tetherbot.timer import TimerStore
 
 
 class MainLoop(Protocol):
@@ -82,6 +83,7 @@ class BridgeDaemon:
         self.config: BridgeConfig | None = None
         self.store: ItemStore | None = None
         self.queue: ActionQueue | None = None
+        self.timer: Any = None
         self.state = "unconfigured"
         self.reason = "not started"
         self.running = False
@@ -191,6 +193,7 @@ class BridgeDaemon:
                 self._loop.watch_unix_signals(self.stop)
             if hasattr(self._loop, "timeout_add"):
                 self._loop.timeout_add(1, self.tick_adapters)
+                self._loop.timeout_add(60, self.poll_timer)
             self._loop.run()
         finally:
             if export is not None:
@@ -259,9 +262,19 @@ class BridgeDaemon:
                 config_exists=self.config_path.is_file(),
             )
         )
+        self.timer = TimerStore(self.state_dir)
         self.api = BridgeApi(self)
         self._sync_webhook()
         self._sync_poller()
+
+    def poll_timer(self) -> None:
+        """Save a clock warning while a timer is running. Does not tick the time."""
+
+        timer = self.timer
+        if timer is None or self.api is None:
+            return
+        if timer.poll():
+            self.api.note_timer()
 
     def tick_adapters(self) -> None:
         self.refresh_keyring()

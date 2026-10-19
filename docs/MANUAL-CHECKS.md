@@ -2,7 +2,7 @@
 
 Run these on one Fedora 44 desktop with GNOME Shell 50 on Wayland, after you can log in as a normal user. The project is unofficial and not affiliated with xAI.
 
-**Out of scope here:** M9 (webhook-only popup copy), M15 and M16 (a legacy todo sink outside this repository), and M17 (the full uninstall acceptance check). Uninstall is still documented in [SETUP.md](SETUP.md) and is the reset for M1. M18–M24 are the rich-todo checks later in this file. M25 checks that a new login starts the bridge. M26 checks that a todo click opens the window quickly. Do not treat M9, M15, M16, or M17 as part of the v0.1 runbook.
+**Out of scope here:** M9 (webhook-only popup copy), M15 and M16 (a legacy todo sink outside this repository), and M17 (the full uninstall acceptance check). Uninstall is still documented in [SETUP.md](SETUP.md) and is the reset for M1. M18–M24 are the rich-todo checks later in this file. M25 checks that a new login starts the bridge. M26 checks that a todo click opens the window quickly. M27–M36 check the stopwatch. Do not treat M9, M15, M16, or M17 as part of the v0.1 runbook.
 
 Examples use the bot id `primary`. Yours can be any lowercase id of letters, digits, and hyphens. Use the same id in the bot's feed file, in `config.toml`, and in the commands below.
 
@@ -10,7 +10,7 @@ Nothing in these steps belongs in a chat, in `config.toml`, or in this repositor
 
 ## Suggested order
 
-M1, M2, then the extension install in M14 (log out and back in once), then M3. Do M10 before M4 if the popup has no ask yet. Then M4, M10a, M5, M11, M6, M7, M8, M12, M13. After a rich todo is in the feed, M18 through M24. M25 is the next login after the unit is installed. M26 is a todo click after that.
+M1, M2, then the extension install in M14 (log out and back in once), then M3. Do M10 before M4 if the popup has no ask yet. Then M4, M10a, M5, M11, M6, M7, M8, M12, M13. After a rich todo is in the feed, M18 through M24. M25 is the next login after the unit is installed. M26 is a todo click after that. M27 through M36 need a running timer.
 
 You can stop after any check. Later checks say what they need.
 
@@ -689,6 +689,114 @@ journalctl --user -b /usr/bin/gnome-shell --no-pager | tail -n 80
 - Close the window and click another todo before a minute has passed. That open is immediate. The journal does not show a new window service for that second click.
 
 **Reset.** None. Log out and back in after changing extension files. `systemctl --user restart tetherbot` is enough for a bridge-only change.
+
+## M27. Start, pause, and stop from a todo
+
+**Preconditions.** M24. One open todo is in the popup.
+
+**Look for.**
+
+- Start the timer from that todo's row. The top-bar button shows the time, and the row says Timing.
+- Pause, Resume, and Stop work from the top of the popup.
+- The todo shows a `tracked` chip in the popup and in the window.
+
+**Reset.** None.
+
+## M28. The time survives an extension restart
+
+**Preconditions.** A timer is running. Note a phone stopwatch started at the same moment, or note the button's time.
+
+**Look for.**
+
+- Disable and enable the extension. The time matches.
+- Restart a nested devkit shell while it runs. The time matches the phone within 2 seconds.
+
+**Reset.** None.
+
+## M29. The time survives a bridge kill
+
+**Preconditions.** A timer is running.
+
+**Look for.**
+
+- `systemctl --user kill -s KILL tetherbot`. After the bridge returns, the time is still right.
+
+**Reset.** None.
+
+## M30. Logout keeps counting
+
+**Preconditions.** A timer is running.
+
+**Look for.**
+
+- Log out for 5 minutes and log back in. The time includes those 5 minutes.
+
+**Reset.** None.
+
+## M31. A paused timer survives reboot
+
+**Preconditions.** A timer is paused. Note the time.
+
+**Look for.**
+
+- Reboot. It is still paused at the same value.
+
+**Reset.** None.
+
+## M32. The timer file always parses
+
+**Preconditions.** The bridge is running.
+
+**Look for.**
+
+- Kill the bridge in a loop while a script calls `tetherbotctl timer start`, `pause`, and `resume`. `~/.local/state/tetherbot/timer.json` is either absent or parses as JSON after each kill.
+
+**Reset.** `tetherbotctl timer stop` if a timer is still there.
+
+## M33. A clock change asks before the number is trusted
+
+**Preconditions.** A timer is running. You can turn NTP off and back on.
+
+**Look for.**
+
+- Turn NTP off and set the clock back 1 hour. The button shows `--:--` and the amber triangle.
+- Keep, Set time..., and Discard each do what they say.
+- Turn NTP back on.
+
+**Reset.** Confirm the clock is right before the next check.
+
+## M34. Undo and Done record the right total
+
+**Preconditions.** A todo timer has been running.
+
+**Look for.**
+
+- Stop, then Undo within 5 seconds. The recorded total goes back, and the timer is running again.
+- Done on a timed todo records the time before the item is sent.
+
+**Reset.** None.
+
+## M35. A dead bridge hides the time
+
+**Preconditions.** An approval is waiting and a timer is running, so the button shows the time and the dot.
+
+**Look for.**
+
+- Stop the bridge. The slash shows and the time hides. The popup says the saved time is safe.
+- Start the bridge. The time and the dot come back.
+
+**Reset.** None.
+
+## M36. Each state has its own words
+
+**Preconditions.** You can move the button through all clear, running, paused, approval, overdue, clock warning, and bridge down.
+
+**Look for.**
+
+- With Orca, focus the button in each state and hear the names in [STOPWATCH.md](STOPWATCH.md) section 10.
+- The same states are distinguishable in grayscale: no badge, dot, ring, triangle, slash, pause bars, or dashes.
+
+**Reset.** None.
 
 ## When you are finished
 

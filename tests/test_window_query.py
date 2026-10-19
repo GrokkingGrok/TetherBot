@@ -6,11 +6,14 @@ import json
 from tetherbot.window_query import (
     ASK_TEXT,
     can_mark_done,
+    format_elapsed,
+    format_tracked,
     is_read_only,
     list_filter,
     note_payload,
     safe_http_url,
     source_line,
+    timer_item_key,
 )
 
 
@@ -64,6 +67,18 @@ def test_done_and_source_rules():
     assert not can_mark_done({**open_item, "status": "done"}, True)
     assert is_read_only({"status": "open", "local": {"acted": {"action_id": "a1"}}})
     assert source_line(open_item) == "primary · daily · 2026-10-17T11:40:00+00:00"
+
+
+def test_tracked_time_uses_the_clock_format():
+    assert format_elapsed(42 * 60 + 10) == "42:10"
+    assert format_elapsed(3600 + 42 * 60 + 10) == "1:42:10"
+    assert format_elapsed(-1) == "--:--"
+    assert format_tracked(90) == "1:30 tracked"
+    assert format_tracked(3600 + 42 * 60) == "1:42 tracked"
+    assert format_tracked(0) == ""
+    assert timer_item_key({"state": "running", "item_key": "primary/one"}) == "primary/one"
+    assert timer_item_key({"state": "idle", "item_key": "primary/one"}) == ""
+    assert timer_item_key(None) == ""
 
 
 def test_safe_http_url_rejects_other_schemes():

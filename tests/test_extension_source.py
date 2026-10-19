@@ -48,3 +48,14 @@ def test_disable_drops_the_proxy_and_handlers():
     assert "_indicator?.destroy" in disable
     assert "_proxy = null" in (EXTENSION / "extension.js").read_text(encoding="utf-8")
     assert "disconnectSignal" in text
+    assert "_tickSource" in disable
+    assert "source_remove" in disable
+    assert "GetTimerRemote" in text
+    assert "network-offline" not in text
+    assert "mail-unread" not in text
+    css = (EXTENSION / "stylesheet.css").read_text(encoding="utf-8")
+    assert "font-variant-numeric" in css
+    assert "tetherbot-time" in css
+    icons = EXTENSION / "icons"
+    for name in ("base", "dot", "ring", "slash", "triangle"):
+        assert (icons / f"tetherbot-{name}-symbolic.svg").is_file()

@@ -18,6 +18,16 @@ from tetherbot.config import ConfigError, save_adapter_enabled
 from tetherbot.dbus_service import INTERFACE
 from tetherbot.model import ENVELOPE_ACTIONS, looks_like_secret, mask_secrets, parse_iso8601
 from tetherbot.queue import QueueError
+from tetherbot.todos import (
+    SORTS,
+    VIEWS,
+    ParsedQuery,
+    chips,
+    matches,
+    parse_query,
+    sort_key,
+    tag_color,
+)
 from tetherbot.version_gate import check_schema
 
 NOT_FOUND = f"{INTERFACE}.Error.NotFound"
@@ -26,7 +36,19 @@ UNAVAILABLE = f"{INTERFACE}.Error.Unavailable"
 FAILED = f"{INTERFACE}.Error.Failed"
 
 SYNC_LIMIT_SECONDS = 30
-_FILTER_KEYS = frozenset({"kinds", "bots", "status", "include_snoozed"})
+_FILTER_KEYS = frozenset(
+    {
+        "kinds",
+        "bots",
+        "status",
+        "include_snoozed",
+        "tags",
+        "query",
+        "view",
+        "include_done_days",
+        "sort",
+    }
+)
 _ITEM_OUTBOUND = frozenset({"approve", "veto", "done"})
 _KNOWN_ADAPTERS = ("github-poller", "official", "webhook-sender")
 _BRIDGE_BOT_STATE = frozenset(
@@ -50,6 +72,9 @@ METHOD_OUT: dict[str, str | None] = {
     "GetQueue": "(s)",
     "RetryParked": None,
     "DropQueued": None,
+    "OpenWindow": "(b)",
+    "GetTags": "(s)",
+    "Undo": "(s)",
 }
 
 PROPERTY_TYPES = {
@@ -128,10 +153,22 @@ class BridgeApi:
         kinds = _string_set(spec.get("kinds"), "kinds")
         bots = _string_set(spec.get("bots"), "bots")
         status = _status_filter(spec.get("status"))
+        required_tags = _string_list(spec.get("tags"), "tags")
+        query = _query_filter(spec.get("query"))
+        view = _view_filter(spec.get("view"))
+        done_days = _done_days(spec.get("include_done_days"))
+        sort = _sort_filter(spec.get("sort"))
         now = self._daemon.now()
+        zone = now.tzinfo
+        if zone is None:
+            raise ServiceError(FAILED, "clock must be timezone-aware")
+        colors = self._daemon.store.tag_color_map()
         rows = []
         for item in self._daemon.store.items():
-            if item.acted or item.resolved:
+            recent = done_days is not None and _recently_done(item, now, done_days)
+            if item.status != "open" and not recent:
+                continue
+            if (item.acted or item.resolved) and not recent:
                 continue
             if not include_snoozed and _snoozed(item.snoozed_until, now):
                 continue
@@ -141,14 +178,94 @@ class BridgeApi:
                 continue
             if status is not None and item.status not in status:
                 continue
-            rows.append(_item_payload(item))
-        return (_dumps(rows),)
+            if not matches(
+                item,
+                required_tags=required_tags,
+                query=query,
+                view=view,
+                now=now,
+                zone=zone,
+            ):
+                continue
+            rows.append(item)
+        rows.sort(key=lambda item: sort_key(item, sort, now, zone))
+        return (_dumps([_item_payload(item, now, zone, colors) for item in rows]),)
 
     def _get_item(self, key: str) -> tuple[str]:
         item = self._daemon.store.get(key)
         if item is None:
             raise ServiceError(NOT_FOUND, "item not found")
-        return (_dumps(_item_payload(item)),)
+        now = self._daemon.now()
+        zone = now.tzinfo
+        if zone is None:
+            raise ServiceError(FAILED, "clock must be timezone-aware")
+        return (_dumps(_item_payload(item, now, zone, self._daemon.store.tag_color_map())),)
+
+    def _get_tags(self) -> tuple[str]:
+        now = self._daemon.now()
+        counts: dict[str, int] = {}
+        for item in self._daemon.store.items():
+            if item.status != "open" or item.acted or item.resolved:
+                continue
+            if _snoozed(item.snoozed_until, now):
+                continue
+            for tag in item.tags:
+                counts[tag] = counts.get(tag, 0) + 1
+        colors = self._daemon.store.tag_color_map()
+        rows = [
+            {"tag": tag, "count": counts[tag], "color": tag_color(tag, colors)}
+            for tag in sorted(counts)
+        ]
+        return (_dumps(rows),)
+
+    def _open_window(self, item_key: str) -> tuple[bool]:
+        if not isinstance(item_key, str) or (item_key and _bad_item_key(item_key)):
+            raise ServiceError(INVALID_ARGS, "item_key is invalid")
+        hook = getattr(self._daemon, "launch_window", None)
+        if hook is None:
+            from tetherbot.window_launch import launch_window as hook
+        try:
+            opened = bool(hook(item_key))
+        except Exception:
+            opened = False
+        return (opened,)
+
+    def _undo(self, item_key: str) -> tuple[str]:
+        if not isinstance(item_key, str) or _bad_item_key(item_key):
+            raise ServiceError(INVALID_ARGS, "item_key is invalid")
+        item = self._daemon.store.get(item_key)
+        if item is None:
+            raise ServiceError(NOT_FOUND, "item not found")
+        queued = [
+            action
+            for action in self._daemon.queue.snapshot()
+            if action.item == item_key and action.action == "done"
+        ]
+        unsent = [action for action in queued if action.state == "pending" and action.attempts == 0]
+        if unsent:
+            ids = [action.action_id for action in unsent]
+            for action_id in ids:
+                self._daemon.queue.drop(action_id)
+            self._release_closed(ids)
+            self._emit_properties("QueueLength", "Counts")
+            self.note_bots()
+            return (_dumps({"result": "dropped"}),)
+        sent = [
+            action
+            for action in queued
+            if action.attempts > 0 or action.state == "parked"
+        ]
+        for action in sent:
+            self._daemon.queue.drop(action.action_id)
+        if sent:
+            self._release_closed([action.action_id for action in sent])
+        elif item.acted is not None:
+            self._release_closed([item.acted["action_id"]])
+        elif item.status == "open" and item.resolved is None:
+            raise ServiceError(INVALID_ARGS, "nothing to undo")
+        bot = item_key.split("/", 1)[0]
+        action_id = self._enqueue(bot, item_key, "reopen", {})
+        return (_dumps({"result": "reopen", "action_id": action_id}),)
 
     def _perform_action(self, key: str, action: str, args_json: str) -> tuple[str]:
         item = self._daemon.store.get(key)
@@ -543,6 +660,68 @@ def _object(text: str, field_name: str) -> dict[str, Any]:
     return value
 
 
+def _string_list(value: object, field_name: str) -> list[str]:
+    if value is None:
+        return []
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        raise ServiceError(INVALID_ARGS, f"{field_name} must be an array of strings")
+    return list(value)
+
+
+def _query_filter(value: object) -> ParsedQuery:
+    if value is None:
+        return ParsedQuery()
+    if not isinstance(value, str):
+        raise ServiceError(INVALID_ARGS, "query must be a string")
+    return parse_query(value)
+
+
+def _view_filter(value: object) -> str:
+    if value is None or value == "":
+        return "all"
+    if not isinstance(value, str) or value not in VIEWS:
+        raise ServiceError(INVALID_ARGS, "view must be all, mine, bots, waiting, or today")
+    return value
+
+
+def _sort_filter(value: object) -> str:
+    if value is None or value == "":
+        return "due"
+    if not isinstance(value, str) or value not in SORTS:
+        raise ServiceError(INVALID_ARGS, "sort must be due, priority, created, or updated")
+    return value
+
+
+def _done_days(value: object) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 30:
+        raise ServiceError(INVALID_ARGS, "include_done_days must be an integer from 0 to 30")
+    return value
+
+
+def _recently_done(item: Any, now: datetime, days: int) -> bool:
+    if item.status != "done" and item.resolved != "done":
+        return False
+    stamp = item.updated_at
+    if item.acted is not None and item.acted.get("at"):
+        stamp = item.acted["at"]
+    try:
+        closed = parse_iso8601(stamp, field_name="updated_at")
+    except ValueError:
+        return False
+    return (now - closed).total_seconds() <= days * 86400
+
+
+def _bad_item_key(key: str) -> bool:
+    if key.count("/") != 1:
+        return True
+    bot, item_id = key.split("/", 1)
+    if not bot or not item_id or "/" in item_id:
+        return True
+    return looks_like_secret(key)
+
+
 def _string_set(value: object, field_name: str) -> set[str] | None:
     if value is None:
         return None
@@ -565,10 +744,11 @@ def _snoozed(until: str | None, now: datetime) -> bool:
     return parse_iso8601(until, field_name="snoozed_until") > now
 
 
-def _item_payload(item: Any) -> dict[str, Any]:
+def _item_payload(item: Any, now: datetime, zone: Any, colors: Mapping[str, str]) -> dict[str, Any]:
     payload = item.protocol_dict()
     payload["key"] = item.key
     payload["origin"] = item.origin
+    payload["chips"] = chips(item, now, zone, colors)
     local: dict[str, Any] = {
         "done_locally": item.done_locally,
         "seen": item.seen,

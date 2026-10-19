@@ -7,7 +7,7 @@ Target machine: Fedora 44, GNOME Shell 50, Wayland, Python 3.13+. Other distribu
 ## What you need
 
 1. Install Grok Bot and sign in. Decide which bot receives desktop actions (usually the main one). In these docs that bot is called `primary`. Use your own bot id, lowercase, in config.
-2. Clone this repository and run `scripts/install.sh`. The installer copies the app, the launchers (`tetherbot`, `tetherbotctl`, `git-credential-tetherbot`), the user unit, and the D-Bus activation file. It enables nothing that touches the network unless you pass `--enable`, which runs `systemctl --user enable --now tetherbot.service`.
+2. Clone this repository and run `scripts/install.sh`. The installer copies the app, the launchers (`tetherbot`, `tetherbotctl`, `git-credential-tetherbot`, `tetherbot-window`), the user unit, the bridge D-Bus activation file, the window D-Bus activation file, and `io.github.grokkinggrok.TetherBot.desktop`. It enables nothing that touches the network unless you pass `--enable`, which runs `systemctl --user enable --now tetherbot.service`.
 3. Paste [prompts/bot-setup.md](prompts/bot-setup.md) into that bot's chat. It asks the bot to create a routine named "Desktop actions" with a webhook trigger.
 4. Open that routine on the desktop (bot name, Details, Routines, the routine). In **Webhook**, copy **POST to** and **key**. Store both with `tetherbotctl secret set <bot>-actions`, or with "Set up keys..." in the extension preferences once that button exists. Paste them into that prompt, not into a chat and not into `config.toml`.
 5. Optional, for bot-to-desktop updates: create a private repository from `template-repo/`. Put its plain `https://github.com/...` URL in `config.toml` under `[adapters.github-poller]`. Do not put a token in the URL. Create a fine-grained token for that one repository (Contents read and write, Metadata read, about 90 days). Store it with `tetherbotctl secret set github-token`, pasting into the hidden prompt. Set `auth = "https-token"`. The bot writes `feed/<bot>.json` with `tools/feed_write.py` and a fine-grained token in an environment variable on the bot. See [BOT-WRITER.md](BOT-WRITER.md). That token stays off the desktop. `ssh-deploy-key` is not set up in this release.
@@ -20,15 +20,15 @@ Target machine: Fedora 44, GNOME Shell 50, Wayland, Python 3.13+. Other distribu
 
 ## Installer contract
 
-`scripts/install.sh` is Bash with `set -euo pipefail`. It warns, and does not stop, when `python3` is older than 3.13, when PyGObject or the `Secret-1` typelib cannot be imported, when `git` is missing, or when `gnome-shell` is missing or is not version 50. It copies the bridge package to `~/.local/share/tetherbot/app/`, installs the three launchers, copies the unit and the D-Bus service file (with `Exec` rewritten to the launcher), creates `config.toml` from [data/config.example.toml](../data/config.example.toml) only when that file is missing, and reloads the user systemd manager when one is running. It does not enable or start the service unless you pass `--enable`. It never asks for or reads a secret.
+`scripts/install.sh` is Bash with `set -euo pipefail`. It warns, and does not stop, when `python3` is older than 3.13, when PyGObject or the `Secret-1` typelib cannot be imported, when the GTK 4 or libadwaita typelib cannot be imported, when `git` is missing, or when `gnome-shell` is missing or is not version 50. It copies the bridge package to `~/.local/share/tetherbot/app/`, installs the four launchers, copies the unit and both D-Bus service files (with `Exec` rewritten to the launcher), installs the window desktop file, creates `config.toml` from [data/config.example.toml](../data/config.example.toml) only when that file is missing, and reloads the user systemd manager when one is running. It does not enable or start the service unless you pass `--enable`. It never asks for or reads a secret.
 
-`scripts/uninstall.sh` removes the launchers, the app copy, the unit, the D-Bus file, and the extension directory. It is safe to run twice. `--purge` also removes the config directory, the state directory, and `~/.local/share/tetherbot` (including clones), after a prompt, or with `--yes` when there is no terminal. It never deletes secret-service items.
+`scripts/uninstall.sh` removes the launchers, the app copy, the unit, both D-Bus files, the window desktop file, and the extension directory. It is safe to run twice. `--purge` also removes the config directory, the state directory, and `~/.local/share/tetherbot` (including clones), after a prompt, or with `--yes` when there is no terminal. It never deletes secret-service items.
 
 ## Where files go
 
 | What | Path |
 |---|---|
-| Daemon and tools | `~/.local/share/tetherbot/app/` and launchers in `~/.local/bin/`: `tetherbot`, `tetherbotctl`, `git-credential-tetherbot` |
+| Daemon and tools | `~/.local/share/tetherbot/app/` and launchers in `~/.local/bin/`: `tetherbot`, `tetherbotctl`, `git-credential-tetherbot`, `tetherbot-window` |
 | Config, no secrets | `~/.config/tetherbot/config.toml` |
 | State, queue, logs | `~/.local/state/tetherbot/` (`queue/`, `items.json`, `bridge.log`, `backups/`) |
 | Repository clones | `~/.local/share/tetherbot/repos/<name>/` |

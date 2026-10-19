@@ -33,6 +33,14 @@ TetherBot is pre-alpha. Check items off as they land. Design detail is in [SPEC.
 - [ ] More than one desktop can read the same feed, for example a second, rarely used machine. macOS is not GNOME, so a non-GNOME client is out of scope for now. On a second machine the bot side is the entry point for adding todos.
 - [ ] Proposed, not urgent: each desktop writes only `desktop/<machine-id>.json` (see Open checks). Matters once a second GNOME desktop exists.
 - [ ] Optional later: an always-on local device, for example a single-board computer, as a physical attention indicator or a hub. Not required, because the private repo is already the always-on middle.
+- [ ] Rich todos, [RICH-TODOS.md](RICH-TODOS.md). Bots still create and edit item text. The desktop reads, filters, searches, opens, and checks off.
+- [x] Optional feed fields: `tags`, `body_format`, Markdown bodies up to 8000 characters on todos, `owner` of `user` or `bot`, `waiting.since`, and feed `tag_colors`
+- [x] Bridge search and filters (`@tag`, `due:today`, `due:overdue`, `p:1`), quick views, `GetTags`, and sort. Popup and window share that result
+- [x] Undo drops a queued Done before it is sent, and sends `reopen` only after it has gone out
+- [x] `tools/feed_write.py` gains tags, priority, owner, waiting-on, body-file, edit, and tag-color
+- [x] TetherBot window (GTK4 and libadwaita): list, detail Markdown, `.desktop` file, and `OpenWindow`
+- [x] Popup: chips, search, at most 8 todos, Open TetherBot, and a 5-second Undo
+- [ ] Manual checks M18–M24 for the rich todo view. The steps are in [MANUAL-CHECKS.md](MANUAL-CHECKS.md). They have not been run on the desktop yet.
 
 ## v0.2 — early adopters
 

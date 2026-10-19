@@ -244,7 +244,10 @@ Lists of items pass as JSON strings (`s`), so the item model can grow without br
 
 | Signature | Behavior |
 |---|---|
-| `GetItems(s filter_json) -> s items_json` | Filter keys: `kinds`, `bots`, `status`, `include_snoozed`. Returns sorted items. |
+| `GetItems(s filter_json) -> s items_json` | Filter keys: `kinds`, `bots`, `status`, `include_snoozed`, `tags`, `query`, `view`, `include_done_days`, `sort`. `query` accepts `@tag`, `due:today`, `due:overdue`, and `p:1`. `view` is `all`, `mine`, `bots`, `waiting`, or `today`. Items that are not open stay out unless `include_done_days` covers a close in that many days. Acted and resolved items follow the same rule. Returns sorted items with chip labels. |
+| `GetTags() -> s tags_json` | Tags on open items, with counts and palette colors |
+| `OpenWindow(s item_key) -> b` | Launch or raise the TetherBot window on that item. An empty key opens the list |
+| `Undo(s item_key) -> s result_json` | Drop a queued Done that has not been sent, or send `reopen` once it has gone out |
 | `GetItem(s key) -> s item_json` | One item, or D-Bus error `io.github.grokkinggrok.TetherBot1.Error.NotFound` |
 | `PerformAction(s key, s action, s args_json) -> s action_id` | Validates that the action is listed on the item, enqueues it, returns at once. The result arrives later as `ActionResult`. |
 | `Snooze(s key, s until_iso) -> b` | Local only. Hides the item and suppresses notifications until then. |
@@ -267,6 +270,8 @@ Lists of items pass as JSON strings (`s`), so the item model can grow without br
 | `NotificationRequested(s item_json, s reason)` | Notify policy says show one (`new`, `changed`, `due_soon`, `delivery_failed`) |
 | `ActionResult(s action_id, s result, s detail)` | `result`: `accepted` (HTTP 200, run started), `queued_retry`, `parked`, `rejected_key`, `dropped` |
 | `StateChanged(s state, s reason)` | Mirrors the property for clients that do not watch properties |
+
+The TetherBot window is a second process, `python3 -m tetherbot.window`. Its application id is `io.github.grokkinggrok.TetherBot`. It is single-instance, appears in the app grid, and talks only to this interface (`GetItems`, `GetTags`, `GetItem`, `PerformAction`, `Undo`, `SendToBot`). It holds no secrets and opens links only after a click. `OpenWindow` activates that app's `select-item` action. The extension does not launch it itself.
 
 `ForgetSecret` deletes that slot from libsecret and does not take the secret value. `RequestSecretEntry` returns false until the key dialog exists; the secret still does not cross D-Bus. A locked or missing keyring sets the bridge state to `degraded` with reason `keyring locked` and never writes a secret file. `OpenChat` returns false until the Grok Bot desktop entry id is known. `SyncNow` is limited to once per 30 seconds and does not poll until an inbound adapter is running, so `LastSync` stays 0. `PerformAction` enqueues `approve`, `veto`, and `done` only. Those three hide the item until the webhook accepts, the action is parked or rejected, or a newer open feed revision clears the mark. `snooze` stays on `Snooze`. `ActionResult` is emitted when a later sender finishes a post.
 
@@ -482,6 +487,13 @@ Still to write, with the milestones that need them:
 - M15. Legacy sink, if enabled: shadow comparison is clean, cut over, the next bot run reports done items. Roll back and forward once.
 - M16. A new todo item appears in the local todo consumer without a shell restart. Checking it off lands in the bridge-owned state on the next run.
 - M17. `scripts/uninstall.sh` removes units and files and, after confirming `--purge`, config and state. Secret-service items stay unless a future explicit command deletes them.
+- M18. A todo with tags, a due time, priority, and a Markdown body shows those chips in the popup and the window.
+- M19. A word that appears only in a body is found from the popup search and the window search.
+- M20. Two tag chips show only items with both tags. All, Mine, Bots, Waiting, and Today match their rules.
+- M21. An open item renders headings, lists, code, and a link. The link opens in the browser after a click.
+- M22. Done in the detail pane hides the item in the popup and the window, and the bot receives it. Undo within 5 seconds drops a still-queued Done.
+- M23. A feed with none of the new fields still shows the title, bot, and due date as before.
+- M24. The window opens from the popup and from the app grid, holds no secrets, and makes no network requests. The extension does not spawn it.
 
 ## 13. Milestones
 

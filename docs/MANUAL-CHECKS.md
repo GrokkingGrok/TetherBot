@@ -2,7 +2,7 @@
 
 Run these on one Fedora 44 desktop with GNOME Shell 50 on Wayland, after you can log in as a normal user. The project is unofficial and not affiliated with xAI.
 
-**Out of scope here:** M9 (webhook-only popup copy), M15 and M16 (a legacy todo sink outside this repository), and M17 (the full uninstall acceptance check). Uninstall is still documented in [SETUP.md](SETUP.md) and is the reset for M1. Do not treat those four as part of this runbook.
+**Out of scope here:** M9 (webhook-only popup copy), M15 and M16 (a legacy todo sink outside this repository), and M17 (the full uninstall acceptance check). Uninstall is still documented in [SETUP.md](SETUP.md) and is the reset for M1. M18–M24 are the rich-todo checks later in this file. Do not treat M9, M15, M16, or M17 as part of the v0.1 runbook.
 
 Examples use the bot id `primary`. Yours can be any lowercase id of letters, digits, and hyphens. Use the same id in the bot's feed file, in `config.toml`, and in the commands below.
 
@@ -10,7 +10,7 @@ Nothing in these steps belongs in a chat, in `config.toml`, or in this repositor
 
 ## Suggested order
 
-M1, M2, then the extension install in M14 (log out and back in once), then M3. Do M10 before M4 if the popup has no ask yet. Then M4, M10a, M5, M11, M6, M7, M8, M12, M13.
+M1, M2, then the extension install in M14 (log out and back in once), then M3. Do M10 before M4 if the popup has no ask yet. Then M4, M10a, M5, M11, M6, M7, M8, M12, M13. After a rich todo is in the feed, M18 through M24.
 
 You can stop after any check. Later checks say what they need.
 
@@ -605,6 +605,67 @@ journalctl --user -b /usr/bin/gnome-shell --no-pager | tail -n 80
 ```
 
 **Reset.** Enable the extension again if you still want it. `scripts/uninstall.sh` removes the extension files. Log out and back in after an uninstall if the shell was still running the extension.
+
+## M18. Chips on a rich todo
+
+**Preconditions.** M14. The bridge is running and the extension is enabled. `feed/primary.json` has one open todo with three tags, a due time, priority 1, and a Markdown body. `tools/feed_write.py add-todo` can write that item. Restart the user service after installing a bridge that understands the new fields.
+
+**Look for.**
+
+- The popup row shows `#1`, a due chip, and three tag chips. The title is one line.
+- Open TetherBot on that item. The window list and the detail pane show the same chips.
+- The colors for a tag match in the popup and the window.
+
+## M19. Search finds a word in the body
+
+**Preconditions.** M18. The body contains a word that is not in the title.
+
+**Look for.** Type that word in the popup search and in the window search. The todo appears in both. Asks stay in the popup. Clearing the search shows the todo list again.
+
+## M20. Tag filter and quick views
+
+**Preconditions.** M18, plus a second todo that has only one of the two tags, a bot-owned todo, a waiting todo, and one that is due today or overdue.
+
+**Look for.**
+
+- In the window, turning on two tag chips shows only the todo that has both.
+- All, Mine, Bots, Waiting, and Today each match their rule.
+- `@tag`, `due:today`, `due:overdue`, and `p:1` in either search box agree.
+
+## M21. Markdown and a link
+
+**Preconditions.** M18. The body has a heading, a list, a code span, and an `https` link.
+
+**Look for.** The detail pane renders those. Clicking the link opens the default browser. An image in the body is not fetched. Raw HTML is shown as text.
+
+## M22. Done and Undo
+
+**Preconditions.** M18. The bot has an outbound route.
+
+**Look for.**
+
+- Done in the window hides the item in the window and in the popup, and the action reaches the bot.
+- Done in the popup does not close the menu. The button becomes Undo for about 5 seconds.
+- Undo while that Done is still queued (nothing has been posted yet) brings the item back and nothing is sent.
+- After the action has gone out, Undo sends `reopen`.
+
+## M23. A feed with no new fields
+
+**Preconditions.** A todo written before tags and Markdown: no `tags`, no `body_format`, no `priority`.
+
+**Look for.** The popup row is the title, the bot, and the due text, as before. The window still opens it and shows the body as plain text.
+
+## M24. The window is a separate app
+
+**Preconditions.** `scripts/install.sh` has been run. The extension is enabled.
+
+**Look for.**
+
+- Open TetherBot in the popup, and the same app in the app grid, both open one window. A second launch raises it.
+- The extension does not spawn a process. The bridge launches the window.
+- The window holds no secrets and makes no network requests. Links open only after a click.
+
+**Reset.** None. Log out and back in after changing extension files. `systemctl --user restart tetherbot` is enough for a bridge-only change.
 
 ## When you are finished
 

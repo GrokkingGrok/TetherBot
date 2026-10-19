@@ -58,13 +58,15 @@ One model covers every kind.
 | `id` | string | Required. Unique within the bot. `[a-z0-9-]{3,64}`. Never reused. |
 | `kind` | enum | `ask` (needs a yes or no), `todo`, `watch` (money or status being watched), `notification` (FYI), `status` (a bot-level state line) |
 | `title` | string | Required, single line, 1 to 120 characters |
-| `body` | string | Optional, up to 1000 characters, plain text |
+| `body` | string | Optional. Up to 1000 characters. A `kind: todo` with `body_format: markdown` may use 8000 |
+| `body_format` | `plain` or `markdown` | Optional. Default `plain` |
 | `status` | enum | `open`, `done`, `dropped`, `expired`. Snoozed is desktop-local, not a feed value. |
 | `created`, `updated_at` | ISO 8601 with offset | Required |
-| `priority` | 1 to 3 or null | 1 is highest |
-| `due` | `YYYY-MM-DD` or `YYYY-MM-DD HH:MM` local | Optional |
-| `owner` | string | Optional. The desktop user or a bot name |
-| `waiting` | `{on, check_back}` or null | Optional. `on` up to 40 characters, `check_back` `YYYY-MM-DD` |
+| `priority` | 1 to 3 or null | 1 is highest. Shown as `#1`, `#2`, or `#3` |
+| `due` | `YYYY-MM-DD` or `YYYY-MM-DD HH:MM` local | Optional. A time is that minute. A date alone lasts until the end of that day |
+| `owner` | string | Optional. `user` or `bot` selects the Mine and Bots views. Missing means user |
+| `tags` | array of strings | Optional. 0 to 8 tags, each 1 to 32 characters, lowercase `a-z0-9-_` |
+| `waiting` | `{on, check_back, since}` or null | Optional. `on` up to 40 characters. `check_back` and `since` are `YYYY-MM-DD` |
 | `estimate_min` | int 1 to 480 | Optional |
 | `todo_kind` | `task` or `bill` | Optional, `todo` items only |
 | `amount` | string, up to 20 characters | Bills and watch items only. Display text such as `"~$10"`. Never an account number. |
@@ -80,7 +82,9 @@ The bridge adds `origin` (`feed`, `legacy-inbox`, `fake`, and so on) and `local`
 
 ### Secret guard
 
-The bridge treats an item as sensitive when `title`, `body`, `amount`, or `waiting.on` matches a secret-shaped pattern: token prefixes `ghp_`, `github_pat_`, `sk-`, or `AKIA`; a run of 9 or more digits; or a long base64 or hex blob (40 or more base64 characters, or 32 or more hex characters). The stored text becomes `[redacted: looked like a secret]`. The log records the field name and the item key. The original is never written to a todo file, a notification, or the log.
+`feed/<bot>.json` may include optional `tag_colors`, a map of tag to a palette name: `red`, `orange`, `yellow`, `green`, `teal`, `blue`, `purple`, `pink`, or `gray`. A tag with no entry gets a stable color from a hash of the tag name.
+
+The bridge treats an item as sensitive when `title`, `body`, `amount`, `tags`, or `waiting.on` matches a secret-shaped pattern: token prefixes `ghp_`, `github_pat_`, `sk-`, or `AKIA`; a run of 9 or more digits; or a long base64 or hex blob (40 or more base64 characters, or 32 or more hex characters). The stored text becomes `[redacted: looked like a secret]`. The log records the field name and the item key. The original is never written to a todo file, a notification, or the log.
 
 ## Action envelope
 

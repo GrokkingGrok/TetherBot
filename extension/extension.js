@@ -6,6 +6,8 @@
 
 import Clutter from 'gi://Clutter';
 import Gio from 'gi://Gio';
+import GLib from 'gi://GLib';
+import Pango from 'gi://Pango';
 import St from 'gi://St';
 
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
@@ -19,12 +21,17 @@ import {
     ITEM_FILTER,
     OBJECT_PATH,
     PROXY_SIGNALS,
+    UNDO_MS,
     indicatorView,
     menuModel,
+    mergeTodoSearch,
     notificationModel,
+    openWindowCall,
     performCall,
     snoozeCall,
     snoozeIso,
+    todoFilter,
+    undoCall,
 } from './view.js';
 
 export default class TetherBotExtension extends Extension {
@@ -40,6 +47,10 @@ export default class TetherBotExtension extends Extension {
         this._bots = [];
         this._items = [];
         this._queueLength = 0;
+        this._query = '';
+        this._searched = null;
+        this._undoHolds = [];
+        this._undoSources = [];
         this._Proxy = null;
 
         this._indicator = new PanelMenu.Button(0.0, 'TetherBot', false);
@@ -94,9 +105,15 @@ export default class TetherBotExtension extends Extension {
         this._indicator = null;
         this._icon = null;
         this._badge = null;
+        this._search = null;
         this._Proxy = null;
+        for (const id of this._undoSources || [])
+            GLib.source_remove(id);
+        this._undoSources = [];
+        this._undoHolds = [];
         this._bots = [];
         this._items = [];
+        this._searched = null;
     }
 
     _buildMenu() {
@@ -109,8 +126,24 @@ export default class TetherBotExtension extends Extension {
         this._indicator.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
         this._indicator.menu.addMenuItem(this._askSection);
         this._indicator.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+        this._searchItem = new PopupMenu.PopupBaseMenuItem({reactive: false});
+        this._search = new St.Entry({
+            hint_text: 'Search todos',
+            style_class: 'tetherbot-search',
+            can_focus: true,
+            x_expand: true,
+        });
+        this._search.clutter_text.connect('text-changed', () => {
+            this._query = this._search.text || '';
+            this._refreshSearch();
+        });
+        this._searchItem.add_child(this._search);
+        this._indicator.menu.addMenuItem(this._searchItem);
         this._indicator.menu.addMenuItem(this._todoSection);
         this._indicator.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+        this._openItem = new PopupMenu.PopupMenuItem('Open TetherBot');
+        this._openItem.connect('activate', () => this._openWindow(''));
+        this._indicator.menu.addMenuItem(this._openItem);
         this._footer = new PopupMenu.PopupMenuItem('', {reactive: false});
         this._indicator.menu.addMenuItem(this._footer);
         this._syncItem = new PopupMenu.PopupMenuItem('Sync now');
@@ -251,6 +284,34 @@ export default class TetherBotExtension extends Extension {
                 return;
             }
             this._render();
+            if ((this._query || '').trim())
+                this._refreshSearch();
+        });
+    }
+
+    _refreshSearch() {
+        if (!this._enabled)
+            return;
+        const query = (this._query || '').trim();
+        if (!query) {
+            this._searched = null;
+            this._render();
+            return;
+        }
+        if (!this._proxy)
+            return;
+        this._proxy.GetItemsRemote(todoFilter(query), (result, error) => {
+            if (!this._enabled || (this._query || '').trim() !== query)
+                return;
+            if (error || !result)
+                return;
+            try {
+                const parsed = JSON.parse(result[0]);
+                this._searched = Array.isArray(parsed) ? parsed : [];
+            } catch (parseError) {
+                return;
+            }
+            this._render();
         });
     }
 
@@ -278,13 +339,18 @@ export default class TetherBotExtension extends Extension {
             state: this._state,
             reason: this._reason,
             bots: this._bots,
-            items: this._items,
+            items: mergeTodoSearch(this._items, this._searched),
             queueLength: this._queueLength,
             nowMs: Date.now(),
+            undoHolds: this._undoHolds,
         });
         this._banner.label.text = model.banner;
         this._banner.visible = Boolean(model.banner);
         this._syncItem.setSensitive(this._running);
+        if (this._searchItem)
+            this._searchItem.visible = Boolean(model.footer);
+        if (this._openItem)
+            this._openItem.visible = Boolean(model.footer);
         if (!model.footer) {
             this._botSection.removeAll();
             this._askSection.removeAll();
@@ -294,7 +360,7 @@ export default class TetherBotExtension extends Extension {
         }
         this._fillBots(model.bots);
         this._fillAsks(model.asks);
-        this._fillTodos(model.todos);
+        this._fillTodos(model.todos, model.moreLabel);
         const reason = model.footer.reason ? `: ${model.footer.reason}` : '';
         this._footer.label.text = `${model.footer.state}${reason} · Queued ${model.footer.queueLength}`;
         this._footer.visible = true;
@@ -362,35 +428,75 @@ export default class TetherBotExtension extends Extension {
         return item;
     }
 
-    _fillTodos(rows) {
+    _fillTodos(rows, moreLabel) {
         this._todoSection.removeAll();
         this._todoSection.addMenuItem(sectionTitle('Todos'));
-        if (rows.length === 0) {
+        if (rows.length === 0)
             this._todoSection.addMenuItem(sectionTitle('No todos'));
-            return;
-        }
         for (const row of rows)
             this._todoSection.addMenuItem(this._todoRow(row));
+        if (moreLabel) {
+            const more = new PopupMenu.PopupMenuItem(moreLabel);
+            more.connect('activate', () => this._openWindow(''));
+            this._todoSection.addMenuItem(more);
+        }
     }
 
     _todoRow(row) {
         const item = new PopupMenu.PopupBaseMenuItem({reactive: false});
-        const box = new St.BoxLayout({x_expand: true});
+        const box = new St.BoxLayout({
+            orientation: Clutter.Orientation.VERTICAL,
+            x_expand: true,
+        });
+        const top = new St.BoxLayout({x_expand: true});
         const text = new St.BoxLayout({
             orientation: Clutter.Orientation.VERTICAL,
             x_expand: true,
         });
-        text.add_child(new St.Label({text: row.title}));
-        const meta = [row.bot, row.due].filter(Boolean).join(' · ');
-        text.add_child(new St.Label({text: meta, style_class: 'tetherbot-subtle'}));
-        box.add_child(text);
-        if (row.canSendDone)
-            box.add_child(this._actionButton('Done', () => this._perform('done', row.key)));
+        const title = new St.Button({
+            label: row.title,
+            style_class: 'tetherbot-title',
+            x_align: Clutter.ActorAlign.START,
+            x_expand: true,
+        });
+        if (title.clutter_text)
+            title.clutter_text.ellipsize = Pango.EllipsizeMode.END;
+        title.connect('clicked', () => this._openWindow(row.key));
+        const heading = new St.BoxLayout({x_expand: true});
+        if (row.chips && row.chips.priority) {
+            heading.add_child(chipLabel(row.chips.priority, row.chips.priorityTone));
+        }
+        heading.add_child(title);
+        text.add_child(heading);
+        if (row.chips)
+            text.add_child(this._chipRow(row.chips));
+        else {
+            const meta = [row.bot, row.due].filter(Boolean).join(' · ');
+            text.add_child(new St.Label({text: meta, style_class: 'tetherbot-subtle'}));
+        }
+        top.add_child(text);
+        if (row.undo) {
+            top.add_child(this._actionButton('Undo', () => this._undo(row.key), false));
+        } else if (row.canSendDone) {
+            top.add_child(this._actionButton('Done', () => this._markDone(row), false));
+        }
+        box.add_child(top);
         item.add_child(box);
         return item;
     }
 
-    _actionButton(label, callback) {
+    _chipRow(chips) {
+        const row = new St.BoxLayout({style_class: 'tetherbot-chips'});
+        if (chips.due)
+            row.add_child(chipLabel(chips.due, chips.dueTone));
+        for (const tag of chips.tags || [])
+            row.add_child(chipLabel(tag.label, tag.tone));
+        if (chips.extra > 0)
+            row.add_child(chipLabel(`+${chips.extra}`, 'neutral'));
+        return row;
+    }
+
+    _actionButton(label, callback, closeMenu = true) {
         const button = new St.Button({
             label,
             style_class: 'button tetherbot-action',
@@ -398,9 +504,45 @@ export default class TetherBotExtension extends Extension {
         });
         button.connect('clicked', () => {
             callback();
-            this._indicator.menu.close();
+            if (closeMenu)
+                this._indicator.menu.close();
         });
         return button;
+    }
+
+    _markDone(row) {
+        if (!row || !row.key)
+            return;
+        const until = Date.now() + UNDO_MS;
+        this._undoHolds = (this._undoHolds || []).filter(hold => hold.key !== row.key);
+        this._undoHolds.push({key: row.key, row, until});
+        const source = GLib.timeout_add(GLib.PRIORITY_DEFAULT, UNDO_MS, () => {
+            const now = Date.now();
+            this._undoHolds = (this._undoHolds || []).filter(hold => hold.until > now);
+            if (this._enabled)
+                this._render();
+            return GLib.SOURCE_REMOVE;
+        });
+        this._undoSources.push(source);
+        this._perform('done', row.key);
+        this._render();
+    }
+
+    _undo(key) {
+        this._undoHolds = (this._undoHolds || []).filter(hold => hold.key !== key);
+        if (this._proxy && key) {
+            const call = undoCall(key);
+            this._proxy.UndoRemote(...call.args, () => this._refresh());
+        }
+        this._render();
+    }
+
+    _openWindow(key) {
+        if (!this._proxy)
+            return;
+        const call = openWindowCall(key);
+        this._proxy.OpenWindowRemote(...call.args, () => {});
+        this._indicator?.menu.close();
     }
 
     _perform(action, key) {
@@ -485,6 +627,13 @@ export default class TetherBotExtension extends Extension {
 
 function sectionTitle(text) {
     return new PopupMenu.PopupMenuItem(text, {reactive: false});
+}
+
+function chipLabel(text, tone) {
+    return new St.Label({
+        text,
+        style_class: `tetherbot-chip tetherbot-tone-${tone || 'neutral'}`,
+    });
 }
 
 function unpackCounts(value) {

@@ -7,9 +7,9 @@ usage() {
   cat <<'EOF'
 Usage: scripts/uninstall.sh [--purge] [--yes]
 
-Removes the user unit, D-Bus activation file, app copy, launchers, and the
-extension directory. Leaves config, state, and repository clones in place
-unless --purge is given.
+Removes the user unit, D-Bus activation files, the window desktop file,
+the app copy, launchers, and the extension directory. Leaves config,
+state, and repository clones in place unless --purge is given.
 
 --purge also removes the config directory, the state directory, and
 ~/.local/share/tetherbot (including clones).
@@ -44,6 +44,8 @@ APP_DIR="${DATA_HOME}/tetherbot/app"
 DATA_DIR="${DATA_HOME}/tetherbot"
 UNIT_PATH="${CONFIG_HOME}/systemd/user/tetherbot.service"
 DBUS_PATH="${DATA_HOME}/dbus-1/services/io.github.grokkinggrok.TetherBot1.service"
+WINDOW_DBUS_PATH="${DATA_HOME}/dbus-1/services/io.github.grokkinggrok.TetherBot.service"
+DESKTOP_PATH="${DATA_HOME}/applications/io.github.grokkinggrok.TetherBot.desktop"
 CONFIG_DIR="${CONFIG_HOME}/tetherbot"
 STATE_DIR="${STATE_HOME}/tetherbot"
 EXT_DIR="${DATA_HOME}/gnome-shell/extensions/tetherbot@grokkinggrok.github.io"
@@ -52,8 +54,9 @@ if command -v systemctl >/dev/null 2>&1 \
   && systemctl --user show-environment >/dev/null 2>&1; then
   systemctl --user disable --now tetherbot.service >/dev/null 2>&1 || true
 fi
-rm -f "${UNIT_PATH}" "${DBUS_PATH}" \
-  "${BIN_DIR}/tetherbot" "${BIN_DIR}/tetherbotctl" "${BIN_DIR}/git-credential-tetherbot"
+rm -f "${UNIT_PATH}" "${DBUS_PATH}" "${WINDOW_DBUS_PATH}" "${DESKTOP_PATH}" \
+  "${BIN_DIR}/tetherbot" "${BIN_DIR}/tetherbotctl" "${BIN_DIR}/git-credential-tetherbot" \
+  "${BIN_DIR}/tetherbot-window"
 rm -rf "${APP_DIR}"
 rm -f "${DATA_DIR}/SCAFFOLD"
 if [[ -d "${EXT_DIR}" ]]; then

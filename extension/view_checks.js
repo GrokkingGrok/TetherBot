@@ -15,10 +15,14 @@ import {
     itemKey,
     menuModel,
     notificationModel,
+    openWindowCall,
     performCall,
     snoozeCall,
     snoozeIso,
     snoozeMoment,
+    todoFilter,
+    undoCall,
+    mergeTodoSearch,
 } from './view.js';
 
 function assert(condition, message) {
@@ -166,6 +170,8 @@ export function runViewChecks() {
     assert(menu.todos.length === 2, 'both todos are listed');
     assert(menu.todos[0].title === 'Send the note', 'todo title');
     assert(menu.todos[0].due === '2026-10-19', 'todo due');
+    assert(menu.todos[0].chips === null, 'old todo has no chips');
+    assert(menu.todos[0].undo === false, 'fresh todo is not an undo row');
     assert(menu.todos[1].due === '', 'todo due is optional');
     assert(menu.todos[0].canSendDone === true, 'routed todo can send done');
     assert(menu.todos[1].canSendDone === false, 'unrouted todo is not sent');
@@ -230,6 +236,107 @@ export function runViewChecks() {
     const iso = snoozeIso('hour', new Date(NOW));
     assert(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$/.test(iso), 'snooze offset');
     assert(snoozeCall('primary/sample-01', iso).method === 'Snooze', 'snooze method');
+
+    const rich = menuModel({
+        running: true,
+        state: 'ok',
+        reason: '',
+        bots: [{name: 'primary', routes: {outbound: true}}],
+        items: [{
+            key: 'primary/rich',
+            kind: 'todo',
+            title: 'Pack the bag',
+            status: 'open',
+            due: '2026-10-17 15:00',
+            actions: ['done'],
+            source: {bot: 'primary'},
+            chips: {
+                priority: {label: '#1', tone: 'red'},
+                due: {label: 'Due Sat 10/17 15:00', tone: 'amber'},
+                tags: [
+                    {tag: 'home', label: '@home', tone: 'teal'},
+                    {tag: 'errand', label: '@errand', tone: 'blue'},
+                    {tag: 'wool', label: '@wool', tone: 'green'},
+                    {tag: 'extra', label: '@extra', tone: 'pink'},
+                ],
+            },
+        }],
+        queueLength: 0,
+        nowMs: NOW,
+    });
+    assert(rich.todos[0].chips.priority === '#1', 'priority chip');
+    assert(rich.todos[0].chips.priorityTone === 'red', 'priority tone');
+    assert(rich.todos[0].chips.due === 'Due Sat 10/17 15:00', 'due chip');
+    assert(rich.todos[0].chips.tags.length === 3, 'three tags');
+    assert(rich.todos[0].chips.extra === 1, 'extra tag count');
+    assert(rich.todos[0].due === '2026-10-17 15:00', 'raw due stays');
+
+    const many = [];
+    for (let index = 0; index < 9; index++) {
+        many.push({
+            key: `primary/t${index}`,
+            kind: 'todo',
+            title: `Todo ${index}`,
+            status: 'open',
+            actions: ['done'],
+            source: {bot: 'primary'},
+        });
+    }
+    const capped = menuModel({
+        running: true,
+        state: 'ok',
+        reason: '',
+        bots: [{name: 'primary', routes: {outbound: true}}],
+        items: many,
+        queueLength: 0,
+        nowMs: NOW,
+    });
+    assert(capped.todos.length === 8, 'popup shows eight todos');
+    assert(capped.moreLabel === 'Open TetherBot to see all 9', 'the rest stay behind the window');
+
+    const undone = menuModel({
+        running: true,
+        state: 'ok',
+        reason: '',
+        bots: [{name: 'primary', routes: {outbound: true}}],
+        items: [],
+        queueLength: 1,
+        nowMs: NOW,
+        undoHolds: [{
+            key: 'primary/todo-1',
+            until: NOW + 1000,
+            row: {
+                key: 'primary/todo-1',
+                title: 'Send the note',
+                bot: 'primary',
+                due: '2026-10-19',
+                canSendDone: true,
+                chips: null,
+            },
+        }],
+    });
+    assert(undone.todos.length === 1, 'undo keeps the row');
+    assert(undone.todos[0].undo === true, 'undo flag');
+    assert(undone.todos[0].canSendDone === false, 'undo replaces done');
+    assert(undone.todos[0].title === 'Send the note', 'undo title');
+
+    const filtered = JSON.parse(todoFilter(' @home due:today '));
+    assert(filtered.kinds.join(',') === 'todo', 'search stays on todos');
+    assert(filtered.query === '@home due:today', 'search query');
+    assert(filtered.include_snoozed === false, 'search hides snoozed');
+    const asksKept = mergeTodoSearch(
+        [ask(), {key: 'primary/todo-1', kind: 'todo', title: 'Old', status: 'open'}],
+        [{key: 'primary/todo-9', kind: 'todo', title: 'Found', status: 'open'}],
+    );
+    assert(asksKept.length === 2, 'search keeps asks');
+    assert(asksKept[0].kind === 'ask', 'ask stays first');
+    assert(asksKept[1].title === 'Found', 'searched todo replaces the list');
+
+    assert(openWindowCall('primary/rich').args[0] === 'primary/rich', 'open one item');
+    assert(openWindowCall('').args[0] === '', 'open the list');
+    assert(undoCall('primary/todo-1').method === 'Undo', 'undo method');
+    assert(PROXY_METHODS.includes('OpenWindowRemote'), 'open window method');
+    assert(PROXY_METHODS.includes('UndoRemote'), 'undo remote');
 }
 
 if (typeof process !== 'undefined' && process.argv[1] && process.argv[1].endsWith('view_checks.js'))

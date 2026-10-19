@@ -17,6 +17,8 @@ export const PROXY_METHODS = [
     'SyncNowRemote',
     'RequestSecretEntryRemote',
     'MarkSeenRemote',
+    'OpenWindowRemote',
+    'UndoRemote',
 ];
 
 export const PROXY_SIGNALS = [
@@ -25,6 +27,14 @@ export const PROXY_SIGNALS = [
     'ActionResult',
     'StateChanged',
 ];
+
+export const TODO_LIMIT = 8;
+export const UNDO_MS = 5000;
+
+const CHIP_TONES = new Set([
+    'red', 'orange', 'amber', 'yellow', 'green', 'teal',
+    'blue', 'purple', 'pink', 'gray', 'neutral',
+]);
 
 function number(value) {
     const parsed = Number(value);
@@ -145,6 +155,7 @@ export function menuModel({
     items,
     queueLength,
     nowMs,
+    undoHolds = [],
 }) {
     const banner = bannerFor({running, state, reason});
     if (!running) {
@@ -198,14 +209,17 @@ export function menuModel({
                 bot,
                 due: item.due || '',
                 canSendDone: listed && routes.get(bot) === true,
+                chips: chipRow(item),
             });
         }
     }
+    const presented = presentTodos(todos, undoHolds, nowMs);
     return {
         banner,
         bots: botRows,
         asks,
-        todos,
+        todos: presented.todos,
+        moreLabel: presented.moreLabel,
         footer: {
             state: state || '',
             reason: reason || '',
@@ -252,6 +266,88 @@ export function notificationModel(payload, reason) {
 
 export function performCall(action, key) {
     return {method: 'PerformAction', args: [key, action, '{}']};
+}
+
+export function openWindowCall(key) {
+    return {method: 'OpenWindow', args: [typeof key === 'string' ? key : '']};
+}
+
+export function undoCall(key) {
+    return {method: 'Undo', args: [key]};
+}
+
+export function todoFilter(query) {
+    const spec = {include_snoozed: false, kinds: ['todo']};
+    const text = String(query || '').trim();
+    if (text)
+        spec.query = text;
+    return JSON.stringify(spec);
+}
+
+export function mergeTodoSearch(items, searched) {
+    if (!Array.isArray(searched))
+        return Array.isArray(items) ? items : [];
+    const rest = (items || []).filter(item => item && item.kind !== 'todo');
+    const todos = searched.filter(item => item && item.kind === 'todo');
+    return rest.concat(todos);
+}
+
+export function chipRow(item) {
+    const chips = item?.chips;
+    if (!chips || typeof chips !== 'object')
+        return null;
+    const tags = Array.isArray(chips.tags) ? chips.tags : [];
+    const shown = tags.slice(0, 3).map(tag => ({
+        label: typeof tag?.label === 'string' && tag.label ? tag.label : `@${tag?.tag || ''}`,
+        tone: chipTone(tag?.tone),
+    })).filter(tag => tag.label !== '@');
+    const priority = chips.priority && typeof chips.priority === 'object' ? chips.priority : null;
+    const due = chips.due && typeof chips.due === 'object' ? chips.due : null;
+    return {
+        priority: typeof priority?.label === 'string' ? priority.label : '',
+        priorityTone: chipTone(priority?.tone),
+        due: typeof due?.label === 'string' ? due.label : '',
+        dueTone: chipTone(due?.tone),
+        tags: shown,
+        extra: Math.max(0, tags.length - shown.length),
+    };
+}
+
+export function presentTodos(todos, holds, nowMs) {
+    const pending = new Map();
+    for (const hold of holds || []) {
+        if (!hold || typeof hold.key !== 'string' || !(hold.until > nowMs) || !hold.row)
+            continue;
+        pending.set(hold.key, hold.row);
+    }
+    const merged = [];
+    const seen = new Set();
+    for (const row of todos || []) {
+        if (pending.has(row.key)) {
+            merged.push({...row, undo: true, canSendDone: false});
+            seen.add(row.key);
+        } else {
+            merged.push({...row, undo: false});
+        }
+    }
+    for (const [key, row] of pending) {
+        if (seen.has(key))
+            continue;
+        merged.unshift({...row, undo: true, canSendDone: false});
+    }
+    const undoRows = merged.filter(row => row.undo);
+    const openRows = merged.filter(row => !row.undo);
+    const room = Math.max(0, TODO_LIMIT - undoRows.length);
+    const shown = undoRows.concat(openRows.slice(0, room));
+    const more = merged.length > shown.length;
+    return {
+        todos: shown,
+        moreLabel: more ? `Open TetherBot to see all ${merged.length}` : '',
+    };
+}
+
+function chipTone(value) {
+    return CHIP_TONES.has(value) ? value : 'neutral';
 }
 
 export function snoozeCall(key, untilIso) {

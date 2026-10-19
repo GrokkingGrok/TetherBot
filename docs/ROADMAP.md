@@ -19,14 +19,24 @@ TetherBot is pre-alpha. Check items off as they land. Design detail is in [SPEC.
 - [x] `git-credential-tetherbot` for `https-token` (token stays in libsecret). `ssh-deploy-key` stays deferred
 - [x] `template-repo/` for the private data repository
 - [x] `docs/MANUAL-CHECKS.md` for M1–M8 and M10–M14
-- [ ] Manual checks M1–M8 and M10–M14 (a person runs these on Fedora 44 / GNOME Shell 50)
+- [x] Manual checks M1–M8 and M10–M14 passed on Fedora 44 / GNOME Shell 50. M9 is not in this set.
 - [x] Concrete legacy inbox format stays out of this public repo. The in-tree `legacy-todo` sink stays generic.
 - [ ] Manual checks M15 and M16 only if a sink outside this repo is enabled
+
+## v0.1.x — bot-written todos (next)
+
+- [ ] Bot write access to the private data repo, using the decided fine-grained token (see Resolved). Held on the bot side as a bot secret. An expired token must fail visibly.
+- [ ] TetherBot is the single todo tracker. An older local todo sync is retired after cutover, not run in parallel.
+- [ ] Remote capture. The user messages their bot from a phone while away. The bot writes a `kind: todo` item to `feed/<bot>.json`. The desktop shows it on the next poll or at boot. Done in the popup reports back over the webhook, and the bridge records the item closed (the existing flow).
+- [ ] A bot's daily summary run can post that day's asks and todos to the feed.
+- [ ] `feed/<bot>.json` for more than one bot
+- [ ] More than one desktop can read the same feed, for example a second, rarely used machine. macOS is not GNOME, so a non-GNOME client is out of scope for now. On a second machine the bot side is the entry point for adding todos.
+- [ ] Proposed, not urgent: each desktop writes only `desktop/<machine-id>.json` (see Open checks). Matters once a second GNOME desktop exists.
+- [ ] Optional later: an always-on local device, for example a single-board computer, as a physical attention indicator or a hub. Not required, because the private repo is already the always-on middle.
 
 ## v0.2 — early adopters
 
 - [x] `template-repo/` for the private data repository
-- [ ] `feed/<bot>.json` for more than one bot
 - [x] `https-token` mode and `git-credential-tetherbot`
 - [ ] `desktop/outbox` for repo-only actions
 - [x] Polish `scripts/install.sh` and `scripts/uninstall.sh` against a real daemon
@@ -61,7 +71,7 @@ TetherBot is pre-alpha. Check items off as they land. Design detail is in [SPEC.
 - [ ] Rate-limit numbers for routine webhooks
 - [ ] Key rotation without recreating the routine
 - [ ] Deep link to a specific bot chat, and the Grok Bot desktop entry id
-- [ ] How a bot should hold write access to the private data repo
+- [ ] Proposed, not urgent (only once a second GNOME desktop exists): each desktop writes only `desktop/<machine-id>.json`. `machine-id` is a stable random id generated at install, not the hostname. No two machines write the same file, so pushes cannot conflict. A tap on one desktop resolves the item; every desktop reads all `desktop/*.json` files and hides an item that any desktop has resolved. Snooze stays local to one machine. Migration: the current single-desktop `desktop/state.json` is read as a legacy file and renamed on first run.
 - [ ] Whether Grok Bot ships outbound webhooks, status events, or a local hook that can replace `github-poller`
 - [ ] Decide whether a local todo consumer should call `GetItems` or keep parsing its file
 - [ ] Decide whether popup Done on a legacy todo writes the local file or only sends a webhook (proposed: write the file when that sink is the source of truth)
@@ -76,3 +86,4 @@ TetherBot is pre-alpha. Check items off as they land. Design detail is in [SPEC.
 - [x] Bus name and interface `io.github.grokkinggrok.TetherBot1`, object path `/io/github/grokkinggrok/TetherBot1`. Schema string stays `tetherbot/1`. Libsecret schema `io.github.grokkinggrok.TetherBot.Secret`. Do not change the bus name after release.
 - [x] Extension UUID `tetherbot@grokkinggrok.github.io`. The README and the extension metadata description stay labelled unofficial, not affiliated with xAI.
 - [x] Concrete legacy inbox format stays out of this public repo. The `legacy-todo` sink stays generic.
+- [x] Bot write credential: a fine-grained personal access token scoped to the private data repo only. Permissions are Contents read and write, plus Metadata read (GitHub requires it), and nothing else. Held on the bot side as a bot secret, never on the desktop or in this repository. The bot writes over HTTPS and the REST contents API, which an SSH-only deploy key cannot do, and this matches the desktop's `https-token` mode. Fine-grained tokens expire (maximum 1 year). The bot owner sets a renewal reminder before expiry. An expired token must fail visibly: the bot reports it, and posting does not stop in silence.

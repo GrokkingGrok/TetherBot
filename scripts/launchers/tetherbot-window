@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Start the TetherBot window from the per-user app copy.
+# This launcher does not read a secret.
+set -euo pipefail
+
+data_home="${XDG_DATA_HOME:-${HOME}/.local/share}"
+app="${data_home}/tetherbot/app"
+
+if [[ ! -d "${app}/tetherbot" ]]; then
+  echo "tetherbot: app is not installed under ${app}" >&2
+  exit 1
+fi
+
+export PYTHONPATH="${app}${PYTHONPATH:+:${PYTHONPATH}}"
+exec python3 -m tetherbot.window "$@"

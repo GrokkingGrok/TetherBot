@@ -17,6 +17,7 @@ SCRIPTS = [
     ROOT / "scripts" / "launchers" / "tetherbot",
     ROOT / "scripts" / "launchers" / "tetherbotctl",
     ROOT / "scripts" / "launchers" / "git-credential-tetherbot",
+    ROOT / "scripts" / "launchers" / "tetherbot-window",
 ]
 
 
@@ -70,7 +71,7 @@ def test_install_and_uninstall_are_idempotent(tmp_path: Path):
     assert (app / "tetherbot" / "__init__.py").is_file()
     assert (app / "tetherbot" / "io.github.grokkinggrok.TetherBot1.xml").is_file()
     assert not (app / "SCAFFOLD").exists()
-    for name in ("tetherbot", "tetherbotctl", "git-credential-tetherbot"):
+    for name in ("tetherbot", "tetherbotctl", "git-credential-tetherbot", "tetherbot-window"):
         path = home / ".local" / "bin" / name
         assert path.is_file()
         assert stat.S_IMODE(path.stat().st_mode) & 0o111
@@ -83,6 +84,20 @@ def test_install_and_uninstall_are_idempotent(tmp_path: Path):
     assert "SystemdService=tetherbot.service" in dbus
     assert f"Exec={home / '.local' / 'bin' / 'tetherbot'}" in dbus
     assert "@TETHERBOT_LAUNCHER@" not in dbus
+    window_dbus = (dbus_path / "io.github.grokkinggrok.TetherBot.service").read_text(
+        encoding="utf-8"
+    )
+    window_bin = home / ".local" / "bin" / "tetherbot-window"
+    assert "Name=io.github.grokkinggrok.TetherBot" in window_dbus
+    assert f"Exec={window_bin}" in window_dbus
+    assert "@TETHERBOT_WINDOW@" not in window_dbus
+    desktop = (
+        home / ".local" / "share" / "applications" / "io.github.grokkinggrok.TetherBot.desktop"
+    ).read_text(encoding="utf-8")
+    assert "DBusActivatable=true" in desktop
+    assert "Not affiliated with xAI." in desktop
+    assert f"Exec={window_bin}" in desktop
+    assert "view-list-symbolic" in desktop
     config = home / ".config" / "tetherbot" / "config.toml"
     assert config.is_file()
     assert stat.S_IMODE(config.stat().st_mode) == 0o600
@@ -118,6 +133,11 @@ def test_install_and_uninstall_are_idempotent(tmp_path: Path):
 
     subprocess.run(["bash", str(uninstall)], check=True, env=env, timeout=60)
     assert not (home / ".local" / "bin" / "tetherbot").exists()
+    assert not (home / ".local" / "bin" / "tetherbot-window").exists()
+    assert not (dbus_path / "io.github.grokkinggrok.TetherBot.service").exists()
+    assert not (
+        home / ".local" / "share" / "applications" / "io.github.grokkinggrok.TetherBot.desktop"
+    ).exists()
     assert not app.exists()
     assert config.is_file()
     subprocess.run(["bash", str(uninstall), "--purge", "--yes"], check=True, env=env, timeout=60)

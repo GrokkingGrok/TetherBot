@@ -244,7 +244,7 @@ Lists of items pass as JSON strings (`s`), so the item model can grow without br
 
 | Signature | Behavior |
 |---|---|
-| `GetItems(s filter_json) -> s items_json` | Filter keys: `kinds`, `bots`, `status`, `include_snoozed`, `tags`, `query`, `view`, `include_done_days`, `sort`. `query` accepts `@tag`, `due:today`, `due:overdue`, and `p:1`. `view` is `all`, `mine`, `bots`, `waiting`, or `today`. Returns sorted items with chip labels. |
+| `GetItems(s filter_json) -> s items_json` | Filter keys: `kinds`, `bots`, `status`, `include_snoozed`, `tags`, `query`, `view`, `include_done_days`, `sort`. `query` accepts `@tag`, `due:today`, `due:overdue`, and `p:1`. `view` is `all`, `mine`, `bots`, `waiting`, or `today`. Items that are not open stay out unless `include_done_days` covers a close in that many days. Acted and resolved items follow the same rule. Returns sorted items with chip labels. |
 | `GetTags() -> s tags_json` | Tags on open items, with counts and palette colors |
 | `OpenWindow(s item_key) -> b` | Launch or raise the TetherBot window on that item. An empty key opens the list |
 | `Undo(s item_key) -> s result_json` | Drop a queued Done that has not been sent, or send `reopen` once it has gone out |
@@ -270,6 +270,8 @@ Lists of items pass as JSON strings (`s`), so the item model can grow without br
 | `NotificationRequested(s item_json, s reason)` | Notify policy says show one (`new`, `changed`, `due_soon`, `delivery_failed`) |
 | `ActionResult(s action_id, s result, s detail)` | `result`: `accepted` (HTTP 200, run started), `queued_retry`, `parked`, `rejected_key`, `dropped` |
 | `StateChanged(s state, s reason)` | Mirrors the property for clients that do not watch properties |
+
+The TetherBot window is a second process, `python3 -m tetherbot.window`. Its application id is `io.github.grokkinggrok.TetherBot`. It is single-instance, appears in the app grid, and talks only to this interface (`GetItems`, `GetTags`, `GetItem`, `PerformAction`, `Undo`, `SendToBot`). It holds no secrets and opens links only after a click. `OpenWindow` activates that app's `select-item` action. The extension does not launch it itself.
 
 `ForgetSecret` deletes that slot from libsecret and does not take the secret value. `RequestSecretEntry` returns false until the key dialog exists; the secret still does not cross D-Bus. A locked or missing keyring sets the bridge state to `degraded` with reason `keyring locked` and never writes a secret file. `OpenChat` returns false until the Grok Bot desktop entry id is known. `SyncNow` is limited to once per 30 seconds and does not poll until an inbound adapter is running, so `LastSync` stays 0. `PerformAction` enqueues `approve`, `veto`, and `done` only. Those three hide the item until the webhook accepts, the action is parked or rejected, or a newer open feed revision clears the mark. `snooze` stays on `Snooze`. `ActionResult` is emitted when a later sender finishes a post.
 

@@ -89,6 +89,32 @@ def test_filters_search_views_and_tag_colors(tmp_path: Path):
     assert home["color"] == "teal"
 
 
+def test_closed_items_stay_hidden_unless_include_done_days(tmp_path: Path):
+    daemon, _seen = _api(tmp_path, _CONFIG)
+    assert daemon.api is not None
+    _load(
+        daemon,
+        _todo("open-01", title="Still open"),
+        _todo(
+            "new-01",
+            title="Closed lately",
+            status="done",
+            updated_at="2026-10-16T12:00:00+00:00",
+        ),
+        _todo(
+            "old-01",
+            title="Closed earlier",
+            status="done",
+            updated_at="2026-10-01T12:00:00+00:00",
+        ),
+    )
+    assert _keys(daemon) == ["primary/open-01"]
+    shown = _keys(daemon, '{"include_done_days":7}')
+    assert "primary/open-01" in shown
+    assert "primary/new-01" in shown
+    assert "primary/old-01" not in shown
+
+
 def test_undo_drops_a_queued_done_and_reopens_after_send(tmp_path: Path):
     daemon, _seen = _api(tmp_path, _CONFIG)
     assert daemon.api is not None and daemon.store is not None and daemon.queue is not None

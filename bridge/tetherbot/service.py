@@ -166,6 +166,8 @@ class BridgeApi:
         rows = []
         for item in self._daemon.store.items():
             recent = done_days is not None and _recently_done(item, now, done_days)
+            if item.status != "open" and not recent:
+                continue
             if (item.acted or item.resolved) and not recent:
                 continue
             if not include_snoozed and _snoozed(item.snoozed_until, now):

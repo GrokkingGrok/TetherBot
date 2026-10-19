@@ -191,6 +191,35 @@ def test_feed_status_survives_reload_and_drops_a_secret_summary(tmp_path: Path):
     assert unknown.summary == "Hello"
 
 
+def test_daily_summary_wins_over_todo_titles(tmp_path: Path):
+    daemon, _seen = _boot(tmp_path)
+    assert daemon.store is not None and daemon.api is not None
+    daemon.store.replace_origin(
+        "feed/primary.json",
+        [
+            make_item(id="todo-01", kind="todo", title="Send the note", actions=["done"]),
+            make_item(id="todo-02", kind="todo", title="Pay the bill", actions=["done"]),
+            make_item(id="todo-03", kind="todo", title="Call back", actions=["done"]),
+        ],
+        now=NOW,
+    )
+    daemon.store.set_feed(
+        "primary",
+        FeedView(
+            updated_at="2026-10-17T12:00:00+00:00",
+            summary="3 open todos.",
+            state="idle",
+        ),
+    )
+    daemon.api.note_bots()
+    row = _rows(daemon)[0]
+    assert row["summary"] == "3 open todos."
+    assert row["state"] == "idle"
+    assert "Send the note" not in row["summary"]
+    assert "Pay the bill" not in row["summary"]
+    assert "Call back" not in row["summary"]
+
+
 def test_poll_emits_bots_from_the_feed_status(tmp_path: Path):
     remote = _seed(tmp_path)
     daemon, _clock = _start(tmp_path, remote)

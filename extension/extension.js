@@ -381,7 +381,8 @@ export default class TetherBotExtension extends Extension {
             x_expand: true,
         });
         text.add_child(new St.Label({text: row.title}));
-        text.add_child(new St.Label({text: row.bot, style_class: 'tetherbot-subtle'}));
+        const meta = [row.bot, row.due].filter(Boolean).join(' · ');
+        text.add_child(new St.Label({text: meta, style_class: 'tetherbot-subtle'}));
         box.add_child(text);
         if (row.canSendDone)
             box.add_child(this._actionButton('Done', () => this._perform('done', row.key)));

@@ -25,11 +25,11 @@ TetherBot is pre-alpha. Check items off as they land. Design detail is in [SPEC.
 
 ## v0.1.x — bot-written todos (next)
 
-- [ ] Bot write access to the private data repo, using the decided fine-grained token (see Resolved). Held on the bot side as a bot secret. An expired token must fail visibly.
+- [ ] Bot write access to the private data repo, using the decided fine-grained token (see Resolved). The writer is `tools/feed_write.py`. The token stays in an environment variable on the bot (default `TETHERBOT_FEED_TOKEN`), never in this repo. An expired token exits with a one-line error.
 - [ ] TetherBot is the single todo tracker. An older local todo sync is retired after cutover, not run in parallel.
-- [ ] Remote capture. The user messages their bot from a phone while away. The bot writes a `kind: todo` item to `feed/<bot>.json`. The desktop shows it on the next poll or at boot. Done in the popup reports back over the webhook, and the bridge records the item closed (the existing flow).
-- [ ] A bot's daily summary run can post that day's asks and todos to the feed.
-- [ ] `feed/<bot>.json` for more than one bot
+- [x] Remote capture. The user messages their bot from a phone while away. The bot writes a `kind: todo` item with `tools/feed_write.py add-todo`. The desktop shows it on the next poll or at boot. Done in the popup reports back over the webhook, and the bridge records the item closed (the existing flow).
+- [x] A bot's daily summary run can post that day's asks and todos with `tools/feed_write.py` (`add-ask`, `add-todo`, and `status`). The desktop bot row shows `status.summary` when that block is set, and otherwise counts the open items.
+- [ ] `feed/<bot>.json` for more than one bot. The writer accepts `--bot` and edits only that bot's file.
 - [ ] More than one desktop can read the same feed, for example a second, rarely used machine. macOS is not GNOME, so a non-GNOME client is out of scope for now. On a second machine the bot side is the entry point for adding todos.
 - [ ] Proposed, not urgent: each desktop writes only `desktop/<machine-id>.json` (see Open checks). Matters once a second GNOME desktop exists.
 - [ ] Optional later: an always-on local device, for example a single-board computer, as a physical attention indicator or a hub. Not required, because the private repo is already the always-on middle.

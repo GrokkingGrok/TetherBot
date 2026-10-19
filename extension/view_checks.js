@@ -136,6 +136,7 @@ export function runViewChecks() {
                 kind: 'todo',
                 title: 'Send the note',
                 status: 'open',
+                due: '2026-10-19',
                 actions: ['done'],
                 source: {bot: 'primary'},
             },
@@ -163,6 +164,9 @@ export function runViewChecks() {
     assert(menu.asks[0].actions.join(',') === 'approve,veto', 'ask buttons');
     assert(menu.asks[0].due === '2026-10-18', 'ask due');
     assert(menu.todos.length === 2, 'both todos are listed');
+    assert(menu.todos[0].title === 'Send the note', 'todo title');
+    assert(menu.todos[0].due === '2026-10-19', 'todo due');
+    assert(menu.todos[1].due === '', 'todo due is optional');
     assert(menu.todos[0].canSendDone === true, 'routed todo can send done');
     assert(menu.todos[1].canSendDone === false, 'unrouted todo is not sent');
     assert(menu.bots[0].state === 'needs_you', 'per-bot state');

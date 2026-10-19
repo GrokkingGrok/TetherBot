@@ -99,6 +99,43 @@ def can_mark_done(item: Mapping[str, Any], outbound: bool) -> bool:
     return isinstance(actions, list) and "done" in actions
 
 
+def format_elapsed(seconds: object) -> str:
+    """``42:10`` under an hour, ``1:42:10`` from one hour. Negative math is dashes."""
+
+    if isinstance(seconds, bool) or not isinstance(seconds, (int, float)) or seconds < 0:
+        return "--:--"
+    whole = int(seconds)
+    hours, rem = divmod(whole, 3600)
+    minutes, secs = divmod(rem, 60)
+    if hours >= 1:
+        return f"{hours}:{minutes:02d}:{secs:02d}"
+    return f"{minutes}:{secs:02d}"
+
+
+def format_tracked(seconds: object) -> str:
+    """Chip text for a todo's saved total. Empty when nothing has been recorded."""
+
+    if isinstance(seconds, bool) or not isinstance(seconds, (int, float)) or seconds <= 0:
+        return ""
+    whole = int(seconds)
+    if whole >= 3600:
+        hours, rem = divmod(whole, 3600)
+        minutes = rem // 60
+        return f"{hours}:{minutes:02d} tracked"
+    return f"{format_elapsed(whole)} tracked"
+
+
+def timer_item_key(timer: object) -> str:
+    """The open todo a running or paused timer is attached to, or empty."""
+
+    if not isinstance(timer, Mapping):
+        return ""
+    if timer.get("state") not in {"running", "paused"}:
+        return ""
+    key = timer.get("item_key")
+    return key if isinstance(key, str) else ""
+
+
 def safe_http_url(href: str) -> str | None:
     """Return ``href`` when it is an http or https URL with no whitespace."""
 

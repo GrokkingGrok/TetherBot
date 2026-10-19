@@ -31,6 +31,14 @@ export const PROXY_METHODS = [
     'MarkSeenRemote',
     'OpenWindowRemote',
     'UndoRemote',
+    'GetTimerRemote',
+    'StartTimerRemote',
+    'PauseTimerRemote',
+    'ResumeTimerRemote',
+    'StopTimerRemote',
+    'UndoStopTimerRemote',
+    'ResolveTimerWarningRemote',
+    'AssignStoppedTimerRemote',
 ];
 
 export const PROXY_SIGNALS = [
@@ -38,6 +46,7 @@ export const PROXY_SIGNALS = [
     'NotificationRequested',
     'ActionResult',
     'StateChanged',
+    'TimerChanged',
 ];
 
 export const TODO_LIMIT = 8;
@@ -93,30 +102,302 @@ function snoozed(item, nowMs) {
     return Number.isFinite(parsed) && parsed > nowMs;
 }
 
-export function indicatorView({running, state, counts, activationFailed = true}) {
-    const asks = running ? number(counts?.asks) : 0;
-    const todos = running ? number(counts?.todos) : 0;
-    const dimmed = !running || state === 'unconfigured' || state === 'failed_closed';
-    const attention = Boolean(running) && !dimmed && asks > 0;
-    let iconName = 'mail-unread-symbolic';
-    if (dimmed)
-        iconName = 'network-offline-symbolic';
-    else if (attention)
-        iconName = 'emblem-important-symbolic';
-    let accessibleName = 'TetherBot';
-    if (running)
-        accessibleName = `TetherBot: ${asks} asks, ${todos} todos`;
-    else if (activationFailed)
+export function formatElapsed(seconds) {
+    const whole = Math.floor(Number(seconds));
+    if (!Number.isFinite(whole) || whole < 0)
+        return '--:--';
+    const hours = Math.floor(whole / 3600);
+    const minutes = Math.floor((whole % 3600) / 60);
+    const secs = whole % 60;
+    const pad = value => String(value).padStart(2, '0');
+    if (hours >= 1)
+        return `${hours}:${pad(minutes)}:${pad(secs)}`;
+    return `${minutes}:${pad(secs)}`;
+}
+
+export function formatTracked(seconds) {
+    const whole = Math.floor(Number(seconds) || 0);
+    if (whole <= 0)
+        return '';
+    if (whole >= 3600) {
+        const hours = Math.floor(whole / 3600);
+        const minutes = Math.floor((whole % 3600) / 60);
+        return `${hours}:${String(minutes).padStart(2, '0')} tracked`;
+    }
+    return `${formatElapsed(whole)} tracked`;
+}
+
+export function elapsedSeconds(timer, nowSec) {
+    if (!timer || typeof timer !== 'object')
+        return 0;
+    const accumulated = Number(timer.accumulated_s) || 0;
+    if (timer.state === 'running' && timer.running_since != null) {
+        const since = Number(timer.running_since);
+        if (Number.isFinite(since))
+            return accumulated + (nowSec - since);
+    }
+    return accumulated;
+}
+
+export function parseSetTime(text) {
+    const match = /^(\d+):([0-5]\d)$/.exec(String(text || '').trim());
+    if (!match)
+        return null;
+    return Number(match[1]) * 3600 + Number(match[2]) * 60;
+}
+
+function speakDuration(seconds) {
+    const whole = Math.max(0, Math.floor(Number(seconds) || 0));
+    const hours = Math.floor(whole / 3600);
+    const minutes = Math.floor((whole % 3600) / 60);
+    const hourText = hours === 1 ? '1 hour' : `${hours} hours`;
+    const minuteText = minutes === 1 ? '1 minute' : `${minutes} minutes`;
+    if (hours && minutes)
+        return `${hourText} ${minuteText}`;
+    if (hours)
+        return hourText;
+    return minuteText;
+}
+
+function authBroken(reason) {
+    const text = String(reason || '').toLowerCase();
+    return text.includes('keyring') || text.includes('rejected key') ||
+        text.includes('routine not found') || text.includes('auth');
+}
+
+function isOverdue(due, nowMs) {
+    if (typeof due !== 'string' || !due)
+        return false;
+    const match = /^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2}))?$/.exec(due.trim());
+    if (!match)
+        return false;
+    const year = Number(match[1]);
+    const month = Number(match[2]) - 1;
+    const day = Number(match[3]);
+    const deadline = match[4] === undefined
+        ? new Date(year, month, day, 23, 59, 59, 999)
+        : new Date(year, month, day, Number(match[4]), Number(match[5]), 59, 999);
+    return nowMs > deadline.getTime();
+}
+
+function visibleOpen(item, nowMs) {
+    if (!item || item.status !== 'open' || snoozed(item, nowMs) || acted(item))
+        return false;
+    if (item.local && (item.local.done_locally || item.local.resolved))
+        return false;
+    return true;
+}
+
+export function approvalCount(items, nowMs) {
+    let count = 0;
+    for (const item of items || []) {
+        if (!visibleOpen(item, nowMs) || item.kind !== 'ask')
+            continue;
+        if ((item.actions || []).includes('approve'))
+            count += 1;
+    }
+    return count;
+}
+
+export function overdueCount(items, nowMs) {
+    let count = 0;
+    for (const item of items || []) {
+        if (!visibleOpen(item, nowMs) || item.kind !== 'todo')
+            continue;
+        if (item.owner === 'bot' || !isOverdue(item.due, nowMs))
+            continue;
+        count += 1;
+    }
+    return count;
+}
+
+function timerActive(timer) {
+    return Boolean(timer && (timer.state === 'running' || timer.state === 'paused'));
+}
+
+export function indicatorView({
+    running,
+    state = '',
+    reason = '',
+    activationFailed = true,
+    items = [],
+    timer = null,
+    nowMs = 0,
+}) {
+    if (!running && activationFailed === false) {
+        return {
+            mark: null,
+            text: '',
+            textStyle: 'run',
+            showPause: false,
+            dimmed: true,
+            iconFile: 'base',
+            accessibleName: 'TetherBot',
+        };
+    }
+    const nowSec = nowMs / 1000;
+    const slash = !running || state === 'unconfigured' || state === 'failed_closed' ||
+        authBroken(reason);
+    const active = timerActive(timer);
+    const elapsed = active ? elapsedSeconds(timer, nowSec) : 0;
+    const warning = active && (Boolean(timer.warning) || elapsed < 0);
+    const paused = active && timer.state === 'paused';
+    const approvals = slash ? 0 : approvalCount(items, nowMs);
+    const overdue = slash ? 0 : overdueCount(items, nowMs);
+    let mark = null;
+    if (slash)
+        mark = 'slash';
+    else if (approvals > 0)
+        mark = 'dot';
+    else if (overdue > 0)
+        mark = 'ring';
+    else if (warning)
+        mark = 'triangle';
+    let text = '';
+    let textStyle = 'run';
+    if (!slash && warning) {
+        text = '--:--';
+        textStyle = 'warn';
+    } else if (!slash && active) {
+        text = formatElapsed(elapsed);
+        textStyle = paused ? 'paused' : 'run';
+    }
+    const title = timer && timer.item_title ? String(timer.item_title) : 'Timer';
+    const spoken = speakDuration(elapsed);
+    let accessibleName = 'TetherBot: all clear';
+    if (slash)
         accessibleName = 'TetherBot: bridge not running';
+    else if (warning)
+        accessibleName = 'TetherBot: timer needs a check';
+    else if (active && paused)
+        accessibleName = `TetherBot: timer paused at ${spoken}, ${title}`;
+    else if (active)
+        accessibleName = `TetherBot: timer running, ${spoken}, ${title}`;
+    if (!slash && mark === 'dot') {
+        const noun = approvals === 1 ? '1 approval waiting' : `${approvals} approvals waiting`;
+        if (warning)
+            accessibleName = `TetherBot: timer needs a check. ${noun}`;
+        else if (active && paused)
+            accessibleName = `TetherBot: timer paused at ${spoken}. ${noun}`;
+        else if (active)
+            accessibleName = `TetherBot: timer running, ${spoken}. ${noun}`;
+        else
+            accessibleName = `TetherBot: ${noun}`;
+    } else if (!slash && mark === 'ring') {
+        const noun = `${overdue} overdue todo${overdue === 1 ? '' : 's'}`;
+        if (warning)
+            accessibleName = `TetherBot: timer needs a check. ${noun}`;
+        else if (active && paused)
+            accessibleName = `TetherBot: timer paused at ${spoken}. ${noun}`;
+        else if (active)
+            accessibleName = `TetherBot: timer running, ${spoken}. ${noun}`;
+        else
+            accessibleName = `TetherBot: ${noun}`;
+    }
+    const iconFile = mark === 'dot' ? 'dot'
+        : mark === 'ring' ? 'ring'
+        : mark === 'triangle' ? 'triangle'
+        : mark === 'slash' ? 'slash'
+        : 'base';
     return {
-        asks,
-        todos,
-        badge: asks + todos,
-        dimmed,
-        attention,
-        iconName,
+        mark,
+        text,
+        textStyle,
+        showPause: Boolean(!slash && paused && !warning),
+        dimmed: slash,
+        iconFile,
         accessibleName,
     };
+}
+
+export function timerModel({
+    running,
+    activationFailed = true,
+    timer = null,
+    nowMs = 0,
+    switchAsk = null,
+    settingTime = false,
+    assigning = false,
+    error = '',
+}) {
+    if (!running) {
+        if (activationFailed === false)
+            return {kind: 'hidden'};
+        return {
+            kind: 'down',
+            title: 'Timer unavailable: bridge not running.',
+            body: 'Saved time is safe on disk and keeps counting.',
+        };
+    }
+    if (error)
+        return {kind: 'error', title: error};
+    if (timer && timer.read_error)
+        return {kind: 'error', title: String(timer.read_error)};
+    if (switchAsk && switchAsk.key) {
+        const from = switchAsk.title || 'Timer';
+        return {
+            kind: 'switch',
+            title: `Stop ${from} and start this one?`,
+            actions: ['Switch', 'Cancel'],
+            key: switchAsk.key,
+        };
+    }
+    const nowSec = nowMs / 1000;
+    const undo = timer && timer.state === 'idle' ? timer.undo : timer?.undo;
+    if (undo && Number(undo.until) > nowSec && (!timer || timer.state === 'idle' || !timer.state)) {
+        if (undo.kind === 'assign') {
+            return {
+                kind: 'assign',
+                title: `Stopped ${formatElapsed(undo.recorded_s)}`,
+                action: 'Add to a todo',
+                timerId: undo.timer_id || '',
+                assigning: Boolean(assigning),
+            };
+        }
+        const name = undo.item_title || 'Timer';
+        return {
+            kind: 'undo',
+            title: `Recorded ${formatElapsed(undo.recorded_s)} on ${name}`,
+            action: 'Undo',
+            timerId: undo.timer_id || '',
+        };
+    }
+    if (timerActive(timer)) {
+        const elapsed = elapsedSeconds(timer, nowSec);
+        if (timer.warning || elapsed < 0) {
+            if (settingTime)
+                return {kind: 'set', title: 'Set time', hint: 'H:MM'};
+            const saved = Math.max(0, Math.floor(Number(timer.accumulated_s) || 0));
+            return {
+                kind: 'warning',
+                title: 'Timer needs a check',
+                body: 'The clock moved backward, or the timer ran past 24 hours. ' +
+                    `Saved time: ${formatElapsed(saved)}. It keeps counting until you choose.`,
+                actions: ['Keep', 'Set time...', 'Discard'],
+            };
+        }
+        const subject = timer.item_title || 'Timer';
+        const bot = timer.item_key ? String(timer.item_key).split('/')[0] : '';
+        if (timer.state === 'paused') {
+            return {
+                kind: 'paused',
+                title: 'Paused',
+                time: formatElapsed(elapsed),
+                subject,
+                bot,
+                actions: ['Resume', 'Stop'],
+            };
+        }
+        return {
+            kind: 'running',
+            title: 'Timer running',
+            time: formatElapsed(elapsed),
+            subject,
+            bot,
+            actions: ['Pause', 'Stop'],
+        };
+    }
+    return {kind: 'idle', title: 'No timer running', action: 'Start timer'};
 }
 
 export function formatLastSeen(unix, nowMs) {
@@ -171,6 +452,8 @@ export function menuModel({
     nowMs,
     undoHolds = [],
     activationFailed = true,
+    timer = null,
+    assigning = false,
 }) {
     const banner = bannerFor({running, activationFailed, state, reason});
     if (!running) {
@@ -199,6 +482,7 @@ export function menuModel({
     }
     const asks = [];
     const todos = [];
+    const timingKey = timerActive(timer) ? String(timer.item_key || '') : '';
     for (const item of items || []) {
         if (!item || item.status !== 'open' || snoozed(item, nowMs) || acted(item))
             continue;
@@ -225,6 +509,10 @@ export function menuModel({
                 due: item.due || '',
                 canSendDone: listed && routes.get(bot) === true,
                 chips: chipRow(item),
+                tracked: formatTracked(item.time_tracked_s),
+                timing: Boolean(timingKey) && timingKey === key,
+                canStart: true,
+                addToTimer: Boolean(assigning) && !(timingKey && timingKey === key),
             });
         }
     }

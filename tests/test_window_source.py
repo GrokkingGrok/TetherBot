@@ -41,3 +41,6 @@ def test_window_sources_do_not_touch_the_network_or_secrets():
     assert "ActivateAction" in launch
     assert "new_sync" not in window
     assert "LINGER_MS = 60_000" in window
+    assert "GetTimer" in window
+    assert "Start timer" in window
+    assert "set_icon_name(APP_ID)" in window

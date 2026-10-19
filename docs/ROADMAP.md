@@ -26,7 +26,7 @@ TetherBot is pre-alpha. Check items off as they land. Design detail is in [SPEC.
 ## v0.1.x — bot-written todos (next)
 
 - [ ] Bot write access to the private data repo, using the decided fine-grained token (see Resolved). The writer is `tools/feed_write.py`. The token stays in an environment variable on the bot (default `TETHERBOT_FEED_TOKEN`), never in this repo. An expired token exits with a one-line error.
-- [ ] Crash-proof stopwatch and the robot top-bar icon, [STOPWATCH.md](STOPWATCH.md). One timer, stored by the bridge in `timer.json`. This is the last item before the single-tracker cutover.
+- [x] Crash-proof stopwatch and the robot top-bar icon, [STOPWATCH.md](STOPWATCH.md). One timer, stored by the bridge in `timer.json`. This is the last item before the single-tracker cutover.
 - [ ] TetherBot is the single todo tracker. An older local todo sync is retired after cutover, not run in parallel.
 - [x] Remote capture. The user messages their bot from a phone while away. The bot writes a `kind: todo` item with `tools/feed_write.py add-todo`. The desktop shows it on the next poll or at boot. Done in the popup reports back over the webhook, and the bridge records the item closed (the existing flow).
 - [x] A bot's daily summary run can post that day's asks and todos with `tools/feed_write.py` (`add-ask`, `add-todo`, and `status`). The desktop bot row shows `status.summary` when that block is set, and otherwise counts the open items.

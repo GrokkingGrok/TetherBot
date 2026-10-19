@@ -100,7 +100,13 @@ def test_install_and_uninstall_are_idempotent(tmp_path: Path):
     assert "DBusActivatable=true" in desktop
     assert "Not affiliated with xAI." in desktop
     assert f"Exec={window_bin}" in desktop
-    assert "view-list-symbolic" in desktop
+    assert "Icon=io.github.grokkinggrok.TetherBot" in desktop
+    assert "view-list-symbolic" not in desktop
+    icon_root = home / ".local" / "share" / "icons" / "hicolor"
+    assert (icon_root / "scalable" / "apps" / "io.github.grokkinggrok.TetherBot.svg").is_file()
+    assert (
+        icon_root / "symbolic" / "apps" / "io.github.grokkinggrok.TetherBot-symbolic.svg"
+    ).is_file()
     config = home / ".config" / "tetherbot" / "config.toml"
     assert config.is_file()
     assert stat.S_IMODE(config.stat().st_mode) == 0o600
@@ -140,6 +146,11 @@ def test_install_and_uninstall_are_idempotent(tmp_path: Path):
     assert not (dbus_path / "io.github.grokkinggrok.TetherBot.service").exists()
     assert not (
         home / ".local" / "share" / "applications" / "io.github.grokkinggrok.TetherBot.desktop"
+    ).exists()
+    icon_root = home / ".local" / "share" / "icons" / "hicolor"
+    assert not (icon_root / "scalable" / "apps" / "io.github.grokkinggrok.TetherBot.svg").exists()
+    assert not (
+        icon_root / "symbolic" / "apps" / "io.github.grokkinggrok.TetherBot-symbolic.svg"
     ).exists()
     assert not app.exists()
     assert config.is_file()
@@ -205,6 +216,8 @@ def test_extension_install_copies_the_uuid(tmp_path: Path):
     )
     assert (dest / "metadata.json").is_file()
     assert (dest / "extension.js").is_file()
+    assert (dest / "icons" / "tetherbot-base-symbolic.svg").is_file()
+    assert (dest / "icons" / "tetherbot-slash-symbolic.svg").is_file()
     assert not (dest / "test_view.js").exists()
     subprocess.run(
         ["bash", str(ROOT / "scripts" / "uninstall.sh")],

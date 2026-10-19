@@ -3,6 +3,7 @@
 // Assertions for the popup mapping. Run with `gjs -m` or `node`.
 
 import {
+    ACTIVATE_RETRY_MS,
     BRIDGE_DOWN,
     BUS_NAME,
     ITEM_FILTER,
@@ -20,6 +21,7 @@ import {
     snoozeCall,
     snoozeIso,
     snoozeMoment,
+    startServiceCall,
     todoFilter,
     undoCall,
     mergeTodoSearch,
@@ -95,6 +97,33 @@ export function runViewChecks() {
     assert(offlineMenu.asks.length === 0, 'no asks while down');
     assert(offlineMenu.bots.length === 0, 'no bots while down');
     assert(offlineMenu.footer === null, 'no footer while down');
+
+    const waiting = menuModel({
+        running: false,
+        activationFailed: false,
+        state: '',
+        reason: '',
+        bots: [{name: 'primary'}],
+        items: [ask()],
+        queueLength: 1,
+        nowMs: NOW,
+    });
+    assert(waiting.banner === '', 'no banner while the bridge is starting');
+    assert(waiting.asks.length === 0, 'no asks while the bridge is starting');
+    const waitingIcon = indicatorView({
+        running: false,
+        activationFailed: false,
+        state: '',
+        counts: {asks: 1, todos: 0},
+    });
+    assert(waitingIcon.dimmed === true, 'starting stays dimmed');
+    assert(waitingIcon.accessibleName === 'TetherBot', 'starting name');
+    const activation = startServiceCall();
+    assert(activation.method === 'StartServiceByName', 'activation method');
+    assert(activation.name === BUS_NAME, 'activation name');
+    assert(activation.flags === 0, 'activation flags');
+    assert(activation.interfaceName === 'org.freedesktop.DBus', 'activation interface');
+    assert(ACTIVATE_RETRY_MS >= 2000 && ACTIVATE_RETRY_MS <= 10000, 'activation retry');
 
     const menu = menuModel({
         running: true,

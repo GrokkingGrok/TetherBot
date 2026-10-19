@@ -21,9 +21,11 @@ import {
     ITEM_FILTER,
     OBJECT_PATH,
     PROXY_SIGNALS,
+    ACTIVATE_RETRY_MS,
     UNDO_MS,
     indicatorView,
     menuModel,
+    startServiceCall,
     mergeTodoSearch,
     notificationModel,
     openWindowCall,
@@ -52,6 +54,11 @@ export default class TetherBotExtension extends Extension {
         this._undoHolds = [];
         this._undoSources = [];
         this._Proxy = null;
+        this._seenBridge = false;
+        this._activationFailed = false;
+        this._activatePending = false;
+        this._activateRetried = false;
+        this._activateSource = 0;
 
         this._indicator = new PanelMenu.Button(0.0, 'TetherBot', false);
         const box = new St.BoxLayout({style_class: 'panel-status-menu-box'});
@@ -110,6 +117,10 @@ export default class TetherBotExtension extends Extension {
         for (const id of this._undoSources || [])
             GLib.source_remove(id);
         this._undoSources = [];
+        if (this._activateSource) {
+            GLib.source_remove(this._activateSource);
+            this._activateSource = 0;
+        }
         this._undoHolds = [];
         this._bots = [];
         this._items = [];
@@ -152,12 +163,19 @@ export default class TetherBotExtension extends Extension {
         const settings = new PopupMenu.PopupMenuItem('Settings');
         settings.connect('activate', () => this.openPreferences());
         this._indicator.menu.addMenuItem(settings);
+        this._indicator.menu.connect('open-state-changed', (_menu, open) => {
+            if (open)
+                this._requestBridge();
+        });
     }
 
     _onNameAppeared() {
         if (!this._enabled)
             return;
+        this._seenBridge = true;
         this._running = true;
+        this._activationFailed = false;
+        this._clearActivateTimer();
         this._ensureProxy();
         this._render();
     }
@@ -173,7 +191,86 @@ export default class TetherBotExtension extends Extension {
         this._bots = [];
         this._items = [];
         this._queueLength = 0;
+        if (this._seenBridge) {
+            this._activationFailed = true;
+            this._render();
+            return;
+        }
+        this._requestBridge();
         this._render();
+    }
+
+    _requestBridge() {
+        if (!this._enabled || this._running || this._activatePending)
+            return;
+        const call = startServiceCall();
+        let session = null;
+        try {
+            session = Gio.DBus.session;
+        } catch (error) {
+            session = null;
+        }
+        if (!session) {
+            this._activationFailed = true;
+            this._scheduleActivate();
+            this._render();
+            return;
+        }
+        this._activatePending = true;
+        this._activationFailed = false;
+        try {
+            session.call(
+                call.destination,
+                call.path,
+                call.interfaceName,
+                call.method,
+                new GLib.Variant('(su)', [call.name, call.flags]),
+                new GLib.VariantType('(u)'),
+                Gio.DBusCallFlags.NONE,
+                5000,
+                null,
+                (connection, result) => this._onActivateResult(connection, result),
+            );
+        } catch (error) {
+            this._activatePending = false;
+            this._activationFailed = true;
+            this._scheduleActivate();
+            this._render();
+        }
+    }
+
+    _onActivateResult(connection, result) {
+        this._activatePending = false;
+        if (!this._enabled)
+            return;
+        try {
+            connection.call_finish(result);
+            if (!this._running)
+                this._scheduleActivate();
+        } catch (error) {
+            this._activationFailed = true;
+            this._scheduleActivate();
+        }
+        this._render();
+    }
+
+    _scheduleActivate() {
+        if (!this._enabled || this._activateSource || this._activateRetried || this._seenBridge)
+            return;
+        this._activateRetried = true;
+        this._activateSource = GLib.timeout_add(GLib.PRIORITY_DEFAULT, ACTIVATE_RETRY_MS, () => {
+            this._activateSource = 0;
+            if (this._enabled && !this._running)
+                this._requestBridge();
+            return GLib.SOURCE_REMOVE;
+        });
+    }
+
+    _clearActivateTimer() {
+        if (!this._activateSource)
+            return;
+        GLib.source_remove(this._activateSource);
+        this._activateSource = 0;
     }
 
     _ensureProxy() {
@@ -322,6 +419,7 @@ export default class TetherBotExtension extends Extension {
             running: this._running,
             state: this._state,
             counts: this._counts,
+            activationFailed: this._activationFailed,
         });
         const classes = ['system-status-icon', 'tetherbot-indicator'];
         if (view.dimmed)
@@ -343,6 +441,7 @@ export default class TetherBotExtension extends Extension {
             queueLength: this._queueLength,
             nowMs: Date.now(),
             undoHolds: this._undoHolds,
+            activationFailed: this._activationFailed,
         });
         this._banner.label.text = model.banner;
         this._banner.visible = Boolean(model.banner);

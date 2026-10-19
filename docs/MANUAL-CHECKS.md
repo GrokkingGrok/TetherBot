@@ -2,7 +2,7 @@
 
 Run these on one Fedora 44 desktop with GNOME Shell 50 on Wayland, after you can log in as a normal user. The project is unofficial and not affiliated with xAI.
 
-**Out of scope here:** M9 (webhook-only popup copy), M15 and M16 (a legacy todo sink outside this repository), and M17 (the full uninstall acceptance check). Uninstall is still documented in [SETUP.md](SETUP.md) and is the reset for M1. M18–M24 are the rich-todo checks later in this file. Do not treat M9, M15, M16, or M17 as part of the v0.1 runbook.
+**Out of scope here:** M9 (webhook-only popup copy), M15 and M16 (a legacy todo sink outside this repository), and M17 (the full uninstall acceptance check). Uninstall is still documented in [SETUP.md](SETUP.md) and is the reset for M1. M18–M24 are the rich-todo checks later in this file. M25 checks that a new login starts the bridge. Do not treat M9, M15, M16, or M17 as part of the v0.1 runbook.
 
 Examples use the bot id `primary`. Yours can be any lowercase id of letters, digits, and hyphens. Use the same id in the bot's feed file, in `config.toml`, and in the commands below.
 
@@ -10,7 +10,7 @@ Nothing in these steps belongs in a chat, in `config.toml`, or in this repositor
 
 ## Suggested order
 
-M1, M2, then the extension install in M14 (log out and back in once), then M3. Do M10 before M4 if the popup has no ask yet. Then M4, M10a, M5, M11, M6, M7, M8, M12, M13. After a rich todo is in the feed, M18 through M24.
+M1, M2, then the extension install in M14 (log out and back in once), then M3. Do M10 before M4 if the popup has no ask yet. Then M4, M10a, M5, M11, M6, M7, M8, M12, M13. After a rich todo is in the feed, M18 through M24. M25 is the next login after the unit is installed.
 
 You can stop after any check. Later checks say what they need.
 
@@ -666,6 +666,18 @@ journalctl --user -b /usr/bin/gnome-shell --no-pager | tail -n 80
 - The window holds no secrets and makes no network requests. Links open only after a click.
 
 **Reset.** None. Log out and back in after changing extension files. `systemctl --user restart tetherbot` is enough for a bridge-only change.
+
+## M25. A new login starts the bridge
+
+**Preconditions.** `scripts/install.sh` has been run on this machine before, so the unit was enabled. Re-run `scripts/install.sh` so an older `default.target` enablement moves to `graphical-session.target`. The extension is enabled.
+
+**Look for.**
+
+- Log out and back in. Do not run `systemctl start`.
+- Within about 10 seconds the top-bar icon is active, not the inactive icon with "Bridge not running".
+- `systemctl --user is-active tetherbot` prints `active`.
+
+**Reset.** None.
 
 ## When you are finished
 

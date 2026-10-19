@@ -37,6 +37,9 @@ def test_disable_drops_the_proxy_and_handlers():
     text = (EXTENSION / "extension.js").read_text(encoding="utf-8")
     assert "makeProxyWrapper" in text
     assert "DO_NOT_AUTO_START" in text
+    assert "startServiceCall" in text
+    view = (EXTENSION / "view.js").read_text(encoding="utf-8")
+    assert "StartServiceByName" in view
     assert "io.github.grokkinggrok.TetherBot1.xml" in text
     disable = text.split("disable()", 1)[1].split("\n    _", 1)[0]
     assert "bus_unwatch_name" in disable

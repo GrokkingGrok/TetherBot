@@ -84,6 +84,36 @@
       <arg name="item_key" type="s" direction="in"/>
       <arg name="result_json" type="s" direction="out"/>
     </method>
+    <method name="StartTimer">
+      <arg name="item_key" type="s" direction="in"/>
+      <arg name="timer_json" type="s" direction="out"/>
+    </method>
+    <method name="PauseTimer">
+      <arg name="timer_json" type="s" direction="out"/>
+    </method>
+    <method name="ResumeTimer">
+      <arg name="timer_json" type="s" direction="out"/>
+    </method>
+    <method name="StopTimer">
+      <arg name="result_json" type="s" direction="out"/>
+    </method>
+    <method name="UndoStopTimer">
+      <arg name="timer_id" type="s" direction="in"/>
+      <arg name="ok" type="b" direction="out"/>
+    </method>
+    <method name="GetTimer">
+      <arg name="timer_json" type="s" direction="out"/>
+    </method>
+    <method name="ResolveTimerWarning">
+      <arg name="choice" type="s" direction="in"/>
+      <arg name="seconds" type="x" direction="in"/>
+      <arg name="timer_json" type="s" direction="out"/>
+    </method>
+    <method name="AssignStoppedTimer">
+      <arg name="timer_id" type="s" direction="in"/>
+      <arg name="item_key" type="s" direction="in"/>
+      <arg name="ok" type="b" direction="out"/>
+    </method>
 
     <signal name="ItemsChanged">
       <arg name="added" type="as"/>
@@ -102,6 +132,9 @@
     <signal name="StateChanged">
       <arg name="state" type="s"/>
       <arg name="reason" type="s"/>
+    </signal>
+    <signal name="TimerChanged">
+      <arg name="timer_json" type="s"/>
     </signal>
   </interface>
 </node>

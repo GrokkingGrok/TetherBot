@@ -261,6 +261,13 @@ Lists of items pass as JSON strings (`s`), so the item model can grow without br
 | `ForgetSecret(s slot) -> ()` | Deletes that keyring item |
 | `GetQueue() -> s` | Pending and parked actions, no secrets |
 | `RetryParked(s action_id) -> ()`, `DropQueued(s action_id) -> ()` | Queue management |
+| `StartTimer(s item_key) -> s timer_json` | `""` starts a standalone timer. An open todo key ties it to that item. `Error.TimerBusy` when one already exists. `Error.NotFound` when the key is not an open todo |
+| `PauseTimer() -> s`, `ResumeTimer() -> s` | Close or reopen the current segment. `Error.NoTimer` when that state is not current |
+| `StopTimer() -> s result_json` | `{timer_id, item_key, recorded_s, total_s}`. A standalone stop records nothing until `AssignStoppedTimer` |
+| `UndoStopTimer(s timer_id) -> b` | Within 5 seconds of that stop or discard |
+| `GetTimer() -> s timer_json` | `{state: "idle"}` when there is none, otherwise the file plus `elapsed_s` and `now` |
+| `ResolveTimerWarning(s choice, x seconds) -> s` | `keep`, `set`, or `discard`. `seconds` is used only for `set` |
+| `AssignStoppedTimer(s timer_id, s item_key) -> b` | Attach a just-stopped standalone timer to an open todo |
 
 ### 6.3 Signals
 
@@ -270,6 +277,9 @@ Lists of items pass as JSON strings (`s`), so the item model can grow without br
 | `NotificationRequested(s item_json, s reason)` | Notify policy says show one (`new`, `changed`, `due_soon`, `delivery_failed`) |
 | `ActionResult(s action_id, s result, s detail)` | `result`: `accepted` (HTTP 200, run started), `queued_retry`, `parked`, `rejected_key`, `dropped` |
 | `StateChanged(s state, s reason)` | Mirrors the property for clients that do not watch properties |
+| `TimerChanged(s timer_json)` | After a timer file or `item-time.json` write, and when a clock warning appears. Not every second |
+
+The stopwatch is one timer, owned by the bridge in `$XDG_STATE_HOME/tetherbot/timer.json`. Elapsed time is wall-clock math, not a tick. Per-todo totals live in `item-time.json` on this machine. `GetItems` may add `time_tracked_s`. Nothing about the timer is written to the feed or sent to the bot. The rules, recovery, and the top-bar badge priority are in [STOPWATCH.md](STOPWATCH.md). `tetherbotctl timer` prints status and can start, pause, resume, and stop.
 
 The TetherBot window is a second process, `python3 -m tetherbot.window`. Its application id is `io.github.grokkinggrok.TetherBot`. It is single-instance, appears in the app grid, and talks only to this interface (`GetItems`, `GetTags`, `GetItem`, `PerformAction`, `Undo`, `SendToBot`). It holds no secrets and opens links only after a click. `OpenWindow` sends that app's `select-item` action and returns as soon as the session bus accepts the request. It does not wait for the process. The window is shown first, with a loading line, and fills the list when the bridge answers. After the last window closes, the process stays for about 60 seconds so the next open reuses it. The extension does not launch it itself.
 
@@ -496,6 +506,7 @@ Still to write, with the milestones that need them:
 - M24. The window opens from the popup and from the app grid, holds no secrets, and makes no network requests. The extension does not spawn it.
 - M25. Log out and back in. The indicator becomes active within about 10 seconds without a manual `systemctl start`.
 - M26. Clicking a todo in the popup shows the window within about 1.5 seconds from a cold start, and at once when the process is still up.
+- M27–M36. Stopwatch recovery, the top-bar badges, and Undo. The steps are in [MANUAL-CHECKS.md](MANUAL-CHECKS.md) and [STOPWATCH.md](STOPWATCH.md).
 
 ## 13. Milestones
 

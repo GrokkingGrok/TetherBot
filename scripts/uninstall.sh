@@ -49,6 +49,8 @@ SESSION_WANTS="${UNIT_DIR}/graphical-session.target.wants/tetherbot.service"
 DBUS_PATH="${DATA_HOME}/dbus-1/services/io.github.grokkinggrok.TetherBot1.service"
 WINDOW_DBUS_PATH="${DATA_HOME}/dbus-1/services/io.github.grokkinggrok.TetherBot.service"
 DESKTOP_PATH="${DATA_HOME}/applications/io.github.grokkinggrok.TetherBot.desktop"
+ICON_PATH="${DATA_HOME}/icons/hicolor/scalable/apps/io.github.grokkinggrok.TetherBot.svg"
+ICON_SYMBOLIC_PATH="${DATA_HOME}/icons/hicolor/symbolic/apps/io.github.grokkinggrok.TetherBot-symbolic.svg"
 CONFIG_DIR="${CONFIG_HOME}/tetherbot"
 STATE_DIR="${STATE_HOME}/tetherbot"
 EXT_DIR="${DATA_HOME}/gnome-shell/extensions/tetherbot@grokkinggrok.github.io"
@@ -59,6 +61,7 @@ if command -v systemctl >/dev/null 2>&1 \
 fi
 rm -f "${UNIT_PATH}" "${DEFAULT_WANTS}" "${SESSION_WANTS}" \
   "${DBUS_PATH}" "${WINDOW_DBUS_PATH}" "${DESKTOP_PATH}" \
+  "${ICON_PATH}" "${ICON_SYMBOLIC_PATH}" \
   "${BIN_DIR}/tetherbot" "${BIN_DIR}/tetherbotctl" "${BIN_DIR}/git-credential-tetherbot" \
   "${BIN_DIR}/tetherbot-window"
 rm -rf "${APP_DIR}"

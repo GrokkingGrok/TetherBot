@@ -17,6 +17,8 @@ is missing.
   ~/.local/bin/git-credential-tetherbot
   ~/.local/bin/tetherbot-window
   ~/.local/share/applications/io.github.grokkinggrok.TetherBot.desktop
+  ~/.local/share/icons/hicolor/scalable/apps/io.github.grokkinggrok.TetherBot.svg
+  ~/.local/share/icons/hicolor/symbolic/apps/io.github.grokkinggrok.TetherBot-symbolic.svg
 
 --enable runs: systemctl --user enable --now tetherbot.service
 EOF
@@ -111,6 +113,13 @@ write_template "${ROOT}/data/io.github.grokkinggrok.TetherBot.service" \
 write_template "${ROOT}/data/io.github.grokkinggrok.TetherBot.desktop" \
   "${APPS_DIR}/io.github.grokkinggrok.TetherBot.desktop" \
   'Exec=@TETHERBOT_WINDOW@' "${WINDOW}"
+ICON_APPS="${DATA_HOME}/icons/hicolor/scalable/apps"
+ICON_SYMBOLIC="${DATA_HOME}/icons/hicolor/symbolic/apps"
+install -d "${ICON_APPS}" "${ICON_SYMBOLIC}"
+install -m 0644 "${ROOT}/data/icons/io.github.grokkinggrok.TetherBot.svg" \
+  "${ICON_APPS}/io.github.grokkinggrok.TetherBot.svg"
+install -m 0644 "${ROOT}/data/icons/io.github.grokkinggrok.TetherBot-symbolic.svg" \
+  "${ICON_SYMBOLIC}/io.github.grokkinggrok.TetherBot-symbolic.svg"
 
 if [[ ! -e "${CONFIG_DIR}/config.toml" ]]; then
   install -m 0600 "${ROOT}/data/config.example.toml" "${CONFIG_DIR}/config.toml"

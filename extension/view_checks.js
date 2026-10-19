@@ -11,9 +11,16 @@ import {
     PROXY_METHODS,
     PROXY_SIGNALS,
     UPDATE_MESSAGE,
+    approvalCount,
+    elapsedSeconds,
+    formatElapsed,
     formatLastSeen,
+    formatTracked,
     indicatorView,
+    overdueCount,
     itemKey,
+    parseSetTime,
+    timerModel,
     menuModel,
     notificationModel,
     openWindowCall,
@@ -55,34 +62,41 @@ export function runViewChecks() {
     assert(PROXY_METHODS.includes('PerformActionRemote'), 'perform method');
     assert(PROXY_SIGNALS.includes('NotificationRequested'), 'notify signal');
 
-    const down = indicatorView({running: false, state: '', counts: {asks: 2, todos: 3}});
+    const down = indicatorView({running: false, state: '', items: [ask()]});
     assert(down.dimmed === true, 'down is dimmed');
-    assert(down.badge === 0, 'down hides the badge');
+    assert(down.mark === 'slash', 'down uses the slash');
+    assert(down.text === '', 'down hides the time');
     assert(down.accessibleName === 'TetherBot: bridge not running', 'down name');
-    assert(down.iconName === 'network-offline-symbolic', 'down icon');
+    assert(down.iconFile === 'slash', 'down icon');
 
     const closed = indicatorView({
         running: true,
         state: 'failed_closed',
-        counts: {asks: 2, todos: 3},
+        items: [ask()],
     });
     assert(closed.dimmed === true, 'failed_closed is dimmed');
-    assert(closed.accessibleName === 'TetherBot: 2 asks, 3 todos', 'closed still counts');
-    assert(closed.attention === false, 'dimmed is not attention');
+    assert(closed.mark === 'slash', 'failed_closed uses the slash');
+    assert(closed.accessibleName === 'TetherBot: bridge not running', 'failed_closed name');
 
     const attention = indicatorView({
         running: true,
         state: 'ok',
-        counts: {asks: 2, todos: 3},
+        items: [ask(), ask({key: 'primary/sample-02', id: 'sample-02'})],
+        nowMs: NOW,
     });
-    assert(attention.badge === 5, 'badge is asks plus todos');
-    assert(attention.attention === true, 'open asks are attention');
-    assert(attention.iconName === 'emblem-important-symbolic', 'attention icon');
-    assert(attention.accessibleName === 'TetherBot: 2 asks, 3 todos', 'count name');
+    assert(attention.mark === 'dot', 'open asks are the dot');
+    assert(attention.iconFile === 'dot', 'approval icon');
+    assert(attention.accessibleName === 'TetherBot: 2 approvals waiting', 'approval name');
 
-    const quiet = indicatorView({running: true, state: 'ok', counts: {asks: 0, todos: 1}});
-    assert(quiet.attention === false, 'todos alone are not attention');
-    assert(quiet.iconName === 'mail-unread-symbolic', 'quiet icon');
+    const quiet = indicatorView({
+        running: true,
+        state: 'ok',
+        items: [],
+        nowMs: NOW,
+    });
+    assert(quiet.mark === null, 'todos alone are not a badge');
+    assert(quiet.iconFile === 'base', 'clear icon');
+    assert(quiet.accessibleName === 'TetherBot: all clear', 'clear name');
 
     const offlineMenu = menuModel({
         running: false,
@@ -117,7 +131,16 @@ export function runViewChecks() {
         counts: {asks: 1, todos: 0},
     });
     assert(waitingIcon.dimmed === true, 'starting stays dimmed');
+    assert(waitingIcon.mark === null, 'starting has no slash yet');
     assert(waitingIcon.accessibleName === 'TetherBot', 'starting name');
+    assert(PROXY_SIGNALS.includes('TimerChanged'), 'timer signal');
+    assert(PROXY_METHODS.includes('GetTimerRemote'), 'get timer method');
+    assert(formatElapsed(42 * 60 + 10) === '42:10', 'minutes and seconds');
+    assert(formatElapsed(3600 + 42 * 60 + 10) === '1:42:10', 'hours');
+    assert(formatElapsed(-3) === '--:--', 'negative time is dashes');
+    assert(formatTracked(3600 + 42 * 60) === '1:42 tracked', 'tracked chip');
+    assert(parseSetTime('1:42') === 3600 + 42 * 60, 'set time hours');
+    assert(parseSetTime('1:60') === null, 'set time rejects a bad minute');
     const activation = startServiceCall();
     assert(activation.method === 'StartServiceByName', 'activation method');
     assert(activation.name === BUS_NAME, 'activation name');
@@ -366,6 +389,158 @@ export function runViewChecks() {
     assert(undoCall('primary/todo-1').method === 'Undo', 'undo method');
     assert(PROXY_METHODS.includes('OpenWindowRemote'), 'open window method');
     assert(PROXY_METHODS.includes('UndoRemote'), 'undo remote');
+
+    const runningTimer = {
+        state: 'running',
+        item_key: 'primary/q4-budget',
+        item_title: 'Draft Q4 grant budget',
+        accumulated_s: 0,
+        running_since: NOW / 1000 - (3600 + 42 * 60 + 10),
+    };
+    const withTime = indicatorView({
+        running: true,
+        state: 'ok',
+        items: [ask()],
+        timer: runningTimer,
+        nowMs: NOW,
+    });
+    assert(withTime.mark === 'dot', 'approval outranks the timer');
+    assert(withTime.text === '1:42:10', 'time shows beside the dot');
+    assert(withTime.accessibleName ===
+        'TetherBot: timer running, 1 hour 42 minutes. 1 approval waiting',
+        'timer and approval name');
+    const overdueItem = {
+        key: 'primary/fair',
+        kind: 'todo',
+        title: 'Order banner for the fair',
+        status: 'open',
+        due: '2026-10-16',
+        owner: 'user',
+        actions: ['done'],
+    };
+    const botTodo = {...overdueItem, key: 'primary/bot', owner: 'bot'};
+    const overdueOnly = indicatorView({
+        running: true,
+        state: 'ok',
+        items: [overdueItem, botTodo, overdueItem],
+        nowMs: NOW,
+    });
+    assert(overdueOnly.mark === 'ring', 'overdue is the ring');
+    assert(overdueCount([overdueItem, botTodo], NOW) === 1, 'bot todos are not overdue');
+    assert(overdueOnly.accessibleName === 'TetherBot: 2 overdue todos', 'overdue name');
+    const staleFeed = indicatorView({
+        running: true,
+        state: 'degraded',
+        reason: 'feed is stale',
+        items: [],
+        nowMs: NOW,
+    });
+    assert(staleFeed.mark === null, 'a stale feed stays in the popup');
+    const paused = indicatorView({
+        running: true,
+        state: 'ok',
+        timer: {
+            state: 'paused',
+            item_title: 'Email venue about deposit',
+            accumulated_s: 25 * 60 + 3,
+            running_since: null,
+        },
+        nowMs: NOW,
+    });
+    assert(paused.showPause === true, 'paused shows pause bars');
+    assert(paused.textStyle === 'paused', 'paused time is dimmed');
+    assert(paused.text === '25:03', 'paused time');
+    assert(paused.accessibleName ===
+        'TetherBot: timer paused at 25 minutes, Email venue about deposit',
+        'paused name');
+    const warned = indicatorView({
+        running: true,
+        state: 'ok',
+        items: [ask()],
+        timer: {...runningTimer, warning: 'clock_backward'},
+        nowMs: NOW,
+    });
+    assert(warned.mark === 'dot', 'approval outranks the triangle');
+    assert(warned.text === '--:--', 'a warning hides the number');
+    const warnedAlone = indicatorView({
+        running: true,
+        state: 'ok',
+        timer: {...runningTimer, warning: 'over_limit'},
+        nowMs: NOW,
+    });
+    assert(warnedAlone.mark === 'triangle', 'clock warning is the triangle');
+    assert(warnedAlone.accessibleName === 'TetherBot: timer needs a check', 'warning name');
+    const negative = indicatorView({
+        running: true,
+        state: 'ok',
+        timer: {...runningTimer, running_since: NOW / 1000 + 50, warning: null},
+        nowMs: NOW,
+    });
+    assert(negative.text === '--:--', 'negative math is dashes');
+    assert(elapsedSeconds(runningTimer, NOW / 1000) === 3600 + 42 * 60 + 10, 'elapsed math');
+    const block = timerModel({
+        running: true,
+        timer: runningTimer,
+        nowMs: NOW,
+    });
+    assert(block.kind === 'running', 'running block');
+    assert(block.actions.join(',') === 'Pause,Stop', 'running actions');
+    assert(block.subject === 'Draft Q4 grant budget', 'timer subject');
+    const stopped = timerModel({
+        running: true,
+        timer: {
+            state: 'idle',
+            undo: {
+                kind: 'undo',
+                until: NOW / 1000 + 4,
+                timer_id: 'tm-1',
+                item_title: 'Draft Q4 grant budget',
+                recorded_s: 3600 + 42 * 60 + 10,
+            },
+        },
+        nowMs: NOW,
+    });
+    assert(stopped.kind === 'undo', 'stop undo');
+    assert(stopped.title === 'Recorded 1:42:10 on Draft Q4 grant budget', 'recorded line');
+    const standalone = timerModel({
+        running: true,
+        timer: {
+            state: 'idle',
+            undo: {
+                kind: 'assign',
+                until: NOW / 1000 + 4,
+                timer_id: 'tm-2',
+                recorded_s: 90,
+            },
+        },
+        nowMs: NOW,
+    });
+    assert(standalone.kind === 'assign', 'standalone offers add');
+    assert(standalone.action === 'Add to a todo', 'add label');
+    const downBlock = timerModel({running: false, nowMs: NOW});
+    assert(downBlock.kind === 'down', 'bridge down block');
+    assert(downBlock.body.includes('Saved time is safe'), 'saved time copy');
+    const timedMenu = menuModel({
+        running: true,
+        state: 'ok',
+        reason: '',
+        bots: [{name: 'primary', routes: {outbound: true}}],
+        items: [{
+            key: 'primary/q4-budget',
+            kind: 'todo',
+            title: 'Draft Q4 grant budget',
+            status: 'open',
+            actions: ['done'],
+            time_tracked_s: 3600 + 42 * 60,
+            source: {bot: 'primary'},
+        }],
+        queueLength: 0,
+        nowMs: NOW,
+        timer: runningTimer,
+    });
+    assert(timedMenu.todos[0].timing === true, 'the timed row says timing');
+    assert(timedMenu.todos[0].tracked === '1:42 tracked', 'tracked chip on the row');
+    assert(approvalCount([ask({actions: ['veto']})], NOW) === 0, 'veto alone is not approval');
 }
 
 if (typeof process !== 'undefined' && process.argv[1] && process.argv[1].endsWith('view_checks.js'))

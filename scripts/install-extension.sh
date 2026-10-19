@@ -45,6 +45,14 @@ for name in extension.js view.js prefs.js stylesheet.css metadata.json \
   io.github.grokkinggrok.TetherBot1.xml; do
   install -m 0644 "${ROOT}/extension/${name}" "${DEST}/${name}"
 done
+if [[ -d "${ROOT}/extension/icons" ]]; then
+  install -d "${DEST}/icons"
+  for icon in "${ROOT}/extension/icons/"*.svg; do
+    if [[ -f "${icon}" ]]; then
+      install -m 0644 "${icon}" "${DEST}/icons/$(basename "${icon}")"
+    fi
+  done
+fi
 
 schema_dir="${ROOT}/extension/schemas"
 if [[ -d "${schema_dir}" ]]; then

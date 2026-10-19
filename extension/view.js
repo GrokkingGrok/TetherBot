@@ -196,6 +196,7 @@ export function menuModel({
                 key,
                 title: item.title || key || 'Todo',
                 bot,
+                due: item.due || '',
                 canSendDone: listed && routes.get(bot) === true,
             });
         }

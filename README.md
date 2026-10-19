@@ -64,6 +64,7 @@ The human checklist is [docs/SETUP.md](docs/SETUP.md). The copy-paste checks are
 | [docs/SETUP.md](docs/SETUP.md) | Human setup checklist |
 | [docs/MANUAL-CHECKS.md](docs/MANUAL-CHECKS.md) | M1–M8 and M10–M14 on one desktop |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | v0.1, v0.2, and v1.0 checklists, plus open questions |
+| [docs/BOT-WRITER.md](docs/BOT-WRITER.md) | Bot-side writer for `feed/<bot>.json` |
 | [docs/prompts/](docs/prompts/) | Copy-paste setup prompts |
 | `bridge/tetherbot/` | Python package |
 | `extension/` | GNOME 50 extension |

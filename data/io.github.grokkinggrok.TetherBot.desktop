@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=TetherBot
+GenericName=Todo list
+Comment=Unofficial todo window for Grok Bot. Not affiliated with xAI.
+Exec=@TETHERBOT_WINDOW@
+Icon=view-list-symbolic
+Terminal=false
+Type=Application
+Categories=Office;Utility;
+DBusActivatable=true
+StartupNotify=true

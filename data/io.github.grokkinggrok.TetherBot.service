@@ -1,0 +1,4 @@
+[D-BUS Service]
+Name=io.github.grokkinggrok.TetherBot
+# scripts/install.sh replaces the next line with the absolute launcher path.
+Exec=@TETHERBOT_WINDOW@

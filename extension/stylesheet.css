@@ -51,3 +51,34 @@
 .tetherbot-action {
     margin-left: 6px;
 }
+
+.tetherbot-title {
+    padding: 0;
+}
+
+.tetherbot-search {
+    min-width: 12em;
+}
+
+.tetherbot-chips {
+    spacing: 4px;
+}
+
+.tetherbot-chip {
+    border-radius: 999px;
+    padding: 1px 6px;
+    font-size: 0.8em;
+    font-weight: bold;
+}
+
+.tetherbot-tone-red { color: #ff8b8b; background-color: rgba(255, 139, 139, 0.18); }
+.tetherbot-tone-orange { color: #ffb07a; background-color: rgba(255, 176, 122, 0.18); }
+.tetherbot-tone-amber { color: #f8d06a; background-color: rgba(248, 208, 106, 0.18); }
+.tetherbot-tone-yellow { color: #f9e07a; background-color: rgba(249, 224, 122, 0.18); }
+.tetherbot-tone-green { color: #8ff0a4; background-color: rgba(143, 240, 164, 0.16); }
+.tetherbot-tone-teal { color: #93ddd6; background-color: rgba(147, 221, 214, 0.16); }
+.tetherbot-tone-blue { color: #99c1f1; background-color: rgba(153, 193, 241, 0.16); }
+.tetherbot-tone-purple { color: #d7b4f3; background-color: rgba(215, 180, 243, 0.16); }
+.tetherbot-tone-pink { color: #f7b2d8; background-color: rgba(247, 178, 216, 0.16); }
+.tetherbot-tone-gray,
+.tetherbot-tone-neutral { color: #deddda; background-color: rgba(222, 221, 218, 0.12); }

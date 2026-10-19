@@ -38,9 +38,9 @@ TetherBot is pre-alpha. Check items off as they land. Design detail is in [SPEC.
 - [x] Bridge search and filters (`@tag`, `due:today`, `due:overdue`, `p:1`), quick views, `GetTags`, and sort. Popup and window share that result
 - [x] Undo drops a queued Done before it is sent, and sends `reopen` only after it has gone out
 - [x] `tools/feed_write.py` gains tags, priority, owner, waiting-on, body-file, edit, and tag-color
-- [ ] TetherBot window (GTK4 and libadwaita): list, detail Markdown, `.desktop` file, and `OpenWindow`
-- [ ] Popup: chips, search, at most 8 todos, Open TetherBot, and a 5-second Undo
-- [ ] Manual checks M18–M24 for the rich todo view. M17 stays the uninstall check
+- [x] TetherBot window (GTK4 and libadwaita): list, detail Markdown, `.desktop` file, and `OpenWindow`
+- [x] Popup: chips, search, at most 8 todos, Open TetherBot, and a 5-second Undo
+- [ ] Manual checks M18–M24 for the rich todo view. The steps are in [MANUAL-CHECKS.md](MANUAL-CHECKS.md). They have not been run on the desktop yet.
 
 ## v0.2 — early adopters
 

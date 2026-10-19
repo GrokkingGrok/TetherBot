@@ -1,0 +1,919 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+"""The TetherBot window.
+
+A separate process from the bridge and from the Shell extension. It reads
+and checks off todos over the session bus. It holds no secrets and makes
+no network calls. Links open only after a click, through the default browser.
+"""
+
+from __future__ import annotations
+
+import json
+import sys
+from collections.abc import Callable
+from typing import Any
+
+import gi
+
+gi.require_version("Adw", "1")
+gi.require_version("Gdk", "4.0")
+gi.require_version("Gtk", "4.0")
+gi.require_version("Pango", "1.0")
+from gi.repository import Adw, Gdk, Gio, GLib, Gtk, Pango  # noqa: E402
+
+from tetherbot.markdown import Run, render  # noqa: E402
+from tetherbot.window_launch import APP_ID  # noqa: E402
+from tetherbot.window_query import (  # noqa: E402
+    SORTS,
+    VIEWS,
+    can_mark_done,
+    is_read_only,
+    list_filter,
+    note_payload,
+    safe_http_url,
+    source_line,
+)
+
+BUS_NAME = "io.github.grokkinggrok.TetherBot1"
+OBJECT_PATH = "/io/github/grokkinggrok/TetherBot1"
+INTERFACE = "io.github.grokkinggrok.TetherBot1"
+_SORT_LABELS = ("Due", "Priority", "Created", "Updated")
+_VIEW_LABELS = {
+    "all": "All",
+    "mine": "Mine",
+    "bots": "Bots",
+    "waiting": "Waiting",
+    "today": "Today",
+}
+
+_CSS = """
+.tether-chip {
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-weight: 600;
+}
+.tone-red { color: #a51d2d; background-color: alpha(#a51d2d, 0.16); }
+.tone-orange { color: #c64600; background-color: alpha(#c64600, 0.16); }
+.tone-amber { color: #865e0b; background-color: alpha(#e5a50a, 0.22); }
+.tone-yellow { color: #8f5902; background-color: alpha(#f5c211, 0.28); }
+.tone-green { color: #1b7a3a; background-color: alpha(#2ec27e, 0.16); }
+.tone-teal { color: #0d7377; background-color: alpha(#1a9a9c, 0.16); }
+.tone-blue { color: #1c71d8; background-color: alpha(#1c71d8, 0.14); }
+.tone-purple { color: #613583; background-color: alpha(#813d9c, 0.16); }
+.tone-pink { color: #a31863; background-color: alpha(#e05a9a, 0.16); }
+.tone-gray, .tone-neutral { color: #5e5c64; background-color: alpha(#9a9996, 0.18); }
+.tether-dark .tone-red { color: #ff8b8b; background-color: alpha(#ff8b8b, 0.18); }
+.tether-dark .tone-orange { color: #ffb07a; background-color: alpha(#ffb07a, 0.18); }
+.tether-dark .tone-amber { color: #f8d06a; background-color: alpha(#f8d06a, 0.18); }
+.tether-dark .tone-yellow { color: #f9e07a; background-color: alpha(#f9e07a, 0.18); }
+.tether-dark .tone-green { color: #8ff0a4; background-color: alpha(#8ff0a4, 0.16); }
+.tether-dark .tone-teal { color: #93ddd6; background-color: alpha(#93ddd6, 0.16); }
+.tether-dark .tone-blue { color: #99c1f1; background-color: alpha(#99c1f1, 0.16); }
+.tether-dark .tone-purple { color: #d7b4f3; background-color: alpha(#d7b4f3, 0.16); }
+.tether-dark .tone-pink { color: #f7b2d8; background-color: alpha(#f7b2d8, 0.16); }
+.tether-dark .tone-gray, .tether-dark .tone-neutral {
+  color: #deddda;
+  background-color: alpha(#deddda, 0.12);
+}
+.tether-row-done { opacity: 0.7; }
+.tether-source { opacity: 0.75; }
+"""
+
+
+class BridgeError(Exception):
+    """The session bus call did not succeed. The message is safe to show."""
+
+
+class BridgeClient:
+    """D-Bus calls the window is allowed to make."""
+
+    def __init__(self) -> None:
+        self._proxy: Gio.DBusProxy | None = None
+        self._listener: Callable[[], None] | None = None
+
+    def set_listener(self, listener: Callable[[], None]) -> None:
+        self._listener = listener
+
+    def get_items(self, spec: dict[str, Any]) -> list[dict[str, Any]]:
+        raw = self._call("GetItems", "(s)", (json.dumps(spec),))
+        return _object_list(raw)
+
+    def get_tags(self) -> list[dict[str, Any]]:
+        return _object_list(self._call("GetTags", "()", ()))
+
+    def get_item(self, key: str) -> dict[str, Any]:
+        raw = self._call("GetItem", "(s)", (key,))
+        if not raw:
+            raise BridgeError("item not found")
+        item = json.loads(raw[0])
+        if not isinstance(item, dict):
+            raise BridgeError("item not found")
+        return item
+
+    def bots(self) -> list[dict[str, Any]]:
+        self._ensure()
+        assert self._proxy is not None
+        variant = self._proxy.get_cached_property("Bots")
+        if variant is None:
+            return []
+        parsed = json.loads(variant.unpack())
+        if not isinstance(parsed, list):
+            return []
+        return [row for row in parsed if isinstance(row, dict)]
+
+    def mark_done(self, key: str) -> str:
+        raw = self._call("PerformAction", "(sss)", (key, "done", "{}"))
+        return raw[0] if raw else ""
+
+    def undo(self, key: str) -> dict[str, Any]:
+        raw = self._call("Undo", "(s)", (key,))
+        if not raw:
+            return {}
+        parsed = json.loads(raw[0])
+        return parsed if isinstance(parsed, dict) else {}
+
+    def send_note(self, key: str) -> str:
+        bot, payload = note_payload(key)
+        raw = self._call("SendToBot", "(ss)", (bot, payload))
+        return raw[0] if raw else ""
+
+    def _ensure(self) -> None:
+        if self._proxy is not None:
+            return
+        try:
+            bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+            self._proxy = Gio.DBusProxy.new_sync(
+                bus,
+                Gio.DBusProxyFlags.NONE,
+                None,
+                BUS_NAME,
+                OBJECT_PATH,
+                INTERFACE,
+                None,
+            )
+        except GLib.Error as exc:
+            raise BridgeError("Bridge not running") from exc
+        self._proxy.connect("g-signal", self._on_signal)
+
+    def _call(self, method: str, signature: str, args: tuple[Any, ...]) -> tuple[Any, ...]:
+        self._ensure()
+        assert self._proxy is not None
+        try:
+            result = self._proxy.call_sync(
+                method,
+                GLib.Variant(signature, args),
+                Gio.DBusCallFlags.NONE,
+                8000,
+                None,
+            )
+        except GLib.Error as exc:
+            message = exc.message or "Bridge not running"
+            raise BridgeError(message) from exc
+        if result is None:
+            return ()
+        unpacked = result.unpack()
+        if isinstance(unpacked, tuple):
+            return unpacked
+        return (unpacked,)
+
+    def _on_signal(self, _proxy: Gio.DBusProxy, _sender: str, signal: str, _params: Any) -> None:
+        if signal == "ItemsChanged" and self._listener is not None:
+            GLib.idle_add(self._listener)
+
+
+class TodoWindow(Adw.ApplicationWindow):
+    """List, filters, and a Markdown detail pane."""
+
+    def __init__(self, app: Adw.Application, client: Any) -> None:
+        super().__init__(application=app, title="TetherBot")
+        self.set_default_size(960, 680)
+        self.set_size_request(360, 280)
+        self.client = client
+        self._filling = False
+        self._view = "all"
+        self._sort = "due"
+        self._query = ""
+        self._tags_on: set[str] = set()
+        self._show_done = False
+        self._outbound: dict[str, bool] = {}
+        self._rows: dict[str, Gtk.ListBoxRow] = {}
+        self._wanted = ""
+        self._current: dict[str, Any] | None = None
+        self._link_tags: dict[str, Gtk.TextTag] = {}
+        self.open_uri = _open_uri
+        self._build()
+        keys = Gtk.EventControllerKey()
+        keys.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+        keys.connect("key-pressed", self._on_key)
+        self.add_controller(keys)
+        if hasattr(client, "set_listener"):
+            client.set_listener(self.refresh)
+
+    def _build(self) -> None:
+        self.toasts = Adw.ToastOverlay()
+        self.split = Adw.NavigationSplitView()
+        self.toasts.set_child(self.split)
+        self.set_content(self.toasts)
+        style = Adw.StyleManager.get_default()
+        self._sync_theme(style)
+        style.connect("notify::dark", self._sync_theme)
+        breakpoint = Adw.Breakpoint.new(Adw.BreakpointCondition.parse("max-width: 720px"))
+        breakpoint.add_setter(self.split, "collapsed", True)
+        self.add_breakpoint(breakpoint)
+
+        self.search = Gtk.SearchEntry(placeholder_text="Search titles, notes, and tags")
+        self.search.connect("changed", self._on_search)
+        self._view_buttons = self._build_views()
+        self.tag_box = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, homogeneous=False)
+        self.tag_box.set_max_children_per_line(8)
+        self._clear = Gtk.Button(label="Clear")
+        self._clear.set_sensitive(False)
+        self._clear.connect("clicked", self._on_clear_tags)
+        tag_wrap = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        tag_wrap.append(self.tag_box)
+        tag_wrap.append(self._clear)
+        self.sort_drop = Gtk.DropDown.new_from_strings(list(_SORT_LABELS))
+        self.sort_drop.connect("notify::selected", self._on_sort)
+        self.show_done = Gtk.Switch(valign=Gtk.Align.CENTER)
+        self.show_done.connect("notify::active", self._on_show_done)
+        sort_row = Gtk.Box(spacing=12)
+        sort_row.append(Gtk.Label(label="Sort", xalign=0))
+        sort_row.append(self.sort_drop)
+        done_row = Gtk.Box(spacing=12)
+        done_label = Gtk.Label(label="Show done", xalign=0, hexpand=True)
+        done_row.append(done_label)
+        done_row.append(self.show_done)
+        self.banner = Adw.Banner(revealed=False)
+        self.list = Gtk.ListBox(selection_mode=Gtk.SelectionMode.SINGLE)
+        self.list.add_css_class("boxed-list")
+        self.list.connect("row-selected", self._on_row_selected)
+        self.list.connect("row-activated", self._on_row_activated)
+        controls = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        controls.set_margin_start(12)
+        controls.set_margin_end(12)
+        controls.set_margin_top(12)
+        controls.set_margin_bottom(6)
+        controls.append(self.banner)
+        controls.append(self.search)
+        controls.append(self._view_buttons)
+        controls.append(tag_wrap)
+        controls.append(sort_row)
+        controls.append(done_row)
+        scrolled = Gtk.ScrolledWindow(vexpand=True, child=self.list)
+        sidebar_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        sidebar_box.append(controls)
+        sidebar_box.append(scrolled)
+        sidebar_bar = Adw.ToolbarView(content=sidebar_box)
+        sidebar_header = Adw.HeaderBar()
+        sidebar_header.set_title_widget(
+            Adw.WindowTitle.new("TetherBot", "Unofficial. Not affiliated with xAI.")
+        )
+        sidebar_bar.add_top_bar(sidebar_header)
+        self.split.set_sidebar(Adw.NavigationPage.new(sidebar_bar, "Todos"))
+
+        self.back = Gtk.Button(icon_name="go-previous-symbolic")
+        self.back.set_tooltip_text("Back")
+        self.back.set_visible(False)
+        self.back.connect("clicked", lambda _button: self.split.set_show_content(False))
+        self.split.connect("notify::collapsed", self._on_collapsed)
+        self.detail_title = Gtk.Label(xalign=0, wrap=True, selectable=True)
+        self.detail_title.add_css_class("title-1")
+        self.detail_chips = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE)
+        self.buffer = Gtk.TextBuffer()
+        _install_style_tags(self.buffer)
+        self.text = Gtk.TextView(
+            buffer=self.buffer,
+            editable=False,
+            cursor_visible=False,
+            wrap_mode=Gtk.WrapMode.WORD_CHAR,
+            left_margin=2,
+            right_margin=2,
+            top_margin=4,
+        )
+        click = Gtk.GestureClick()
+        click.connect("released", self._on_text_click)
+        self.text.add_controller(click)
+        motion = Gtk.EventControllerMotion()
+        motion.connect("motion", self._on_text_motion)
+        self.text.add_controller(motion)
+        body_scroll = Gtk.ScrolledWindow(vexpand=True, child=self.text)
+        self.done_button = Gtk.Button(label="Done")
+        self.done_button.add_css_class("suggested-action")
+        self.done_button.connect("clicked", lambda _button: self._done_current())
+        self.copy_button = Gtk.Button(label="Copy text")
+        self.copy_button.connect("clicked", lambda _button: self._copy_current())
+        self.ask_button = Gtk.Button(label="Ask the bot about this")
+        self.ask_button.connect("clicked", lambda _button: self._ask_current())
+        buttons = Gtk.Box(spacing=8)
+        buttons.append(self.done_button)
+        buttons.append(self.copy_button)
+        buttons.append(self.ask_button)
+        self.source = Gtk.Label(xalign=0, wrap=True)
+        self.source.add_css_class("tether-source")
+        detail = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        detail.set_margin_start(16)
+        detail.set_margin_end(16)
+        detail.set_margin_top(12)
+        detail.set_margin_bottom(12)
+        detail.append(self.detail_title)
+        detail.append(self.detail_chips)
+        detail.append(body_scroll)
+        detail.append(buttons)
+        detail.append(self.source)
+        detail_bar = Adw.ToolbarView(content=detail)
+        detail_header = Adw.HeaderBar()
+        detail_header.pack_start(self.back)
+        detail_bar.add_top_bar(detail_header)
+        self.split.set_content(Adw.NavigationPage.new(detail_bar, "Detail"))
+        self._show_item(None)
+
+    def refresh(self) -> None:
+        spec = list_filter(
+            view=self._view,
+            query=self._query,
+            tags=sorted(self._tags_on),
+            sort=self._sort,
+            show_done=self._show_done,
+        )
+        try:
+            items = self.client.get_items(spec)
+            tags = self.client.get_tags()
+            bots = self.client.bots()
+        except BridgeError as exc:
+            self.banner.set_title(str(exc))
+            self.banner.set_revealed(True)
+            return
+        self.banner.set_revealed(False)
+        self._outbound = {}
+        for bot in bots:
+            name = bot.get("name")
+            routes = bot.get("routes") if isinstance(bot.get("routes"), dict) else {}
+            if isinstance(name, str):
+                self._outbound[name] = bool(routes.get("outbound"))
+        self._fill_tags(tags if isinstance(tags, list) else [])
+        self._fill_rows(items if isinstance(items, list) else [])
+
+    def select_key(self, key: str) -> None:
+        """Raise the window on one item. An empty key shows the list."""
+
+        self.present()
+        if not key:
+            if self.split.get_collapsed():
+                self.split.set_show_content(False)
+            return
+        self._filling = True
+        self._view = "all"
+        self._sort = "due"
+        self._query = ""
+        self._tags_on.clear()
+        self._show_done = False
+        self.search.set_text("")
+        self.sort_drop.set_selected(0)
+        self.show_done.set_active(False)
+        self._sync_views()
+        self._filling = False
+        self._wanted = key
+        self.refresh()
+        self._focus_key(key)
+        if self.split.get_collapsed():
+            self.split.set_show_content(True)
+
+    def _focus_key(self, key: str) -> None:
+        row = self._rows.get(key)
+        if row is not None:
+            self.list.select_row(row)
+            return
+        try:
+            item = self.client.get_item(key)
+        except BridgeError:
+            self._show_item(None)
+            return
+        self._show_item(item)
+
+    def _fill_tags(self, tags: list[dict[str, Any]]) -> None:
+        self._filling = True
+        while (child := self.tag_box.get_first_child()) is not None:
+            self.tag_box.remove(child)
+        known = set()
+        for row in tags:
+            tag = row.get("tag")
+            if not isinstance(tag, str) or not tag:
+                continue
+            known.add(tag)
+            count = row.get("count")
+            label = f"@{tag}" if not isinstance(count, int) else f"@{tag} {count}"
+            button = Gtk.ToggleButton(label=label)
+            button.add_css_class("tether-chip")
+            tone = row.get("color") if isinstance(row.get("color"), str) else "gray"
+            button.add_css_class(f"tone-{tone}")
+            button.set_active(tag in self._tags_on)
+            button.connect("toggled", self._on_tag, tag)
+            self.tag_box.append(button)
+        self._tags_on &= known
+        self._clear.set_sensitive(bool(self._tags_on))
+        self._filling = False
+
+    def _fill_rows(self, items: list[dict[str, Any]]) -> None:
+        selected = self._wanted
+        if not selected:
+            current = self.list.get_selected_row()
+            selected = getattr(current, "item_key", "") if current is not None else ""
+        self._filling = True
+        self.list.remove_all()
+        self._rows.clear()
+        for item in items:
+            key = item.get("key")
+            if not isinstance(key, str):
+                continue
+            row = self._make_row(item)
+            self.list.append(row)
+            self._rows[key] = row
+        self._filling = False
+        if selected and selected in self._rows:
+            self.list.select_row(self._rows[selected])
+        elif self._current is not None and self._current.get("key") not in self._rows:
+            self._show_item(None)
+
+    def _make_row(self, item: dict[str, Any]) -> Gtk.ListBoxRow:
+        key = str(item.get("key") or "")
+        read_only = is_read_only(item)
+        outbound = self._outbound.get(key.split("/", 1)[0], False)
+        check = Gtk.CheckButton()
+        check.set_tooltip_text("Done")
+        check.set_active(read_only)
+        check.set_sensitive(can_mark_done(item, outbound))
+        check.connect("toggled", self._on_check, key)
+        chips = item.get("chips") if isinstance(item.get("chips"), dict) else {}
+        priority = chips.get("priority") if isinstance(chips, dict) else None
+        priority_label = Gtk.Label(xalign=0)
+        if isinstance(priority, dict) and priority.get("label"):
+            priority_label.set_label(str(priority["label"]))
+            priority_label.add_css_class("tether-chip")
+            priority_label.add_css_class(f"tone-{priority.get('tone') or 'neutral'}")
+        title = Gtk.Label(label=str(item.get("title") or key), xalign=0, hexpand=True)
+        title.set_ellipsize(Pango.EllipsizeMode.END)
+        title.set_max_width_chars(48)
+        top = Gtk.Box(spacing=8)
+        top.append(check)
+        if priority_label.get_label():
+            top.append(priority_label)
+        top.append(title)
+        chip_row = Gtk.Box(spacing=6)
+        due = chips.get("due")
+        if isinstance(due, dict) and due.get("label"):
+            chip_row.append(_chip(str(due["label"]), str(due.get("tone") or "neutral")))
+        tags = chips.get("tags") if isinstance(chips.get("tags"), list) else []
+        for tag in tags:
+            if isinstance(tag, dict) and tag.get("label"):
+                chip_row.append(_chip(str(tag["label"]), str(tag.get("tone") or "gray")))
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        box.set_margin_top(6)
+        box.set_margin_bottom(6)
+        box.set_margin_start(8)
+        box.set_margin_end(8)
+        box.append(top)
+        if chip_row.get_first_child() is not None:
+            chip_row.set_margin_start(28)
+            box.append(chip_row)
+        if read_only:
+            box.add_css_class("tether-row-done")
+        row = Gtk.ListBoxRow(child=box)
+        row.item_key = key
+        row.item = item
+        return row
+
+    def _show_item(self, item: dict[str, Any] | None) -> None:
+        self._current = item
+        self._link_tags.clear()
+        if item is None:
+            self.detail_title.set_label("Select a todo")
+            _clear_box(self.detail_chips)
+            self.buffer.set_text("")
+            self.source.set_label("")
+            self.done_button.set_sensitive(False)
+            self.copy_button.set_sensitive(False)
+            self.ask_button.set_sensitive(False)
+            return
+        self.detail_title.set_label(str(item.get("title") or item.get("key") or ""))
+        _fill_chip_box(self.detail_chips, item.get("chips"))
+        body = item.get("body") if isinstance(item.get("body"), str) else ""
+        if item.get("body_format") == "markdown":
+            runs = render(body)
+        else:
+            runs = (Run(body),) if body else ()
+        apply_runs(self.buffer, runs, self._link_tags)
+        self.source.set_label(source_line(item))
+        key = str(item.get("key") or "")
+        outbound = self._outbound.get(key.split("/", 1)[0], False)
+        self.done_button.set_sensitive(can_mark_done(item, outbound))
+        self.copy_button.set_sensitive(True)
+        self.ask_button.set_sensitive("/" in key)
+
+    def _done_current(self) -> None:
+        item = self._current
+        if item is None:
+            return
+        key = item.get("key")
+        if not isinstance(key, str):
+            return
+        outbound = self._outbound.get(key.split("/", 1)[0], False)
+        if can_mark_done(item, outbound):
+            self._mark_done(key)
+
+    def _mark_done(self, key: str) -> None:
+        try:
+            self.client.mark_done(key)
+        except BridgeError as exc:
+            self._toast(str(exc))
+            self.refresh()
+            return
+        self._toast_undo(key)
+        self.refresh()
+
+    def _undo(self, key: str) -> None:
+        try:
+            result = self.client.undo(key)
+        except BridgeError as exc:
+            self._toast(str(exc))
+            return
+        if result.get("result") == "dropped":
+            self._toast("Brought back. Nothing was sent.")
+        else:
+            self._toast("Asked the bot to reopen it.")
+        self._wanted = key
+        self.refresh()
+        self._focus_key(key)
+
+    def _ask_current(self) -> None:
+        item = self._current
+        if item is None or not isinstance(item.get("key"), str):
+            return
+        try:
+            self.client.send_note(item["key"])
+        except BridgeError as exc:
+            self._toast(str(exc))
+            return
+        self._toast("Sent a note about this item")
+
+    def _copy_current(self) -> None:
+        item = self._current
+        if item is None:
+            return
+        title = item.get("title") if isinstance(item.get("title"), str) else ""
+        body = item.get("body") if isinstance(item.get("body"), str) else ""
+        text = title if not body else f"{title}\n\n{body}"
+        self.get_clipboard().set(text)
+        self._toast("Copied")
+
+    def _toast(self, message: str) -> None:
+        self.toasts.add_toast(Adw.Toast.new(message))
+
+    def _toast_undo(self, key: str) -> None:
+        toast = Adw.Toast.new("Marked done")
+        toast.set_button_label("Undo")
+        toast.set_timeout(5)
+        toast.connect("button-clicked", lambda _toast: self._undo(key))
+        self.toasts.add_toast(toast)
+
+    def _on_search(self, entry: Gtk.SearchEntry) -> None:
+        if self._filling:
+            return
+        self._query = entry.get_text()
+        self.refresh()
+
+    def _on_view(self, button: Gtk.ToggleButton) -> None:
+        if self._filling or not button.get_active():
+            return
+        self._view = button.view_name
+        self.refresh()
+
+    def _on_tag(self, button: Gtk.ToggleButton, tag: str) -> None:
+        if self._filling:
+            return
+        if button.get_active():
+            self._tags_on.add(tag)
+        else:
+            self._tags_on.discard(tag)
+        self._clear.set_sensitive(bool(self._tags_on))
+        self.refresh()
+
+    def _on_clear_tags(self, _button: Gtk.Button) -> None:
+        self._tags_on.clear()
+        self.refresh()
+
+    def _on_sort(self, drop: Gtk.DropDown, _pspec: Any) -> None:
+        if self._filling:
+            return
+        selected = drop.get_selected()
+        if 0 <= selected < len(SORTS):
+            self._sort = SORTS[selected]
+            self.refresh()
+
+    def _on_show_done(self, switch: Gtk.Switch, _pspec: Any) -> None:
+        if self._filling:
+            return
+        self._show_done = bool(switch.get_active())
+        self.refresh()
+
+    def _on_check(self, button: Gtk.CheckButton, key: str) -> None:
+        if self._filling or not button.get_active():
+            return
+        self._mark_done(key)
+
+    def _on_row_selected(self, _box: Gtk.ListBox, row: Gtk.ListBoxRow | None) -> None:
+        if self._filling:
+            return
+        if row is None:
+            return
+        self._show_item(getattr(row, "item", None))
+
+    def _on_row_activated(self, _box: Gtk.ListBox, row: Gtk.ListBoxRow) -> None:
+        self._show_item(getattr(row, "item", None))
+        if self.split.get_collapsed():
+            self.split.set_show_content(True)
+
+    def _sync_theme(self, manager: Adw.StyleManager, _pspec: Any = None) -> None:
+        if manager.get_dark():
+            self.add_css_class("tether-dark")
+        else:
+            self.remove_css_class("tether-dark")
+
+    def _on_collapsed(self, split: Adw.NavigationSplitView, _pspec: Any) -> None:
+        self.back.set_visible(bool(split.get_collapsed()))
+
+    def _on_text_click(self, _gesture: Gtk.GestureClick, _n: int, x: float, y: float) -> None:
+        href = _href_at(self.text, self._link_tags, x, y)
+        if not href:
+            return
+        try:
+            self.open_uri(href)
+        except GLib.Error as exc:
+            self._toast(exc.message or "Could not open the link")
+
+    def _on_text_motion(self, _controller: Gtk.EventControllerMotion, x: float, y: float) -> None:
+        href = _href_at(self.text, self._link_tags, x, y)
+        if href:
+            self.text.set_cursor(Gdk.Cursor.new_from_name("pointer", None))
+        else:
+            self.text.set_cursor(None)
+
+    def _on_key(
+        self,
+        _controller: Any,
+        keyval: int,
+        _keycode: int,
+        state: Gdk.ModifierType,
+    ) -> bool:
+        control = bool(state & Gdk.ModifierType.CONTROL_MASK)
+        if control and keyval in {Gdk.KEY_f, Gdk.KEY_F}:
+            self.search.grab_focus()
+            return True
+        if control and keyval in {Gdk.KEY_Return, Gdk.KEY_KP_Enter}:
+            self._done_current()
+            return True
+        if keyval == Gdk.KEY_Escape and self.search.get_text():
+            self.search.set_text("")
+            return True
+        if _focus_is_text(self):
+            return False
+        if keyval == Gdk.KEY_Up:
+            self._move(-1)
+            return True
+        if keyval == Gdk.KEY_Down:
+            self._move(1)
+            return True
+        if keyval in {Gdk.KEY_Return, Gdk.KEY_KP_Enter}:
+            row = self.list.get_selected_row()
+            if row is not None:
+                self.list.emit("row-activated", row)
+            return True
+        return False
+
+    def _move(self, delta: int) -> None:
+        current = self.list.get_selected_row()
+        index = current.get_index() if current is not None else -1
+        target = self.list.get_row_at_index(index + delta)
+        if target is not None:
+            self.list.select_row(target)
+
+    def _build_views(self) -> Gtk.Box:
+        box = Gtk.Box(spacing=6)
+        first: Gtk.ToggleButton | None = None
+        for name in VIEWS:
+            button = Gtk.ToggleButton(label=_VIEW_LABELS[name])
+            button.view_name = name
+            if first is None:
+                first = button
+                button.set_active(True)
+            else:
+                button.set_group(first)
+            button.connect("toggled", self._on_view)
+            box.append(button)
+        return box
+
+    def _sync_views(self) -> None:
+        child = self._view_buttons.get_first_child()
+        while child is not None:
+            name = getattr(child, "view_name", "")
+            if isinstance(child, Gtk.ToggleButton) and name == self._view:
+                child.set_active(True)
+            child = child.get_next_sibling()
+
+
+class WindowApp(Adw.Application):
+    """Single instance. ``select-item`` opens or raises the window."""
+
+    def __init__(self, client: Any | None = None) -> None:
+        super().__init__(application_id=APP_ID, flags=Gio.ApplicationFlags.DEFAULT_FLAGS)
+        self._client = client
+        self.window: TodoWindow | None = None
+
+    def do_startup(self) -> None:
+        Adw.Application.do_startup(self)
+        _install_css()
+        action = Gio.SimpleAction.new("select-item", GLib.VariantType.new("s"))
+        action.connect("activate", self._on_select_item)
+        self.add_action(action)
+
+    def do_activate(self) -> None:
+        if self.window is None:
+            client = self._client if self._client is not None else BridgeClient()
+            self.window = TodoWindow(self, client)
+            self.window.connect("close-request", self._on_close)
+        self.window.present()
+        self.window.refresh()
+
+    def _on_close(self, _window: TodoWindow) -> bool:
+        self.window = None
+        return False
+
+    def _on_select_item(self, _action: Gio.SimpleAction, parameter: GLib.Variant | None) -> None:
+        key = parameter.get_string() if parameter is not None else ""
+        if self.window is None:
+            self.activate()
+        if self.window is not None:
+            self.window.select_key(key)
+
+
+def apply_runs(
+    buffer: Gtk.TextBuffer,
+    runs: tuple[Run, ...],
+    links: dict[str, Gtk.TextTag],
+) -> None:
+    """Insert runs and apply the named style tags. Links stay inert until a click."""
+
+    buffer.set_text("")
+    for run in runs:
+        if not run.text:
+            continue
+        start_offset = buffer.get_char_count()
+        buffer.insert(buffer.get_end_iter(), run.text)
+        start = buffer.get_iter_at_offset(start_offset)
+        end = buffer.get_end_iter()
+        for name in run.tags:
+            if name == "link":
+                href = safe_http_url(run.href or "")
+                if href:
+                    buffer.apply_tag(_link_tag(buffer, href, links), start, end)
+                continue
+            style = buffer.get_tag_table().lookup(name)
+            if style is not None:
+                buffer.apply_tag(style, start, end)
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = sys.argv if argv is None else [sys.argv[0], *argv]
+    try:
+        app = WindowApp()
+    except Exception:
+        print(
+            "tetherbot-window: GTK 4 and libadwaita are required.",
+            file=sys.stderr,
+        )
+        return 1
+    return app.run(args)
+
+
+def _open_uri(href: str) -> None:
+    """Open a link in the default browser. Called only after a click."""
+
+    Gio.AppInfo.launch_default_for_uri(href, None)
+
+
+def _install_css() -> None:
+    display = Gdk.Display.get_default()
+    if display is None:
+        return
+    provider = Gtk.CssProvider()
+    provider.load_from_string(_CSS)
+    Gtk.StyleContext.add_provider_for_display(
+        display,
+        provider,
+        Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
+    )
+
+
+def _install_style_tags(buffer: Gtk.TextBuffer) -> None:
+    table = buffer.get_tag_table()
+
+    def add(name: str, **props: Any) -> None:
+        tag = Gtk.TextTag.new(name)
+        for key, value in props.items():
+            tag.set_property(key, value)
+        table.add(tag)
+
+    add("bold", weight=Pango.Weight.BOLD)
+    add("italic", style=Pango.Style.ITALIC)
+    add("code", family="monospace", background="#00000018")
+    add("codeblock", family="monospace", background="#00000018", left_margin=8)
+    add("h1", weight=Pango.Weight.BOLD, scale=1.6)
+    add("h2", weight=Pango.Weight.BOLD, scale=1.35)
+    add("h3", weight=Pango.Weight.BOLD, scale=1.15)
+    add("quote", style=Pango.Style.ITALIC, left_margin=12)
+    add("bullet")
+    add("number")
+    add("task")
+    add("task-done")
+
+
+def _link_tag(buffer: Gtk.TextBuffer, href: str, links: dict[str, Gtk.TextTag]) -> Gtk.TextTag:
+    cached = links.get(href)
+    if cached is not None:
+        return cached
+    table = buffer.get_tag_table()
+    existing = table.lookup(href)
+    if existing is not None:
+        links[href] = existing
+        return existing
+    dark = Adw.StyleManager.get_default().get_dark()
+    tag = Gtk.TextTag.new(href)
+    tag.set_property("underline", Pango.Underline.SINGLE)
+    tag.set_property("foreground", "#99c1f1" if dark else "#1c71d8")
+    table.add(tag)
+    links[href] = tag
+    return tag
+
+
+def _href_at(view: Gtk.TextView, links: dict[str, Gtk.TextTag], x: float, y: float) -> str:
+    found = view.window_to_buffer_coords(Gtk.TextWindowType.WIDGET, int(x), int(y))
+    if isinstance(found, tuple) and len(found) == 3:
+        ok, buf_x, buf_y = found
+        if not ok:
+            return ""
+    elif isinstance(found, tuple) and len(found) == 2:
+        buf_x, buf_y = found
+    else:
+        return ""
+    _inside, iterator = view.get_iter_at_location(buf_x, buf_y)
+    for tag in iterator.get_tags():
+        name = tag.get_property("name")
+        href = safe_http_url(name if isinstance(name, str) else "")
+        if href and href in links:
+            return href
+    return ""
+
+
+def _chip(label: str, tone: str) -> Gtk.Label:
+    widget = Gtk.Label(label=label)
+    widget.add_css_class("tether-chip")
+    widget.add_css_class(f"tone-{tone}")
+    return widget
+
+
+def _fill_chip_box(box: Gtk.FlowBox, chips: Any) -> None:
+    _clear_box(box)
+    if not isinstance(chips, dict):
+        return
+    ordered: list[dict[str, Any]] = []
+    for name in ("priority", "due", "created", "waiting"):
+        chip = chips.get(name)
+        if isinstance(chip, dict) and chip.get("label"):
+            ordered.append(chip)
+    for chip in chips.get("tags") or []:
+        if isinstance(chip, dict) and chip.get("label"):
+            ordered.append(chip)
+    for chip in ordered:
+        box.append(_chip(str(chip["label"]), str(chip.get("tone") or "neutral")))
+
+
+def _clear_box(box: Gtk.Widget) -> None:
+    while (child := box.get_first_child()) is not None:
+        box.remove(child)
+
+
+def _focus_is_text(window: TodoWindow) -> bool:
+    focus = window.get_focus()
+    return focus is window.text
+
+
+def _object_list(raw: tuple[Any, ...]) -> list[dict[str, Any]]:
+    if not raw or not isinstance(raw[0], str):
+        return []
+    parsed = json.loads(raw[0])
+    if not isinstance(parsed, list):
+        return []
+    return [row for row in parsed if isinstance(row, dict)]
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

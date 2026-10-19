@@ -25,22 +25,23 @@ TetherBot is pre-alpha. Check items off as they land. Design detail is in [SPEC.
 
 ## v0.1.x — bot-written todos (next)
 
-- [ ] Bot write access to the private data repo, using the decided fine-grained token (see Resolved). The writer is `tools/feed_write.py`. The token stays in an environment variable on the bot (default `TETHERBOT_FEED_TOKEN`), never in this repo. An expired token exits with a one-line error.
+- [x] Bot write access to the private data repo, using the decided fine-grained token (see Resolved). The writer is `tools/feed_write.py` (#18). The token stays in an environment variable on the bot (default `TETHERBOT_FEED_TOKEN`), never in this repo. An expired token exits with a one-line error.
 - [ ] TetherBot is the single todo tracker. An older local todo sync is retired after cutover, not run in parallel.
 - [x] Remote capture. The user messages their bot from a phone while away. The bot writes a `kind: todo` item with `tools/feed_write.py add-todo`. The desktop shows it on the next poll or at boot. Done in the popup reports back over the webhook, and the bridge records the item closed (the existing flow).
 - [x] A bot's daily summary run can post that day's asks and todos with `tools/feed_write.py` (`add-ask`, `add-todo`, and `status`). The desktop bot row shows `status.summary` when that block is set, and otherwise counts the open items.
 - [ ] `feed/<bot>.json` for more than one bot. The writer accepts `--bot` and edits only that bot's file.
+- [ ] Bot display names. The popup, window, filters, and notifications show each tethered bot's chosen name instead of the config slug, such as `Primary`. The bot publishes that name in its own feed file, for example a `bot` object with `display_name` in `feed/<bot>.json`, set by `tools/feed_write.py` (a `--name` option on `status`). The desktop reads it. Names arrive with the feed, with no hand-edited label list. An optional per-bot override in `config.toml` wins when it is set. With no published name and no override, the label is the slug, title-cased. A bot added later shows its name with no desktop change. The slug stays the stable id for the webhook slot, file names, and action routing. Only the label changes.
 - [ ] More than one desktop can read the same feed, for example a second, rarely used machine. macOS is not GNOME, so a non-GNOME client is out of scope for now. On a second machine the bot side is the entry point for adding todos.
 - [ ] Proposed, not urgent: each desktop writes only `desktop/<machine-id>.json` (see Open checks). Matters once a second GNOME desktop exists.
 - [ ] Optional later: an always-on local device, for example a single-board computer, as a physical attention indicator or a hub. Not required, because the private repo is already the always-on middle.
-- [ ] Rich todos, [RICH-TODOS.md](RICH-TODOS.md). Bots still create and edit item text. The desktop reads, filters, searches, opens, and checks off.
+- [x] Rich todos, [RICH-TODOS.md](RICH-TODOS.md) (#19–#21). Bots still create and edit item text. The desktop reads, filters, searches, opens, and checks off.
 - [x] Optional feed fields: `tags`, `body_format`, Markdown bodies up to 8000 characters on todos, `owner` of `user` or `bot`, `waiting.since`, and feed `tag_colors`
 - [x] Bridge search and filters (`@tag`, `due:today`, `due:overdue`, `p:1`), quick views, `GetTags`, and sort. Popup and window share that result
 - [x] Undo drops a queued Done before it is sent, and sends `reopen` only after it has gone out
 - [x] `tools/feed_write.py` gains tags, priority, owner, waiting-on, body-file, edit, and tag-color
 - [x] TetherBot window (GTK4 and libadwaita): list, detail Markdown, `.desktop` file, and `OpenWindow`
 - [x] Popup: chips, search, at most 8 todos, Open TetherBot, and a 5-second Undo
-- [ ] Manual checks M18–M26 for the rich todo view, login start, and window open. The steps are in [MANUAL-CHECKS.md](MANUAL-CHECKS.md). They have not been run on the desktop yet.
+- [ ] Manual checks M18–M26 for the rich todo view, login start, and window open. Login start and non-blocking window open are on main (#22, #23). The steps are in [MANUAL-CHECKS.md](MANUAL-CHECKS.md). They have not been run on the desktop yet.
 
 ## v0.2 — early adopters
 

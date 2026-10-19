@@ -2,7 +2,7 @@
 
 Run these on one Fedora 44 desktop with GNOME Shell 50 on Wayland, after you can log in as a normal user. The project is unofficial and not affiliated with xAI.
 
-**Out of scope here:** M9 (webhook-only popup copy), M15 and M16 (a legacy todo sink outside this repository), and M17 (the full uninstall acceptance check). Uninstall is still documented in [SETUP.md](SETUP.md) and is the reset for M1. M18–M24 are the rich-todo checks later in this file. M25 checks that a new login starts the bridge. Do not treat M9, M15, M16, or M17 as part of the v0.1 runbook.
+**Out of scope here:** M9 (webhook-only popup copy), M15 and M16 (a legacy todo sink outside this repository), and M17 (the full uninstall acceptance check). Uninstall is still documented in [SETUP.md](SETUP.md) and is the reset for M1. M18–M24 are the rich-todo checks later in this file. M25 checks that a new login starts the bridge. M26 checks that a todo click opens the window quickly. Do not treat M9, M15, M16, or M17 as part of the v0.1 runbook.
 
 Examples use the bot id `primary`. Yours can be any lowercase id of letters, digits, and hyphens. Use the same id in the bot's feed file, in `config.toml`, and in the commands below.
 
@@ -10,7 +10,7 @@ Nothing in these steps belongs in a chat, in `config.toml`, or in this repositor
 
 ## Suggested order
 
-M1, M2, then the extension install in M14 (log out and back in once), then M3. Do M10 before M4 if the popup has no ask yet. Then M4, M10a, M5, M11, M6, M7, M8, M12, M13. After a rich todo is in the feed, M18 through M24. M25 is the next login after the unit is installed.
+M1, M2, then the extension install in M14 (log out and back in once), then M3. Do M10 before M4 if the popup has no ask yet. Then M4, M10a, M5, M11, M6, M7, M8, M12, M13. After a rich todo is in the feed, M18 through M24. M25 is the next login after the unit is installed. M26 is a todo click after that.
 
 You can stop after any check. Later checks say what they need.
 
@@ -678,6 +678,17 @@ journalctl --user -b /usr/bin/gnome-shell --no-pager | tail -n 80
 - `systemctl --user is-active tetherbot` prints `active`.
 
 **Reset.** None.
+
+## M26. A todo click opens the window quickly
+
+**Preconditions.** M24. The bridge is running. Close the TetherBot window if it is open, and wait a minute so the process has exited.
+
+**Look for.**
+
+- Click a todo title in the popup. The window is on screen within about 1.5 seconds, first with a loading line if the list is not ready yet, then the item.
+- Close the window and click another todo before a minute has passed. That open is immediate. The journal does not show a new window service for that second click.
+
+**Reset.** None. Log out and back in after changing extension files. `systemctl --user restart tetherbot` is enough for a bridge-only change.
 
 ## When you are finished
 

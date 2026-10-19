@@ -271,7 +271,7 @@ Lists of items pass as JSON strings (`s`), so the item model can grow without br
 | `ActionResult(s action_id, s result, s detail)` | `result`: `accepted` (HTTP 200, run started), `queued_retry`, `parked`, `rejected_key`, `dropped` |
 | `StateChanged(s state, s reason)` | Mirrors the property for clients that do not watch properties |
 
-The TetherBot window is a second process, `python3 -m tetherbot.window`. Its application id is `io.github.grokkinggrok.TetherBot`. It is single-instance, appears in the app grid, and talks only to this interface (`GetItems`, `GetTags`, `GetItem`, `PerformAction`, `Undo`, `SendToBot`). It holds no secrets and opens links only after a click. `OpenWindow` activates that app's `select-item` action. The extension does not launch it itself.
+The TetherBot window is a second process, `python3 -m tetherbot.window`. Its application id is `io.github.grokkinggrok.TetherBot`. It is single-instance, appears in the app grid, and talks only to this interface (`GetItems`, `GetTags`, `GetItem`, `PerformAction`, `Undo`, `SendToBot`). It holds no secrets and opens links only after a click. `OpenWindow` sends that app's `select-item` action and returns as soon as the session bus accepts the request. It does not wait for the process. The window is shown first, with a loading line, and fills the list when the bridge answers. After the last window closes, the process stays for about 60 seconds so the next open reuses it. The extension does not launch it itself.
 
 `ForgetSecret` deletes that slot from libsecret and does not take the secret value. `RequestSecretEntry` returns false until the key dialog exists; the secret still does not cross D-Bus. A locked or missing keyring sets the bridge state to `degraded` with reason `keyring locked` and never writes a secret file. `OpenChat` returns false until the Grok Bot desktop entry id is known. `SyncNow` is limited to once per 30 seconds and does not poll until an inbound adapter is running, so `LastSync` stays 0. `PerformAction` enqueues `approve`, `veto`, and `done` only. Those three hide the item until the webhook accepts, the action is parked or rejected, or a newer open feed revision clears the mark. `snooze` stays on `Snooze`. `ActionResult` is emitted when a later sender finishes a post.
 
@@ -495,6 +495,7 @@ Still to write, with the milestones that need them:
 - M23. A feed with none of the new fields still shows the title, bot, and due date as before.
 - M24. The window opens from the popup and from the app grid, holds no secrets, and makes no network requests. The extension does not spawn it.
 - M25. Log out and back in. The indicator becomes active within about 10 seconds without a manual `systemctl start`.
+- M26. Clicking a todo in the popup shows the window within about 1.5 seconds from a cold start, and at once when the process is still up.
 
 ## 13. Milestones
 

@@ -161,6 +161,9 @@ def _exercise_window(app, fake, opened, holder, gdk, glib, gtk, render, apply_ru
             runs = render("[docs](https://example.test/docs)")
             apply_runs(window.buffer, runs, window._link_tags)
             assert "https://example.test/docs" in window._link_tags
+            app._on_close(window)
+            assert app.window is None
+            assert app._linger
             holder["ok"] = True
         except Exception as exc:
             holder["error"] = exc

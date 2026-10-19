@@ -173,3 +173,130 @@ def _exercise_window(app, fake, opened, holder, gdk, glib, gtk, render, apply_ru
     app.connect("activate", lambda _app: glib.idle_add(finish))
     glib.timeout_add(8000, app.quit)
     app.run(["tetherbot-window"])
+
+
+class _TimerFake(_Fake):
+    def __init__(self) -> None:
+        super().__init__()
+        self.items[0]["time_tracked_s"] = 3600 + 42 * 60
+        self.items.append(
+            {
+                "key": "primary/two",
+                "kind": "todo",
+                "title": "Email venue about deposit",
+                "body": "Hold the date.",
+                "status": "open",
+                "actions": ["done"],
+                "source": {"bot": "primary"},
+            }
+        )
+        self.timer: dict = {"state": "idle"}
+        self.started: list[str] = []
+        self.stopped = 0
+
+    def get_timer(self):
+        return dict(self.timer)
+
+    def start_timer(self, key):
+        self.started.append(key)
+        title = next((item["title"] for item in self.items if item["key"] == key), key)
+        self.timer = {"state": "running", "item_key": key, "item_title": title}
+        return dict(self.timer)
+
+    def stop_timer(self):
+        self.stopped += 1
+        previous = self.timer.get("item_title") or "Timer"
+        self.timer = {"state": "idle", "item_title": previous}
+        return dict(self.timer)
+
+
+def test_window_starts_a_timer_and_asks_before_switching():
+    gi = pytest.importorskip("gi")
+    try:
+        gi.require_version("Gtk", "4.0")
+        gi.require_version("Adw", "1")
+        from gi.repository import GLib
+    except ValueError as exc:
+        pytest.skip(str(exc))
+    if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
+        pytest.skip("GTK window test needs a display")
+
+    try:
+        from tetherbot.window import WindowApp
+
+        fake = _TimerFake()
+        app = WindowApp(client=fake)
+        holder: dict = {}
+        _exercise_timer(app, fake, holder, GLib)
+    finally:
+        reset_tetherbot_logger()
+    if "error" in holder:
+        raise holder["error"]
+    assert holder.get("ok") is True
+
+
+def _exercise_timer(app, fake, holder, glib) -> None:
+    def finish():
+        try:
+            window = app.window
+            assert window is not None
+            assert window.get_icon_name() == "io.github.grokkinggrok.TetherBot"
+            window.select_key("primary/one")
+            assert window.start_button.get_visible()
+            assert window.start_button.get_label() == "Start timer"
+            assert _has_label(window.detail_chips, "1:42 tracked")
+            assert _has_label(window.list, "1:42 tracked")
+            play = _find_play(window.list, "Start timer: Pack the bag")
+            assert play is not None
+            play.emit("clicked")
+            assert fake.started == ["primary/one"]
+            assert _has_label(window.list, "Timing")
+            assert window.start_button.get_label() == "Timing"
+            assert not window.start_button.get_sensitive()
+            other = _find_play(window.list, "Start timer: Email venue about deposit")
+            assert other is not None
+            other.emit("clicked")
+            assert window.switch_box.get_visible()
+            assert window.switch_label.get_label() == (
+                "Stop Pack the bag and start this one?"
+            )
+            assert fake.started == ["primary/one"]
+            window.switch_cancel.emit("clicked")
+            assert not window.switch_box.get_visible()
+            other.emit("clicked")
+            window.switch_button.emit("clicked")
+            assert fake.stopped == 1
+            assert fake.started == ["primary/one", "primary/two"]
+            assert not window.switch_box.get_visible()
+            holder["ok"] = True
+        except Exception as exc:
+            holder["error"] = exc
+        app.quit()
+        return False
+
+    app.connect("activate", lambda _app: glib.idle_add(finish))
+    glib.timeout_add(8000, app.quit)
+    app.run(["tetherbot-window"])
+
+
+def _has_label(widget, text: str) -> bool:
+    if hasattr(widget, "get_label") and widget.get_label() == text:
+        return True
+    child = widget.get_first_child() if hasattr(widget, "get_first_child") else None
+    while child is not None:
+        if _has_label(child, text):
+            return True
+        child = child.get_next_sibling()
+    return False
+
+
+def _find_play(widget, tooltip: str):
+    if hasattr(widget, "get_tooltip_text") and widget.get_tooltip_text() == tooltip:
+        return widget
+    child = widget.get_first_child() if hasattr(widget, "get_first_child") else None
+    while child is not None:
+        found = _find_play(child, tooltip)
+        if found is not None:
+            return found
+        child = child.get_next_sibling()
+    return None

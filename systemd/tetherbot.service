@@ -1,5 +1,6 @@
 [Unit]
 Description=TetherBot bridge
+PartOf=graphical-session.target
 After=graphical-session.target
 StartLimitIntervalSec=60
 StartLimitBurst=5
@@ -18,4 +19,4 @@ RestrictSUIDSGID=yes
 UMask=0077
 
 [Install]
-WantedBy=default.target
+WantedBy=graphical-session.target

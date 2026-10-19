@@ -156,9 +156,19 @@ if command -v systemctl >/dev/null 2>&1 \
   && systemctl --user show-environment >/dev/null 2>&1; then
   user_systemd=1
 fi
+OLD_WANTS="${UNIT_DIR}/default.target.wants/tetherbot.service"
+migrated=0
+if [[ "${user_systemd}" -eq 1 && ( -L "${OLD_WANTS}" || -e "${OLD_WANTS}" ) ]]; then
+  rm -f "${OLD_WANTS}"
+  migrated=1
+fi
 if [[ "${user_systemd}" -eq 1 ]]; then
   systemctl --user daemon-reload
   echo "Reloaded the user systemd manager."
+  if [[ "${migrated}" -eq 1 && "${enable}" -eq 0 ]]; then
+    systemctl --user enable tetherbot.service
+    echo "Enabled tetherbot.service for graphical-session.target."
+  fi
 else
   echo "warning: no user systemd manager. Skipped daemon-reload." >&2
 fi

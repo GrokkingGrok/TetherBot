@@ -3,20 +3,28 @@
 
 The bridge does not import GTK. Activation goes through the session bus
 name ``io.github.grokkinggrok.TetherBot``, which the window owns.
+The request is asynchronous: a cold start talks back to the bridge, so
+this call must return before that conversation begins.
 """
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 
 APP_ID = "io.github.grokkinggrok.TetherBot"
 APP_PATH = "/io/github/grokkinggrok/TetherBot"
 
 Launcher = Callable[[str], bool]
+_LOG = logging.getLogger("tetherbot")
 
 
 def launch_window(item_key: str) -> bool:
-    """Activate ``select-item``. False means the window did not start."""
+    """Request ``select-item``. True means the request was sent.
+
+    False means the session bus could not take the request. The window
+    may still be starting when this returns.
+    """
 
     if not isinstance(item_key, str):
         return False
@@ -34,7 +42,7 @@ def launch_window(item_key: str) -> bool:
             "(sava{sv})",
             ("select-item", [GLib.Variant("s", item_key)], {}),
         )
-        bus.call_sync(
+        bus.call(
             APP_ID,
             APP_PATH,
             "org.freedesktop.Application",
@@ -44,7 +52,16 @@ def launch_window(item_key: str) -> bool:
             Gio.DBusCallFlags.NONE,
             5000,
             None,
+            _on_activate,
         )
     except Exception:
         return False
     return True
+
+
+def _on_activate(bus: object, result: object) -> None:
+    try:
+        finish = getattr(bus, "call_finish")
+        finish(result)
+    except Exception:
+        _LOG.info("window did not open")

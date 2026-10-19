@@ -79,6 +79,9 @@ def test_install_and_uninstall_are_idempotent(tmp_path: Path):
     assert "/bin/false" not in unit
     assert "%h/.local/bin/tetherbot" in unit
     assert "BusName=io.github.grokkinggrok.TetherBot1" in unit
+    assert "PartOf=graphical-session.target" in unit
+    assert "WantedBy=graphical-session.target" in unit
+    assert "WantedBy=default.target" not in unit
     dbus_path = home / ".local" / "share" / "dbus-1" / "services"
     dbus = (dbus_path / "io.github.grokkinggrok.TetherBot1.service").read_text(encoding="utf-8")
     assert "SystemdService=tetherbot.service" in dbus
@@ -144,6 +147,42 @@ def test_install_and_uninstall_are_idempotent(tmp_path: Path):
     assert not config.exists()
     assert not (home / ".local" / "share" / "tetherbot").exists()
     subprocess.run(["bash", str(uninstall), "--purge", "--yes"], check=True, env=env, timeout=60)
+
+
+def test_install_moves_an_old_default_target_enablement(tmp_path: Path):
+    home = tmp_path / "home"
+    home.mkdir()
+    env = _env(home)
+    wants = home / ".config" / "systemd" / "user" / "default.target.wants"
+    wants.mkdir(parents=True)
+    link = wants / "tetherbot.service"
+    link.symlink_to("../tetherbot.service")
+    subprocess.run(["bash", str(ROOT / "scripts" / "install.sh")], check=True, env=env, timeout=60)
+    assert not link.exists()
+    log = (home / "systemctl.log").read_text(encoding="utf-8")
+    assert "--user enable tetherbot.service" in log
+    assert "enable --now" not in log
+    unit = (home / ".config" / "systemd" / "user" / "tetherbot.service").read_text(encoding="utf-8")
+    assert "WantedBy=graphical-session.target" in unit
+
+
+def test_uninstall_removes_both_enablement_links(tmp_path: Path):
+    home = tmp_path / "home"
+    home.mkdir()
+    env = _env(home)
+    user = home / ".config" / "systemd" / "user"
+    for name in ("default.target.wants", "graphical-session.target.wants"):
+        directory = user / name
+        directory.mkdir(parents=True)
+        (directory / "tetherbot.service").symlink_to("../tetherbot.service")
+    subprocess.run(
+        ["bash", str(ROOT / "scripts" / "uninstall.sh")],
+        check=True,
+        env=env,
+        timeout=60,
+    )
+    assert not (user / "default.target.wants" / "tetherbot.service").exists()
+    assert not (user / "graphical-session.target.wants" / "tetherbot.service").exists()
 
 
 def test_extension_install_copies_the_uuid(tmp_path: Path):

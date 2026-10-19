@@ -36,3 +36,8 @@ def test_window_sources_do_not_touch_the_network_or_secrets():
     assert "PerformAction" in window
     assert "Undo" in window
     assert "SendToBot" in window
+    launch = (ROOT / "bridge" / "tetherbot" / "window_launch.py").read_text(encoding="utf-8")
+    assert "call_sync" not in launch
+    assert "ActivateAction" in launch
+    assert "new_sync" not in window
+    assert "LINGER_MS = 60_000" in window

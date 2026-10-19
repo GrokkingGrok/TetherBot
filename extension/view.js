@@ -8,6 +8,18 @@ export const OBJECT_PATH = '/io/github/grokkinggrok/TetherBot1';
 export const ITEM_FILTER = '{"include_snoozed":false}';
 export const UPDATE_MESSAGE = 'This feed uses a newer protocol. Update TetherBot.';
 export const BRIDGE_DOWN = 'Bridge not running';
+export const ACTIVATE_RETRY_MS = 4000;
+
+export function startServiceCall() {
+    return {
+        destination: 'org.freedesktop.DBus',
+        path: '/org/freedesktop/DBus',
+        interfaceName: 'org.freedesktop.DBus',
+        method: 'StartServiceByName',
+        name: BUS_NAME,
+        flags: 0,
+    };
+}
 
 export const PROXY_METHODS = [
     'GetItemsRemote',
@@ -81,7 +93,7 @@ function snoozed(item, nowMs) {
     return Number.isFinite(parsed) && parsed > nowMs;
 }
 
-export function indicatorView({running, state, counts}) {
+export function indicatorView({running, state, counts, activationFailed = true}) {
     const asks = running ? number(counts?.asks) : 0;
     const todos = running ? number(counts?.todos) : 0;
     const dimmed = !running || state === 'unconfigured' || state === 'failed_closed';
@@ -91,9 +103,11 @@ export function indicatorView({running, state, counts}) {
         iconName = 'network-offline-symbolic';
     else if (attention)
         iconName = 'emblem-important-symbolic';
-    const accessibleName = running
-        ? `TetherBot: ${asks} asks, ${todos} todos`
-        : 'TetherBot: bridge not running';
+    let accessibleName = 'TetherBot';
+    if (running)
+        accessibleName = `TetherBot: ${asks} asks, ${todos} todos`;
+    else if (activationFailed)
+        accessibleName = 'TetherBot: bridge not running';
     return {
         asks,
         todos,
@@ -137,9 +151,9 @@ export function formatNextRun(unix, nowMs) {
     return `next run in ${Math.floor(hours / 24)} d`;
 }
 
-function bannerFor({running, state, reason}) {
+function bannerFor({running, activationFailed, state, reason}) {
     if (!running)
-        return BRIDGE_DOWN;
+        return activationFailed ? BRIDGE_DOWN : '';
     if (needsUpdate(reason))
         return UPDATE_MESSAGE;
     if (!state || state === 'ok')
@@ -156,8 +170,9 @@ export function menuModel({
     queueLength,
     nowMs,
     undoHolds = [],
+    activationFailed = true,
 }) {
-    const banner = bannerFor({running, state, reason});
+    const banner = bannerFor({running, activationFailed, state, reason});
     if (!running) {
         return {
             banner,

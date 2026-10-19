@@ -37,6 +37,7 @@ from tetherbot.window_query import (  # noqa: E402
 BUS_NAME = "io.github.grokkinggrok.TetherBot1"
 OBJECT_PATH = "/io/github/grokkinggrok/TetherBot1"
 INTERFACE = "io.github.grokkinggrok.TetherBot1"
+LINGER_MS = 60_000
 _SORT_LABELS = ("Due", "Priority", "Created", "Updated")
 _VIEW_LABELS = {
     "all": "All",
@@ -84,12 +85,20 @@ class BridgeError(Exception):
     """The session bus call did not succeed. The message is safe to show."""
 
 
+ListDone = Callable[
+    [list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], BridgeError | None],
+    None,
+]
+
+
 class BridgeClient:
     """D-Bus calls the window is allowed to make."""
 
     def __init__(self) -> None:
         self._proxy: Gio.DBusProxy | None = None
         self._listener: Callable[[], None] | None = None
+        self._generation = 0
+        self._waiting: tuple[int, dict[str, Any], Callable[..., None]] | None = None
 
     def set_listener(self, listener: Callable[[], None]) -> None:
         self._listener = listener
@@ -112,14 +121,7 @@ class BridgeClient:
 
     def bots(self) -> list[dict[str, Any]]:
         self._ensure()
-        assert self._proxy is not None
-        variant = self._proxy.get_cached_property("Bots")
-        if variant is None:
-            return []
-        parsed = json.loads(variant.unpack())
-        if not isinstance(parsed, list):
-            return []
-        return [row for row in parsed if isinstance(row, dict)]
+        return self._bots_cached()
 
     def mark_done(self, key: str) -> str:
         raw = self._call("PerformAction", "(sss)", (key, "done", "{}"))
@@ -137,23 +139,167 @@ class BridgeClient:
         raw = self._call("SendToBot", "(ss)", (bot, payload))
         return raw[0] if raw else ""
 
-    def _ensure(self) -> None:
+    def load_list(self, spec: dict[str, Any], done: ListDone) -> None:
+        """Load items, tags, and bots without blocking the window loop."""
+
+        self._generation += 1
+        generation = self._generation
+        self._waiting = (generation, spec, done)
         if self._proxy is not None:
+            self._load_items()
             return
         try:
             bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
-            self._proxy = Gio.DBusProxy.new_sync(
-                bus,
-                Gio.DBusProxyFlags.NONE,
-                None,
-                BUS_NAME,
-                OBJECT_PATH,
-                INTERFACE,
-                None,
-            )
-        except GLib.Error as exc:
-            raise BridgeError("Bridge not running") from exc
+        except GLib.Error:
+            self._finish_load(generation, BridgeError("Bridge not running"))
+            return
+        def _ready(source: object, result: Gio.AsyncResult, generation: int = generation) -> None:
+            self._on_proxy(generation, source, result)
+
+        Gio.DBusProxy.new(
+            bus,
+            Gio.DBusProxyFlags.NONE,
+            None,
+            BUS_NAME,
+            OBJECT_PATH,
+            INTERFACE,
+            None,
+            _ready,
+        )
+
+    def _on_proxy(self, generation: int, _source: object, result: Gio.AsyncResult) -> None:
+        try:
+            proxy = Gio.DBusProxy.new_finish(result)
+        except GLib.Error:
+            self._finish_load(generation, BridgeError("Bridge not running"))
+            return
+        if generation != self._generation:
+            return
+        self._proxy = proxy
         self._proxy.connect("g-signal", self._on_signal)
+        self._load_items()
+
+    def _load_items(self) -> None:
+        waiting = self._waiting
+        if waiting is None or self._proxy is None:
+            return
+        generation, spec, _done = waiting
+        if generation != self._generation:
+            return
+
+        def _done(
+            raw: tuple[Any, ...] | None,
+            error: BridgeError | None,
+            generation: int = generation,
+        ) -> None:
+            self._on_items(generation, raw, error)
+
+        self._call_async("GetItems", "(s)", (json.dumps(spec),), _done)
+
+    def _on_items(
+        self,
+        generation: int,
+        raw: tuple[Any, ...] | None,
+        error: BridgeError | None,
+    ) -> None:
+        if generation != self._generation:
+            return
+        if error is not None or raw is None:
+            self._finish_load(generation, error or BridgeError("Bridge not running"))
+            return
+        items = _object_list(raw)
+
+        def _done(
+            reply: tuple[Any, ...] | None,
+            err: BridgeError | None,
+            generation: int = generation,
+            items: list[dict[str, Any]] = items,
+        ) -> None:
+            self._on_tags(generation, items, reply, err)
+
+        self._call_async("GetTags", "()", (), _done)
+
+    def _on_tags(
+        self,
+        generation: int,
+        items: list[dict[str, Any]],
+        raw: tuple[Any, ...] | None,
+        error: BridgeError | None,
+    ) -> None:
+        if generation != self._generation:
+            return
+        if error is not None or raw is None:
+            self._finish_load(generation, error or BridgeError("Bridge not running"))
+            return
+        self._finish_load(generation, None, items, _object_list(raw), self._bots_cached())
+
+    def _finish_load(
+        self,
+        generation: int,
+        error: BridgeError | None,
+        items: list[dict[str, Any]] | None = None,
+        tags: list[dict[str, Any]] | None = None,
+        bots: list[dict[str, Any]] | None = None,
+    ) -> None:
+        if generation != self._generation:
+            return
+        waiting = self._waiting
+        if waiting is None:
+            return
+        _generation, _spec, done = waiting
+        self._waiting = None
+        done(items or [], tags or [], bots or [], error)
+
+    def _bots_cached(self) -> list[dict[str, Any]]:
+        if self._proxy is None:
+            return []
+        variant = self._proxy.get_cached_property("Bots")
+        if variant is None:
+            return []
+        parsed = json.loads(variant.unpack())
+        if not isinstance(parsed, list):
+            return []
+        return [row for row in parsed if isinstance(row, dict)]
+
+    def _call_async(
+        self,
+        method: str,
+        signature: str,
+        args: tuple[Any, ...],
+        done: Callable[[tuple[Any, ...] | None, BridgeError | None], None],
+    ) -> None:
+        proxy = self._proxy
+        if proxy is None:
+            done(None, BridgeError("Bridge not running"))
+            return
+
+        def _done(_proxy: Gio.DBusProxy, result: Gio.AsyncResult) -> None:
+            try:
+                reply = proxy.call_finish(result)
+            except GLib.Error as exc:
+                done(None, BridgeError(exc.message or "Bridge not running"))
+                return
+            if reply is None:
+                done((), None)
+                return
+            unpacked = reply.unpack()
+            if isinstance(unpacked, tuple):
+                done(unpacked, None)
+                return
+            done((unpacked,), None)
+
+        proxy.call(
+            method,
+            GLib.Variant(signature, args),
+            Gio.DBusCallFlags.NONE,
+            8000,
+            None,
+            _done,
+        )
+
+    def _ensure(self) -> None:
+        if self._proxy is None:
+            raise BridgeError("Bridge not running")
 
     def _call(self, method: str, signature: str, args: tuple[Any, ...]) -> tuple[Any, ...]:
         self._ensure()
@@ -327,7 +473,7 @@ class TodoWindow(Adw.ApplicationWindow):
         self.split.set_content(Adw.NavigationPage.new(detail_bar, "Detail"))
         self._show_item(None)
 
-    def refresh(self) -> None:
+    def refresh(self) -> bool:
         spec = list_filter(
             view=self._view,
             query=self._query,
@@ -335,6 +481,11 @@ class TodoWindow(Adw.ApplicationWindow):
             sort=self._sort,
             show_done=self._show_done,
         )
+        if hasattr(self.client, "load_list"):
+            self.banner.set_title("Loading…")
+            self.banner.set_revealed(True)
+            self.client.load_list(spec, self._on_list)
+            return GLib.SOURCE_REMOVE
         try:
             items = self.client.get_items(spec)
             tags = self.client.get_tags()
@@ -342,7 +493,31 @@ class TodoWindow(Adw.ApplicationWindow):
         except BridgeError as exc:
             self.banner.set_title(str(exc))
             self.banner.set_revealed(True)
+            return GLib.SOURCE_REMOVE
+        self._apply_list(items, tags, bots)
+        return GLib.SOURCE_REMOVE
+
+    def _on_list(
+        self,
+        items: list[dict[str, Any]],
+        tags: list[dict[str, Any]],
+        bots: list[dict[str, Any]],
+        error: BridgeError | None,
+    ) -> None:
+        if error is not None:
+            self.banner.set_title(str(error))
+            self.banner.set_revealed(True)
             return
+        self._apply_list(items, tags, bots)
+        if self._wanted:
+            self._focus_key(self._wanted)
+
+    def _apply_list(
+        self,
+        items: list[dict[str, Any]],
+        tags: list[dict[str, Any]],
+        bots: list[dict[str, Any]],
+    ) -> None:
         self.banner.set_revealed(False)
         self._outbound = {}
         for bot in bots:
@@ -374,7 +549,8 @@ class TodoWindow(Adw.ApplicationWindow):
         self._filling = False
         self._wanted = key
         self.refresh()
-        self._focus_key(key)
+        if not hasattr(self.client, "load_list"):
+            self._focus_key(key)
         if self.split.get_collapsed():
             self.split.set_show_content(True)
 
@@ -542,7 +718,8 @@ class TodoWindow(Adw.ApplicationWindow):
             self._toast("Asked the bot to reopen it.")
         self._wanted = key
         self.refresh()
-        self._focus_key(key)
+        if not hasattr(self.client, "load_list"):
+            self._focus_key(key)
 
     def _ask_current(self) -> None:
         item = self._current
@@ -727,6 +904,7 @@ class WindowApp(Adw.Application):
         super().__init__(application_id=APP_ID, flags=Gio.ApplicationFlags.DEFAULT_FLAGS)
         self._client = client
         self.window: TodoWindow | None = None
+        self._linger = 0
 
     def do_startup(self) -> None:
         Adw.Application.do_startup(self)
@@ -742,10 +920,29 @@ class WindowApp(Adw.Application):
             self.window.connect("close-request", self._on_close)
         self.window.present()
         self.window.refresh()
+        self._release_linger()
 
     def _on_close(self, _window: TodoWindow) -> bool:
+        """Keep the process up briefly so the next open is not a cold start."""
+
+        self.hold()
         self.window = None
+        if self._linger:
+            GLib.source_remove(self._linger)
+        self._linger = GLib.timeout_add(LINGER_MS, self._end_linger)
         return False
+
+    def _end_linger(self) -> bool:
+        self._linger = 0
+        self.release()
+        return GLib.SOURCE_REMOVE
+
+    def _release_linger(self) -> None:
+        if not self._linger:
+            return
+        GLib.source_remove(self._linger)
+        self._linger = 0
+        self.release()
 
     def _on_select_item(self, _action: Gio.SimpleAction, parameter: GLib.Variant | None) -> None:
         key = parameter.get_string() if parameter is not None else ""

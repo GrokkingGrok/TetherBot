@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+from tests.helpers import reset_tetherbot_logger
 from tetherbot.log import configure_logging
 from tetherbot.secrets import (
     SCHEMA_NAME,
@@ -85,7 +86,6 @@ def test_webhook_url_must_be_https_without_credentials():
 def test_exact_secret_is_masked_in_the_log(tmp_path: Path):
     stream = StringIO()
     logger = logging.getLogger("tetherbot")
-    previous = logger.propagate
     try:
         configure_logging(stream=stream, path=tmp_path / "bridge.log")
         store = SecretStore(MemoryBackend())
@@ -95,10 +95,7 @@ def test_exact_secret_is_masked_in_the_log(tmp_path: Path):
         assert WEBHOOK_URL not in text
         assert WEBHOOK_KEY not in text
     finally:
-        for handler in list(logger.handlers):
-            logger.removeHandler(handler)
-            handler.close()
-        logger.propagate = previous
+        reset_tetherbot_logger()
 
 
 def test_dbus_forget_uses_the_store(tmp_path: Path):

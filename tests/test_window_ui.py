@@ -5,20 +5,7 @@ import os
 
 import pytest
 
-gi = pytest.importorskip("gi")
-try:
-    gi.require_version("Gdk", "4.0")
-    gi.require_version("Gtk", "4.0")
-    gi.require_version("Adw", "1")
-    from gi.repository import Gdk, GLib, Gtk
-except ValueError as exc:
-    pytest.skip(str(exc), allow_module_level=True)
-
-if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
-    pytest.skip("GTK window test needs a display", allow_module_level=True)
-
-from tetherbot.markdown import render  # noqa: E402
-from tetherbot.window import WindowApp, apply_runs  # noqa: E402
+from tests.helpers import reset_tetherbot_logger
 
 
 class _Fake:
@@ -83,10 +70,34 @@ class _Fake:
 
 
 def test_window_filters_renders_markdown_and_undoes():
-    opened: list[str] = []
-    fake = _Fake()
-    app = WindowApp(client=fake)
-    holder: dict = {}
+    gi = pytest.importorskip("gi")
+    try:
+        gi.require_version("Gdk", "4.0")
+        gi.require_version("Gtk", "4.0")
+        gi.require_version("Adw", "1")
+        from gi.repository import Gdk, GLib, Gtk
+    except ValueError as exc:
+        pytest.skip(str(exc))
+    if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
+        pytest.skip("GTK window test needs a display")
+
+    try:
+        from tetherbot.markdown import render
+        from tetherbot.window import WindowApp, apply_runs
+
+        opened: list[str] = []
+        fake = _Fake()
+        app = WindowApp(client=fake)
+        holder: dict = {}
+        _exercise_window(app, fake, opened, holder, Gdk, GLib, Gtk, render, apply_runs)
+    finally:
+        reset_tetherbot_logger()
+    if "error" in holder:
+        raise holder["error"]
+    assert holder.get("ok") is True
+
+
+def _exercise_window(app, fake, opened, holder, gdk, glib, gtk, render, apply_runs) -> None:
 
     def finish():
         try:
@@ -110,19 +121,19 @@ def test_window_filters_renders_markdown_and_undoes():
             assert "https://example.test/note" in window._link_tags
             assert window.source.get_label().startswith("primary · daily ·")
             assert window.done_button.get_sensitive()
-            context = GLib.MainContext.default()
+            context = glib.MainContext.default()
             while context.pending():
                 context.iteration(False)
             found = window.buffer.get_start_iter().forward_search(
                 "the note",
-                Gtk.TextSearchFlags.TEXT_ONLY,
+                gtk.TextSearchFlags.TEXT_ONLY,
                 None,
             )
             assert found is not None
             start, _end = found
             rect = window.text.get_iter_location(start)
             point = window.text.buffer_to_window_coords(
-                Gtk.TextWindowType.WIDGET,
+                gtk.TextWindowType.WIDGET,
                 rect.x + max(rect.width // 2, 1),
                 rect.y + max(rect.height // 2, 1),
             )
@@ -134,12 +145,12 @@ def test_window_filters_renders_markdown_and_undoes():
             window.show_done.set_active(True)
             assert fake.specs[-1]["include_done_days"] == 7
             assert "status" not in fake.specs[-1]
-            window._on_key(None, Gdk.KEY_f, 0, Gdk.ModifierType.CONTROL_MASK)
+            window._on_key(None, gdk.KEY_f, 0, gdk.ModifierType.CONTROL_MASK)
             focus = window.get_focus()
             assert focus is window.search or (
                 focus is not None and focus.is_ancestor(window.search)
             )
-            window._on_key(None, Gdk.KEY_Return, 0, Gdk.ModifierType.CONTROL_MASK)
+            window._on_key(None, gdk.KEY_Return, 0, gdk.ModifierType.CONTROL_MASK)
             assert fake.done == ["primary/one"]
             window._undo("primary/one")
             assert fake.undone == ["primary/one"]
@@ -156,9 +167,6 @@ def test_window_filters_renders_markdown_and_undoes():
         app.quit()
         return False
 
-    app.connect("activate", lambda _app: GLib.idle_add(finish))
-    GLib.timeout_add(8000, app.quit)
+    app.connect("activate", lambda _app: glib.idle_add(finish))
+    glib.timeout_add(8000, app.quit)
     app.run(["tetherbot-window"])
-    if "error" in holder:
-        raise holder["error"]
-    assert holder.get("ok") is True

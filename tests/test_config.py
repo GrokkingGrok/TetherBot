@@ -103,3 +103,36 @@ def test_file_remote_is_absolute_and_only_for_the_poller(tmp_path: Path):
     )
     with pytest.raises(ConfigError, match="https URL"):
         load_config(path)
+
+
+def test_optional_bot_display_name(tmp_path: Path):
+    path = tmp_path / "config.toml"
+    path.write_text(
+        "\n".join(
+            [
+                'schema = "tetherbot/1"',
+                "[bots.primary]",
+                'webhook_slot = "primary-actions"',
+                'display_name = "Primary"',
+                "[bots.notes]",
+                'webhook_slot = "notes-actions"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+    config = load_config(path)
+    assert config.bots["primary"].display_name == "Primary"
+    assert config.bots["notes"].display_name == ""
+    path.write_text(
+        "\n".join(
+            [
+                'schema = "tetherbot/1"',
+                "[bots.primary]",
+                'webhook_slot = "primary-actions"',
+                'display_name = "this name is longer than forty characters yes"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ConfigError, match="display_name"):
+        load_config(path)

@@ -468,6 +468,47 @@ def test_writer_rejects_a_secret_tag_and_keeps_desktop_untouched(capsys):
     assert all("desktop" not in call[1] for call in fake.calls)
 
 
+def test_a_second_bot_writes_only_its_file(capsys):
+    fake = FakeGitHub()
+    fake.seed(_feed([_todo("primary-20261017-01", "Send the note")]))
+    code = feed_write.main(
+        ["--repo", "owner/name", "--bot", "notes", "add-todo", "--title", "Write the note"],
+        request=fake,
+        now=NOW,
+        environ={"TETHERBOT_FEED_TOKEN": TOKEN},
+    )
+    assert code == 0
+    notes = "feed/notes.json"
+    assert notes in fake.docs
+    doc = fake.document(notes)
+    assert doc["bot"] == "notes"
+    assert doc["items"][0]["source"] == {"bot": "notes"}
+    assert doc["items"][0]["id"] == "notes-20261017-01"
+    assert fake.document()["items"][0]["id"] == "primary-20261017-01"
+    printed = json.loads(capsys.readouterr().out)
+    assert printed["key"] == "notes/notes-20261017-01"
+    assert all("desktop" not in call[1] for call in fake.calls)
+
+
+def test_status_name_keeps_the_string_bot_id(capsys):
+    fake = FakeGitHub()
+    fake.seed(_feed([_todo("primary-20261017-01", "Send the note")]))
+    code = _run(
+        fake,
+        "status",
+        "--state", "idle",
+        "--summary", "1 open todo.",
+        "--name", "Primary",
+    )
+    assert code == 0
+    doc = fake.document()
+    assert doc["bot"] == "primary"
+    assert doc["display_name"] == "Primary"
+    assert doc["items"][0]["title"] == "Send the note"
+    printed = json.loads(capsys.readouterr().out)
+    assert printed["display_name"] == "Primary"
+
+
 def test_put_404_is_not_found(capsys):
     fake = FakeGitHub()
     fake.forced["PUT"] = 404

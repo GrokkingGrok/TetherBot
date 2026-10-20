@@ -2,7 +2,7 @@
 
 Run these on one Fedora 44 desktop with GNOME Shell 50 on Wayland, after you can log in as a normal user. The project is unofficial and not affiliated with xAI.
 
-**Out of scope here:** M9 (webhook-only popup copy), M15 and M16 (a legacy todo sink outside this repository), and M17 (the full uninstall acceptance check). Uninstall is still documented in [SETUP.md](SETUP.md) and is the reset for M1. M18–M24 are the rich-todo checks later in this file. M25 checks that a new login starts the bridge. M26 checks that a todo click opens the window quickly. M27–M42 check the stopwatch. Do not treat M9, M15, M16, or M17 as part of the v0.1 runbook.
+**Out of scope here:** M9 (webhook-only popup copy), M15 and M16 (a legacy todo sink outside this repository), and M17 (the full uninstall acceptance check). Uninstall is still documented in [SETUP.md](SETUP.md) and is the reset for M1. M18–M24 are the rich-todo checks later in this file. M25 checks that a new login starts the bridge. M26 checks that a todo click opens the window quickly. M27–M42 check the stopwatch. M43–M47 check more than one bot, display names, the compact Bots section, and the popup order. Do not treat M9, M15, M16, or M17 as part of the v0.1 runbook.
 
 Examples use the bot id `primary`. Yours can be any lowercase id of letters, digits, and hyphens. Use the same id in the bot's feed file, in `config.toml`, and in the commands below.
 
@@ -10,7 +10,7 @@ Nothing in these steps belongs in a chat, in `config.toml`, or in this repositor
 
 ## Suggested order
 
-M1, M2, then the extension install in M14 (log out and back in once), then M3. Do M10 before M4 if the popup has no ask yet. Then M4, M10a, M5, M11, M6, M7, M8, M12, M13. After a rich todo is in the feed, M18 through M24. M25 is the next login after the unit is installed. M26 is a todo click after that. M27 through M42 need a running timer.
+M1, M2, then the extension install in M14 (log out and back in once), then M3. Do M10 before M4 if the popup has no ask yet. Then M4, M10a, M5, M11, M6, M7, M8, M12, M13. After a rich todo is in the feed, M18 through M24. M25 is the next login after the unit is installed. M26 is a todo click after that. M27 through M42 need a running timer. M43 through M47 need this version installed and a log out, then a second feed file.
 
 You can stop after any check. Later checks say what they need.
 
@@ -870,6 +870,66 @@ journalctl --user -b /usr/bin/gnome-shell --no-pager | tail -n 80
 - Edit start in the popup is one row: the three quick buttons, a small time field, Set, and a close control.
 
 **Reset.** None.
+
+## M43. A second bot keeps the first feed
+
+**Preconditions.** M10. `feed/primary.json` already has an open todo or ask. Install this version, then log out and back in so the shell loads the extension.
+
+**Look for.**
+
+- The existing primary items are still in the popup, labeled with a name rather than only the slug.
+- Add `feed/notes.json` (or another id) with `"bot"` set to that id and one open todo. On the next poll, that todo appears and names its bot. `feed/primary.json` is unchanged.
+- The bridge does not write either feed file.
+
+**Reset.** Leave both files. M44 uses them.
+
+## M44. Display names
+
+**Preconditions.** M43. Two bots are in the feed.
+
+**Look for.**
+
+- `tools/feed_write.py status --name` on one bot changes the label in the popup, the window, and a notification. The file's `"bot"` value stays the slug.
+- With no `--name` and no `display_name` in `config.toml`, the label is the slug with a capital letter (`notes` shows as `Notes`).
+- Setting `display_name` under `[bots.<id>]` in `config.toml` wins over the name in the feed. The slug in item keys does not change.
+
+**Reset.** None.
+
+## M45. The popup stays one line when every bot is fine
+
+**Preconditions.** M43. More than one bot, and each is idle or working with no open ask.
+
+**Look for.**
+
+- The Bots section is one line, such as `2 bots · all ok`, however many healthy bots you add.
+- Make one bot `needs_you`, `error`, or stale, or give it an open ask. That bot gets its own row, and the summary turns red and names it.
+- With only one bot configured, the section is that bot's row, as before, and there is no summary line.
+
+**Reset.** None.
+
+## M46. Popup order and the window Bots tab
+
+**Preconditions.** M45. Log out and back in if the extension was updated after the last login.
+
+**Look for.**
+
+- The popup order is Timer, Todos, Asks, Bots, then Open TetherBot, the status line, Sync now, and Settings.
+- Clicking the bot summary opens the TetherBot window on the Bots tab. Every bot is listed with its name, last seen, next run, and open todo count.
+- Typing in the name filter hides the other bots. Clicking a bot filters the todo list to that bot, the way a tag chip does.
+
+**Reset.** None.
+
+## M47. The timer still behaves after the new popup
+
+**Preconditions.** M41 still matches this install. Log out and back in once with a timer running or paused.
+
+**Look for.**
+
+- The time is still there after login, and a paused timer is still paused.
+- Undo after Stop resumes, including from paused, and does not lose the counted time.
+- Add to a todo and Attach timer still attach. A stopped timer that is not on a todo survives opening the window and offers Dismiss.
+
+**Reset.** Dismiss or assign the timer when you are done.
 
 ## When you are finished
 

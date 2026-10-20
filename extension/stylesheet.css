@@ -92,6 +92,11 @@
     font-size: 0.85em;
 }
 
+.tetherbot-bot-alert {
+    color: #e01b24;
+    font-weight: bold;
+}
+
 .tetherbot-dot {
     margin-right: 4px;
 }

@@ -832,4 +832,37 @@ def test_template_feed_and_state_pass_the_schema_gate():
     assert view is not None and view.summary == "1 open ask."
     assert view.state == "needs_you"
     assert items and items[0].bot == "primary"
+    assert view.display_name is None
     assert _read_state(state) is None
+
+
+def test_a_second_feed_file_keeps_the_string_bot_id(tmp_path: Path):
+    from tetherbot.adapters.github_poller import _read_feed, feed_bot_id
+
+    primary = {
+        "schema": "tetherbot/1",
+        "bot": "primary",
+        "updated_at": "2026-10-17T12:00:00+00:00",
+        "items": [],
+    }
+    notes = {
+        "schema": "tetherbot/1",
+        "bot": {"id": "notes", "display_name": "Notes bot"},
+        "updated_at": "2026-10-17T12:00:00+00:00",
+        "items": [],
+    }
+    assert feed_bot_id(primary) == "primary"
+    assert feed_bot_id(notes) == "notes"
+    (tmp_path / "primary.json").write_text(json.dumps(primary), encoding="utf-8")
+    (tmp_path / "notes.json").write_text(json.dumps(notes), encoding="utf-8")
+    items, problem, view = _read_feed(tmp_path / "primary.json", "feed/primary.json")
+    assert problem is None and items == [] and view is not None
+    assert view.display_name is None
+    _items, problem, view = _read_feed(tmp_path / "notes.json", "feed/notes.json")
+    assert problem is None and view is not None and view.display_name == "Notes bot"
+    mismatched = dict(notes)
+    mismatched["bot"] = {"id": "primary", "display_name": "Notes bot"}
+    (tmp_path / "notes.json").write_text(json.dumps(mismatched), encoding="utf-8")
+    _items, problem, view = _read_feed(tmp_path / "notes.json", "feed/notes.json")
+    assert problem == "feed/notes.json is invalid"
+    assert view is None

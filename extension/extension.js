@@ -26,6 +26,7 @@ import {
     elapsedSeconds,
     formatElapsed,
     indicatorView,
+    botLabels,
     keepAssigning,
     menuModel,
     parseSetTime,
@@ -170,13 +171,10 @@ export default class TetherBotExtension extends Extension {
         this._banner = new PopupMenu.PopupMenuItem('', {reactive: false});
         this._indicator.menu.addMenuItem(this._banner);
         this._timerSection = new PopupMenu.PopupMenuSection();
-        this._indicator.menu.addMenuItem(this._timerSection);
-        this._botSection = new PopupMenu.PopupMenuSection();
         this._askSection = new PopupMenu.PopupMenuSection();
         this._todoSection = new PopupMenu.PopupMenuSection();
-        this._indicator.menu.addMenuItem(this._botSection);
-        this._indicator.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-        this._indicator.menu.addMenuItem(this._askSection);
+        this._botSection = new PopupMenu.PopupMenuSection();
+        this._indicator.menu.addMenuItem(this._timerSection);
         this._indicator.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
         this._searchItem = new PopupMenu.PopupBaseMenuItem({reactive: false});
         this._search = new St.Entry({
@@ -192,6 +190,10 @@ export default class TetherBotExtension extends Extension {
         this._searchItem.add_child(this._search);
         this._indicator.menu.addMenuItem(this._searchItem);
         this._indicator.menu.addMenuItem(this._todoSection);
+        this._indicator.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+        this._indicator.menu.addMenuItem(this._askSection);
+        this._indicator.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+        this._indicator.menu.addMenuItem(this._botSection);
         this._indicator.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
         this._openItem = new PopupMenu.PopupMenuItem('Open TetherBot');
         this._openItem.connect('activate', () => this._openWindow(''));
@@ -473,6 +475,7 @@ export default class TetherBotExtension extends Extension {
         const nowMs = Date.now();
         this._assigning = keepAssigning(this._assigning, this._timer);
         const view = this._paintIndicator(nowMs);
+        const labels = botLabels(this._bots);
         const block = timerModel({
             running: this._running,
             activationFailed: this._activationFailed,
@@ -483,6 +486,7 @@ export default class TetherBotExtension extends Extension {
             editingStart: this._editingStart,
             assigning: this._assigning,
             error: this._timerError,
+            labels,
         });
         this._fillTimer(block);
         const model = menuModel({
@@ -513,7 +517,7 @@ export default class TetherBotExtension extends Extension {
             this._footer.visible = false;
             return;
         }
-        this._fillBots(model.bots);
+        this._fillBots(model.bots, model.botSummary);
         this._fillAsks(model.asks);
         this._fillTodos(model.todos, model.moreLabel);
         const reason = model.footer.reason ? `: ${model.footer.reason}` : '';
@@ -589,10 +593,17 @@ export default class TetherBotExtension extends Extension {
         return GLib.SOURCE_CONTINUE;
     }
 
-    _fillBots(rows) {
+    _fillBots(rows, summary) {
         this._botSection.removeAll();
         this._botSection.addMenuItem(sectionTitle('Bots'));
-        if (rows.length === 0) {
+        if (summary && summary.text) {
+            const item = new PopupMenu.PopupMenuItem(summary.text);
+            if (summary.tone === 'attention')
+                item.add_style_class_name('tetherbot-bot-alert');
+            item.connect('activate', () => this._openWindow('bots'));
+            this._botSection.addMenuItem(item);
+        }
+        if (rows.length === 0 && !summary) {
             this._botSection.addMenuItem(sectionTitle('No bots'));
             return;
         }
@@ -640,7 +651,7 @@ export default class TetherBotExtension extends Extension {
             x_expand: true,
         });
         text.add_child(new St.Label({text: row.title}));
-        const meta = [row.bot, row.due].filter(Boolean).join(' · ');
+        const meta = [row.botLabel || row.bot, row.due].filter(Boolean).join(' · ');
         text.add_child(new St.Label({text: meta, style_class: 'tetherbot-subtle'}));
         box.add_child(text);
         for (const action of row.actions) {
@@ -697,9 +708,9 @@ export default class TetherBotExtension extends Extension {
         heading.add_child(title);
         text.add_child(heading);
         if (row.chips)
-            text.add_child(this._chipRow(row.chips, row.tracked));
+            text.add_child(this._chipRow(row.chips, row.tracked, row.botLabel));
         else {
-            const meta = [row.bot, row.due].filter(Boolean).join(' · ');
+            const meta = [row.botLabel || row.bot, row.due].filter(Boolean).join(' · ');
             text.add_child(new St.Label({text: meta, style_class: 'tetherbot-subtle'}));
             if (row.tracked)
                 text.add_child(this._chipRow({}, row.tracked));
@@ -724,8 +735,10 @@ export default class TetherBotExtension extends Extension {
         return item;
     }
 
-    _chipRow(chips, tracked) {
+    _chipRow(chips, tracked, botLabel) {
         const row = new St.BoxLayout({style_class: 'tetherbot-chips'});
+        if (botLabel)
+            row.add_child(chipLabel(botLabel, 'neutral'));
         if (chips.due)
             row.add_child(chipLabel(chips.due, chips.dueTone));
         for (const tag of chips.tags || [])
@@ -1239,7 +1252,7 @@ export default class TetherBotExtension extends Extension {
     _showNotification(payload, reason) {
         let model;
         try {
-            model = notificationModel(payload, reason);
+            model = notificationModel(payload, reason, botLabels(this._bots));
         } catch (error) {
             return;
         }

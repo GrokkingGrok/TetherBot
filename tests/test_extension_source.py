@@ -53,6 +53,16 @@ def test_disable_drops_the_proxy_and_handlers():
     assert "GetTimerRemote" in text
     assert "keepAssigning" in text
     assert "todoActivation" in text
+    menu = text.split("    _buildMenu() {", 1)[1].split("\n    _", 1)[0]
+    added = [line.strip() for line in menu.splitlines() if "addMenuItem" in line]
+    order = " ".join(added)
+    timer_at = order.index("_timerSection")
+    todo_at = order.index("_todoSection")
+    ask_at = order.index("_askSection")
+    bot_at = order.index("_botSection")
+    open_at = order.index("_openItem")
+    assert timer_at < todo_at < ask_at < bot_at < open_at
+    assert "compactBotSection" in view
     render = text.split("    _render() {", 1)[1].split("\n    _", 1)[0]
     assert "keepAssigning" in render
     assert "_expireAssign" not in text

@@ -827,6 +827,21 @@ def _rebase_in_progress(clone: Path) -> bool:
     return (git_dir / "rebase-merge").exists() or (git_dir / "rebase-apply").exists()
 
 
+def feed_bot_id(payload: object) -> str | None:
+    """The bot id from a feed file. A string stays valid. An object uses ``id``."""
+
+    if not isinstance(payload, dict):
+        return None
+    bot = payload.get("bot")
+    if isinstance(bot, str):
+        return bot
+    if isinstance(bot, dict):
+        ident = bot.get("id")
+        if isinstance(ident, str):
+            return ident
+    return None
+
+
 def _read_feed(path: Path, source: str) -> tuple[list[Item], str | None, FeedView | None]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
@@ -837,7 +852,7 @@ def _read_feed(path: Path, source: str) -> tuple[list[Item], str | None, FeedVie
     decision = check_schema(payload.get("schema"), source=source)
     if not decision.accepted:
         return [], decision.message, None
-    bot = payload.get("bot")
+    bot = feed_bot_id(payload)
     if bot != path.stem:
         return [], f"{source} is invalid", None
     raw_items = payload.get("items", [])

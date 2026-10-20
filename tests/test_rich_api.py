@@ -143,4 +143,5 @@ def test_open_window_uses_the_bridge_launcher(tmp_path: Path):
     daemon.launch_window = lambda item_key: seen.append(item_key) or True
     assert daemon.api.call("OpenWindow", ("primary/todo-01",)) == (True,)
     assert daemon.api.call("OpenWindow", ("",)) == (True,)
-    assert seen == ["primary/todo-01", ""]
+    assert daemon.api.call("OpenWindow", ("bots",)) == (True,)
+    assert seen == ["primary/todo-01", "", "bots"]

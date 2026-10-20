@@ -26,9 +26,12 @@ python3 tools/feed_write.py --repo owner/name --bot primary \
   reopen --key primary/primary-20261017-01
 
 python3 tools/feed_write.py --repo owner/name --bot primary \
-  status --state idle --summary "3 open todos." \
+  status --state idle --summary "3 open todos." --name "Primary" \
   --last-run 2026-10-17T12:00:00+00:00 \
   --next-run 2026-10-18T12:00:00+00:00
+
+python3 tools/feed_write.py --repo owner/name --bot notes \
+  add-todo --title "Write the note"
 
 python3 tools/feed_write.py --repo owner/name --bot primary list --open
 
@@ -36,7 +39,9 @@ python3 tools/feed_write.py --repo owner/name --bot primary --dry-run \
   add-todo --title "Send the note"
 ```
 
-`--repo` may also come from `TETHERBOT_FEED_REPO`. `--bot` defaults to `primary` (`TETHERBOT_FEED_BOT` overrides that default). `--token-env` names the variable that holds the token.
+`--repo` may also come from `TETHERBOT_FEED_REPO`. `--bot` defaults to `primary` (`TETHERBOT_FEED_BOT` overrides that default) and selects `feed/<bot>.json` only. A second bot passes its own id, for example `--bot notes`, and does not edit `feed/primary.json`. `--token-env` names the variable that holds the token.
+
+`status --name "Primary"` sets `display_name` on that file and leaves `"bot"` as the string id. Omit `--name` and an existing name stays. The desktop shows that name. An optional `display_name` under `[bots.<id>]` in `config.toml` wins when it is set.
 
 `add-todo` writes `kind: todo`, `status: open`, `actions: ["done"]`, `owner: user` unless `--owner bot` is set, and `body_format: markdown` unless `--no-markdown` is set. Repeat `--tag`. `--priority` is 1, 2, or 3. `--waiting-on` stores `waiting.on` and `waiting.since`. `--body-file` reads Markdown from a path. `--todo-kind` is `task` or `bill`. `--due` accepts `YYYY-MM-DD`, `YYYY-MM-DD HH:MM`, or an ISO 8601 timestamp, and is stored in the protocol form. Omit `--key` and the id is `<bot>-YYYYMMDD-NN`. `add-ask` writes `actions: ["approve", "veto"]`.
 

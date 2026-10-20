@@ -25,6 +25,7 @@ import {
     itemKey,
     parseSetTime,
     timerModel,
+    compactBotSection,
     menuModel,
     notificationModel,
     openWindowCall,
@@ -248,8 +249,35 @@ export function runViewChecks() {
     assert(menu.bots[0].summary === '1 open ask.', 'feed summary');
     assert(menu.bots[0].lastSeen === 'last seen 4 m ago', 'relative last seen');
     assert(menu.bots[0].nextRun === 'next run in 1 h', 'next run');
-    assert(menu.bots[1].lastSeen === 'last seen unknown', 'missing last seen');
-    assert(menu.bots[1].nextRun === '', 'missing next run');
+    assert(menu.bots.length === 1, 'a healthy second bot stays off the popup');
+    assert(menu.botSummary.text === '2 bots · primary needs attention', 'summary names the bot');
+    assert(menu.botSummary.tone === 'attention', 'summary turns red');
+    assert(menu.asks[0].botLabel === 'primary', 'ask names its bot');
+    const notesOnly = menuModel({
+        running: true,
+        state: 'ok',
+        reason: '',
+        bots: [{name: 'notes', summary: '', last_seen: 0, routes: {outbound: false}}],
+        items: [],
+        queueLength: 0,
+        nowMs: NOW,
+    });
+    assert(notesOnly.botSummary === null, 'one bot has no summary line');
+    assert(notesOnly.bots[0].lastSeen === 'last seen unknown', 'missing last seen');
+    assert(notesOnly.bots[0].nextRun === '', 'missing next run');
+    const healthy = compactBotSection([
+        {name: 'Primary', bot: 'primary', state: 'idle', openAsks: 0},
+        {name: 'Notes', bot: 'notes', state: 'working', openAsks: 0},
+        {name: 'Other', bot: 'other', state: 'idle', openAsks: 0},
+    ]);
+    assert(healthy.summary.text === '3 bots · all ok', 'healthy bots are one line');
+    assert(healthy.rows.length === 0, 'healthy bots have no rows');
+    const pending = compactBotSection([
+        {name: 'Primary', bot: 'primary', state: 'idle', openAsks: 2},
+        {name: 'Notes', bot: 'notes', state: 'idle', openAsks: 0},
+    ]);
+    assert(pending.rows.length === 1, 'an open ask keeps that bot row');
+    assert(pending.summary.text === '2 bots · Primary needs attention', 'one problem names the bot');
     assert(menu.footer.queueLength === 2, 'queue length');
     assert(!JSON.stringify(menu).includes('12.00'), 'watch amount stays out of this menu');
 

@@ -166,8 +166,9 @@ def test_fallback_ignores_dropped_and_acted_and_veto_emits(tmp_path: Path):
     daemon.api.note_bots()
     seen.clear()
     daemon.api.call("PerformAction", ("primary/todo-01", "done", "{}"))
-    assert _bots_signals(seen) == []
+    assert _bots_signals(seen)
     assert _rows(daemon)[0]["summary"] == "1 open ask."
+    assert _rows(daemon)[0]["open_todos"] == 1
     assert _rows(daemon)[0]["last_seen"] == int(NOW.timestamp())
 
 
@@ -236,3 +237,83 @@ def test_poll_emits_bots_from_the_feed_status(tmp_path: Path):
     assert row["last_seen"] == feed_at
     assert row["last_seen"] != item_at
     assert _bots_signals(seen)
+
+
+def test_display_names_counts_and_config_override(tmp_path: Path):
+    daemon, _seen = _boot(tmp_path)
+    assert daemon.store is not None and daemon.api is not None
+    daemon.store.replace_origin(
+        "feed/primary.json",
+        [
+            make_item(
+                title=_TITLE,
+                actions=["approve", "veto"],
+                origin="feed/primary.json",
+            )
+        ],
+        now=NOW,
+    )
+    daemon.store.replace_origin(
+        "feed/notes.json",
+        [
+            make_item(
+                id="note-01",
+                bot="notes",
+                kind="todo",
+                title="Write the note",
+                actions=["done"],
+                source={"bot": "notes"},
+                origin="feed/notes.json",
+            )
+        ],
+        now=NOW,
+    )
+    published = parse_feed_view(
+        {
+            "bot": "primary",
+            "display_name": "Desk",
+            "updated_at": "2026-10-17T12:00:00+00:00",
+            "status": {"state": "idle", "summary": "1 open ask."},
+        }
+    )
+    assert published.display_name == "Desk"
+    daemon.store.set_feed("primary", published)
+    daemon.api.note_bots()
+    rows = {row["name"]: row for row in _rows(daemon)}
+    assert rows["primary"]["display_name"] == "Desk"
+    assert rows["primary"]["open_asks"] == 1
+    assert rows["notes"]["display_name"] == "Notes"
+    assert rows["notes"]["open_todos"] == 1
+    assert rows["notes"]["name"] == "notes"
+    items = json.loads(daemon.api.call("GetItems", ('{"kinds":["ask","todo"]}',))[0])
+    labels = {row["key"]: row["display_name"] for row in items}
+    assert labels["primary/sample-01"] == "Desk"
+    assert labels["notes/note-01"] == "Notes"
+
+    reloaded = ItemStore(daemon.store.path)
+    assert reloaded.feed("primary") is not None
+    assert reloaded.feed("primary").display_name == "Desk"
+
+
+def test_config_display_name_wins_over_the_feed(tmp_path: Path):
+    text = _CONFIG.replace(
+        'webhook_slot = "primary-actions"\n',
+        'webhook_slot = "primary-actions"\ndisplay_name = "Desk"\n',
+    )
+    (tmp_path / "config.toml").write_text(text, encoding="utf-8")
+    daemon = BridgeDaemon(
+        config_path=tmp_path / "config.toml",
+        state_dir=tmp_path / "state",
+        log_stream=StringIO(),
+        clock=lambda: NOW,
+        secrets=SecretStore(MemoryBackend()),
+    )
+    daemon.start()
+    assert daemon.store is not None and daemon.api is not None
+    daemon.store.set_feed(
+        "primary",
+        parse_feed_view({"bot": "primary", "display_name": "From the feed"}),
+    )
+    daemon.api.note_bots()
+    assert _rows(daemon)[0]["display_name"] == "Desk"
+    assert _rows(daemon)[0]["name"] == "primary"

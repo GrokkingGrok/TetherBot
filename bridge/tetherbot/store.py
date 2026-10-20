@@ -27,6 +27,7 @@ _BOT = re.compile(r"[a-z0-9-]{1,64}")
 _TAG = re.compile(r"^[a-z0-9_-]{1,32}$")
 FEED_STATES = frozenset({"idle", "working", "needs_you", "error"})
 _SUMMARY_LIMIT = 200
+_NAME_LIMIT = 40
 
 
 @dataclass(frozen=True)
@@ -60,6 +61,7 @@ class FeedView:
     next_run: str | None = None
     stale: bool = False
     tag_colors: tuple[tuple[str, str], ...] = ()
+    display_name: str | None = None
 
 
 class ItemStore:
@@ -174,6 +176,22 @@ class ItemStore:
             if item.key.startswith(f"{bot}/") and _listed(item, now)
         ]
         return _count_summary(visible)
+
+    def open_counts(self, bot: str, now: datetime) -> tuple[int, int]:
+        """Visible open asks and todos for one bot. Snoozed and acted items are omitted."""
+
+        _require_aware(now)
+        asks = 0
+        todos = 0
+        prefix = f"{bot}/"
+        for item in self._items.values():
+            if not item.key.startswith(prefix) or not _listed(item, now):
+                continue
+            if item.kind == "ask":
+                asks += 1
+            elif item.kind == "todo":
+                todos += 1
+        return asks, todos
 
     def snooze(self, key: str, until: datetime, *, now: datetime) -> bool:
         _require_aware(now)
@@ -482,7 +500,46 @@ def parse_feed_view(payload: Mapping[str, object]) -> FeedView:
         last_run=last_run,
         next_run=next_run,
         tag_colors=_tag_colors(payload.get("tag_colors")),
+        display_name=_published_name(payload),
     )
+
+
+def fallback_display_name(bot_id: str) -> str:
+    """Title-case a slug when the bot has not published a name."""
+
+    parts = [part[:1].upper() + part[1:] for part in bot_id.split("-") if part]
+    return " ".join(parts) if parts else bot_id
+
+
+def resolve_display_name(bot_id: str, published: str | None, override: str | None) -> str:
+    """Config override, then the name in the feed, then the title-cased slug."""
+
+    if override:
+        return override
+    if published:
+        return published
+    return fallback_display_name(bot_id)
+
+
+def clean_display_name(value: object) -> str | None:
+    """A short label. A secret-shaped or over-long value is dropped, not stored."""
+
+    if not isinstance(value, str):
+        return None
+    text = " ".join(value.split())
+    if not text or len(text) > _NAME_LIMIT or looks_like_secret(text):
+        return None
+    return text
+
+
+def _published_name(payload: Mapping[str, object]) -> str | None:
+    published = clean_display_name(payload.get("display_name"))
+    if published is not None:
+        return published
+    bot = payload.get("bot")
+    if isinstance(bot, Mapping):
+        return clean_display_name(bot.get("display_name"))
+    return None
 
 
 def _clean_summary(value: object) -> str | None:
@@ -545,6 +602,7 @@ def _load_feeds(value: object) -> dict[str, FeedView]:
             next_run=_optional_time(raw.get("next_run")),
             stale=raw.get("stale") is True,
             tag_colors=_stored_tag_colors(raw.get("tag_colors")),
+            display_name=clean_display_name(raw.get("display_name")),
         )
     return feeds
 
@@ -565,6 +623,8 @@ def _feed_payload(view: FeedView) -> dict[str, object]:
         payload["stale"] = True
     if view.tag_colors:
         payload["tag_colors"] = [[tag, color] for tag, color in view.tag_colors]
+    if view.display_name is not None:
+        payload["display_name"] = view.display_name
     return payload
 
 

@@ -390,6 +390,7 @@ export function timerModel({
     editingStart = false,
     assigning = false,
     error = '',
+    labels = null,
 }) {
     if (!running) {
         if (activationFailed === false)
@@ -461,7 +462,9 @@ export function timerModel({
             };
         }
         const subject = timer.item_title || (timer.item_key ? 'Timer' : '');
-        const bot = timer.item_key ? String(timer.item_key).split('/')[0] : '';
+        const botIdFromTimer = timer.item_key ? String(timer.item_key).split('/')[0] : '';
+        const named = labels && botIdFromTimer ? labels.get(botIdFromTimer) : '';
+        const bot = named || botIdFromTimer;
         const actions = [timer.state === 'paused' ? 'Resume' : 'Pause', 'Stop', 'Edit start'];
         if (!timer.item_key && !assigning)
             actions.push('Add to a todo');
@@ -522,6 +525,58 @@ function bannerFor({running, activationFailed, state, reason}) {
     return reason || state;
 }
 
+const ATTENTION_STATES = new Set([
+    'needs_you',
+    'error',
+    'degraded',
+    'offline',
+    'failed_closed',
+    'unconfigured',
+    'paused',
+]);
+
+export function botLabels(bots) {
+    const labels = new Map();
+    for (const bot of bots || []) {
+        if (!bot || typeof bot.name !== 'string' || !bot.name)
+            continue;
+        const label = typeof bot.display_name === 'string' && bot.display_name
+            ? bot.display_name
+            : bot.name;
+        labels.set(bot.name, label);
+    }
+    return labels;
+}
+
+export function botNeedsAttention(row) {
+    if (!row)
+        return false;
+    if (ATTENTION_STATES.has(row.state))
+        return true;
+    return number(row.openAsks) > 0;
+}
+
+export function compactBotSection(rows) {
+    const list = Array.isArray(rows) ? rows : [];
+    if (list.length <= 1)
+        return {summary: null, rows: list};
+    const attention = list.filter(botNeedsAttention);
+    const count = attention.length;
+    let text = `${list.length} bots · all ok`;
+    let tone = 'ok';
+    if (count === 1) {
+        text = `${list.length} bots · ${attention[0].name} needs attention`;
+        tone = 'attention';
+    } else if (count > 1) {
+        text = `${list.length} bots · ${count} need attention`;
+        tone = 'attention';
+    }
+    return {
+        summary: {text, tone, open: 'bots'},
+        rows: attention,
+    };
+}
+
 export function menuModel({
     running,
     state,
@@ -540,26 +595,35 @@ export function menuModel({
         return {
             banner,
             bots: [],
+            botSummary: null,
             asks: [],
             todos: [],
             footer: null,
         };
     }
     const routes = new Map();
+    const labels = new Map();
     const botRows = [];
     for (const bot of bots || []) {
         if (!bot || typeof bot.name !== 'string' || !bot.name)
             continue;
         routes.set(bot.name, Boolean(bot.routes && bot.routes.outbound));
+        const label = typeof bot.display_name === 'string' && bot.display_name
+            ? bot.display_name
+            : bot.name;
+        labels.set(bot.name, label);
         botRows.push({
-            name: bot.display_name || bot.name,
+            name: label,
             bot: bot.name,
             state: bot.state || '',
             summary: bot.summary || '',
             lastSeen: formatLastSeen(bot.last_seen, nowMs),
             nextRun: formatNextRun(bot.next_run, nowMs),
+            openAsks: number(bot.open_asks),
+            openTodos: number(bot.open_todos),
         });
     }
+    const compact = compactBotSection(botRows);
     const asks = [];
     const todos = [];
     const timingKey = timerActive(timer) ? String(timer.item_key || '') : '';
@@ -578,6 +642,7 @@ export function menuModel({
                 key,
                 title: item.title || key || 'Ask',
                 bot,
+                botLabel: labels.get(bot) || item.display_name || bot,
                 due: item.due || '',
                 actions,
             });
@@ -587,6 +652,7 @@ export function menuModel({
                 key,
                 title: item.title || key || 'Todo',
                 bot,
+                botLabel: labels.get(bot) || item.display_name || bot,
                 due: item.due || '',
                 canSendDone: listed && routes.get(bot) === true,
                 chips: chipRow(item),
@@ -601,7 +667,8 @@ export function menuModel({
     const presented = presentTodos(todos, undoHolds, nowMs);
     return {
         banner,
-        bots: botRows,
+        bots: compact.rows,
+        botSummary: compact.summary,
         asks,
         todos: presented.todos,
         moreLabel: presented.moreLabel,
@@ -613,12 +680,13 @@ export function menuModel({
     };
 }
 
-export function notificationModel(payload, reason) {
+export function notificationModel(payload, reason, labels) {
     const item = typeof payload === 'string' ? JSON.parse(payload) : payload;
     if (!item || typeof item !== 'object')
         throw new Error('notification payload must be an object');
     const key = itemKey(item);
     const bot = botId(item);
+    const label = labels && bot ? labels.get(bot) : '';
     const listed = Array.isArray(item.actions) ? item.actions : [];
     const actions = [];
     if (reason === 're-paste' || listed.includes('request_secret')) {
@@ -641,8 +709,9 @@ export function notificationModel(payload, reason) {
     } else if (bot && reason === 'delivery_failed') {
         actions.push({id: 'open_chat', label: 'Open chat', bot});
     }
+    const title = item.title || 'TetherBot';
     return {
-        title: item.title || 'TetherBot',
+        title: label && label !== title ? `${label}: ${title}` : title,
         body: typeof item.body === 'string' ? item.body : '',
         reason: reason || '',
         actions,

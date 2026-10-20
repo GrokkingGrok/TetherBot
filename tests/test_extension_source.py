@@ -151,3 +151,14 @@ def test_disable_drops_the_proxy_and_handlers():
     assert "A1.65" in ring
     dot = (icons / "face-dot-symbolic.svg").read_text(encoding="utf-8")
     assert 'r="2.4"' in dot
+
+
+def test_the_desktop_does_not_offer_a_bot_chat_button():
+    extension = (EXTENSION / "extension.js").read_text(encoding="utf-8")
+    view = (EXTENSION / "view.js").read_text(encoding="utf-8")
+    assert "Open chat" not in extension
+    assert "Open chat" not in view
+    assert "OpenChatRemote" not in extension
+    assert "_openChat" not in extension
+    assert "botRowCall" in extension
+    assert "id: 'open_chat'" not in view

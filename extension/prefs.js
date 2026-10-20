@@ -4,6 +4,7 @@
 // bridge. This process never receives a secret and never displays one.
 
 import Adw from 'gi://Adw';
+import Gdk from 'gi://Gdk';
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import Gtk from 'gi://Gtk';
@@ -16,14 +17,29 @@ import {
     UNDO_MAX,
     UNDO_MIN,
     botChoices,
+    effectivePollSeconds,
+    effectiveUndoSeconds,
     idList,
     keyButtonLabel,
+    rememberExpansion,
+    sameBotList,
     setupSlots,
 } from './prefs_model.js';
 import {BUS_NAME, OBJECT_PATH, startServiceCall} from './view.js';
 
 export default class TetherBotPreferences extends ExtensionPreferences {
     fillPreferencesWindow(window) {
+        this._sizeWindow(window);
+        this._installSpinCss();
+        this._expandedBots = [];
+        this._botChoices = [];
+        this._spinEdited = new Set();
+        this._spins = new Map();
+        this._configPoll = null;
+        this._showingSpin = false;
+        this._userExpand = false;
+        this._applyingExpand = false;
+        this._applyingBots = false;
         let settings = null;
         try {
             settings = this.getSettings();
@@ -91,26 +107,138 @@ export default class TetherBotPreferences extends ExtensionPreferences {
         page.add(group);
     }
 
+    _sizeWindow(window) {
+        if (!window)
+            return;
+        if (typeof window.set_default_size === 'function')
+            window.set_default_size(720, 820);
+        if ('default_width' in window)
+            window.default_width = 720;
+        if ('default_height' in window)
+            window.default_height = 820;
+    }
+
+    _installSpinCss() {
+        if (this._spinCss)
+            return;
+        let display = null;
+        try {
+            display = Gdk.Display.get_default();
+        } catch (error) {
+            display = null;
+        }
+        if (!display)
+            return;
+        const css = '.tetherbot-seconds spinbutton { min-width: 8em; }';
+        const provider = new Gtk.CssProvider();
+        try {
+            if (typeof provider.load_from_string === 'function')
+                provider.load_from_string(css);
+            else
+                provider.load_from_data(new TextEncoder().encode(css));
+        } catch (error) {
+            return;
+        }
+        Gtk.StyleContext.add_provider_for_display(
+            display,
+            provider,
+            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
+        );
+        this._spinCss = provider;
+    }
+
     _spin(settings, key, title, subtitle, lower, upper, step) {
+        const adjustment = new Gtk.Adjustment({
+            lower,
+            upper,
+            step_increment: step,
+            page_increment: step * 6,
+        });
+        adjustment.lower = lower;
+        adjustment.upper = upper;
+        adjustment.step_increment = step;
+        const shown = this._secondsFor(key);
+        adjustment.value = shown;
         const row = new Adw.SpinRow({
             title,
             subtitle,
-            adjustment: new Gtk.Adjustment({
-                value: settings.get_int(key),
-                lower,
-                upper,
-                step_increment: step,
-            }),
+            adjustment,
+            css_classes: ['tetherbot-seconds'],
         });
         if (typeof row.set_digits === 'function')
             row.set_digits(0);
+        this._widenSpin(row);
+        this._showSpin(row, shown);
+        this._spins.set(key, row);
         row.adjustment.connect('value-changed', () => {
+            if (this._showingSpin)
+                return;
             const value = Math.round(row.adjustment.value);
+            if (value <= 0)
+                return;
+            this._spinEdited.add(key);
             if (settings.get_int(key) !== value)
                 settings.set_int(key, value);
             this._reloadBridge();
         });
         return row;
+    }
+
+    _secondsFor(key) {
+        const stored = this._userSeconds(key);
+        if (key === 'poll-seconds')
+            return effectivePollSeconds(stored, this._configPoll);
+        return effectiveUndoSeconds(stored);
+    }
+
+    _userSeconds(key) {
+        const settings = this._settings;
+        if (!settings || typeof settings.get_user_value !== 'function')
+            return null;
+        let variant = null;
+        try {
+            variant = settings.get_user_value(key);
+        } catch (error) {
+            variant = null;
+        }
+        if (!variant)
+            return null;
+        let value = null;
+        try {
+            value = typeof variant.unpack === 'function' ? variant.unpack() : null;
+        } catch (error) {
+            value = null;
+        }
+        if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0)
+            return null;
+        return value;
+    }
+
+    _showSpin(row, value) {
+        this._showingSpin = true;
+        try {
+            if (typeof row.set_value === 'function')
+                row.set_value(value);
+            else if (row.adjustment)
+                row.adjustment.value = value;
+        } finally {
+            this._showingSpin = false;
+        }
+    }
+
+    _widenSpin(row) {
+        const visit = widget => {
+            if (!widget)
+                return;
+            if (widget instanceof Gtk.SpinButton && typeof widget.set_width_chars === 'function')
+                widget.set_width_chars(4);
+            let child = typeof widget.get_first_child === 'function' ? widget.get_first_child() : null;
+            while (child) {
+                visit(child);
+                child = typeof child.get_next_sibling === 'function' ? child.get_next_sibling() : null;
+            }
+        };
+        visit(row);
     }
 
     _startBridge() {
@@ -180,7 +308,16 @@ export default class TetherBotPreferences extends ExtensionPreferences {
                 return;
             }
             this._fillKeys(setupSlots(payload));
-            this._fillBots(botChoices(
+            const configPoll = payload && typeof payload.poll_seconds === 'number'
+                ? payload.poll_seconds
+                : null;
+            if (configPoll !== this._configPoll) {
+                this._configPoll = configPoll;
+                const poll = this._spins.get('poll-seconds');
+                if (poll && !this._spinEdited.has('poll-seconds'))
+                    this._showSpin(poll, this._secondsFor('poll-seconds'));
+            }
+            this._applyBots(botChoices(
                 payload && Array.isArray(payload.bots) ? payload.bots : [],
                 this._settings.get_strv('hidden-bots'),
                 this._settings.get_strv('muted-bots'),
@@ -222,6 +359,7 @@ export default class TetherBotPreferences extends ExtensionPreferences {
         const row = new Adw.ActionRow({title: text});
         this._keys.add(row);
         this._keyRows.push(row);
+        this._botChoices = [];
         this._clear(this._bots, this._botRows);
         const bots = new Adw.ActionRow({
             title: 'Bot list needs the bridge',
@@ -231,7 +369,26 @@ export default class TetherBotPreferences extends ExtensionPreferences {
         this._botRows.push(bots);
     }
 
+    _applyBots(bots) {
+        if (sameBotList(this._botChoices, bots) && this._botRows.some(row => row._botName)) {
+            this._retitleBots(bots);
+            return;
+        }
+        this._fillBots(bots);
+    }
+
+    _retitleBots(bots) {
+        const titles = new Map(bots.map(bot => [bot.name, bot.displayName]));
+        for (const row of this._botRows) {
+            const title = titles.get(row._botName);
+            if (title && row.title !== title)
+                row.title = title;
+        }
+    }
+
     _fillBots(bots) {
+        this._applyingBots = true;
+        this._botChoices = bots.map(bot => ({name: bot.name, displayName: bot.displayName}));
         this._clear(this._bots, this._botRows);
         if (!bots.length) {
             const empty = new Adw.ActionRow({
@@ -240,17 +397,28 @@ export default class TetherBotPreferences extends ExtensionPreferences {
             });
             this._bots.add(empty);
             this._botRows.push(empty);
+            this._applyingBots = false;
             return;
         }
         const hidden = new Set(this._settings.get_strv('hidden-bots'));
         const muted = new Set(this._settings.get_strv('muted-bots'));
+        const expanded = new Set(this._expandedBots);
         for (const bot of bots) {
-            const block = new Adw.ExpanderRow({title: bot.displayName});
+            const block = new Adw.ExpanderRow({
+                title: bot.displayName,
+                expanded: expanded.has(bot.name),
+            });
+            block._botName = bot.name;
+            if ('selectable' in block)
+                block.selectable = false;
+            this._keepExpanded(block, bot.name);
             const show = new Adw.SwitchRow({
                 title: 'Show in the popup and the window',
                 active: !hidden.has(bot.name),
             });
             show.connect('notify::active', () => {
+                if (this._applyingBots)
+                    return;
                 this._settings.set_strv('hidden-bots', idList(
                     this._settings.get_strv('hidden-bots'),
                     bot.name,
@@ -263,6 +431,8 @@ export default class TetherBotPreferences extends ExtensionPreferences {
                 active: !muted.has(bot.name),
             });
             notify.connect('notify::active', () => {
+                if (this._applyingBots)
+                    return;
                 this._settings.set_strv('muted-bots', idList(
                     this._settings.get_strv('muted-bots'),
                     bot.name,
@@ -275,6 +445,69 @@ export default class TetherBotPreferences extends ExtensionPreferences {
             this._bots.add(block);
             this._botRows.push(block);
         }
+        this._applyingBots = false;
+    }
+
+    _keepExpanded(row, name) {
+        const note = () => {
+            this._userExpand = true;
+            this._expandedBots = rememberExpansion(this._expandedBots, name, Boolean(row.expanded));
+            this._userExpand = false;
+        };
+        const header = this._expanderHeader(row);
+        const markUser = () => {
+            GLib.idle_add(GLib.PRIORITY_DEFAULT, () => {
+                note();
+                return GLib.SOURCE_REMOVE;
+            });
+        };
+        if (header) {
+            try {
+                header.connect('activated', markUser);
+            } catch (error) {
+                row.connect('activate', markUser);
+            }
+        } else {
+            row.connect('activate', markUser);
+        }
+        row.connect('notify::expanded', () => {
+            if (this._userExpand || this._applyingExpand)
+                return;
+            const want = (this._expandedBots || []).includes(name);
+            if (row.expanded === want)
+                return;
+            GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
+                if (this._userExpand)
+                    return GLib.SOURCE_REMOVE;
+                const still = (this._expandedBots || []).includes(name);
+                if (row.expanded !== still) {
+                    this._applyingExpand = true;
+                    row.expanded = still;
+                    this._applyingExpand = false;
+                }
+                return GLib.SOURCE_REMOVE;
+            });
+        });
+    }
+
+    _expanderHeader(row) {
+        let found = null;
+        const visit = widget => {
+            if (!widget || found)
+                return;
+            const classes = typeof widget.get_css_classes === 'function'
+                ? widget.get_css_classes()
+                : [];
+            if (widget !== row && classes.includes('header'))
+                found = widget;
+            let child = typeof widget.get_first_child === 'function' ? widget.get_first_child() : null;
+            while (child && !found) {
+                visit(child);
+                child = typeof child.get_next_sibling === 'function' ? child.get_next_sibling() : null;
+            }
+        };
+        visit(row);
+        return found;
     }
 
     _requestKeys(slot) {

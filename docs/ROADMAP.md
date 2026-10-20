@@ -42,7 +42,7 @@ TetherBot is pre-alpha. Check items off as they land. Design detail is in [SPEC.
 - [x] `tools/feed_write.py` gains tags, priority, owner, waiting-on, body-file, edit, and tag-color
 - [x] TetherBot window (GTK4 and libadwaita): list, detail Markdown, `.desktop` file, and `OpenWindow`
 - [x] Popup: chips, search, at most 8 todos, Open TetherBot, and a 5-second Undo
-- [ ] Manual checks M18–M41 for the rich todo view, login start, window open, and the stopwatch. Login start and non-blocking window open are on main (#22, #23). M37–M41 cover the minute top-bar format, edit start, the window close button, attaching time, and a stopped timer that stays until assign or dismiss. The steps are in [MANUAL-CHECKS.md](MANUAL-CHECKS.md). They have not been run on the desktop yet.
+- [ ] Manual checks M18–M42 for the rich todo view, login start, window open, and the stopwatch. Login start and non-blocking window open are on main (#22, #23). M37–M42 cover the minute top-bar format, edit start, the window close button, attaching time, and a stopped timer that stays until assign or dismiss. The steps are in [MANUAL-CHECKS.md](MANUAL-CHECKS.md). They have not been run on the desktop yet.
 
 ## v0.2 — early adopters
 

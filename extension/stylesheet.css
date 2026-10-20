@@ -73,6 +73,21 @@
     background-color: rgba(53, 132, 228, 0.16);
 }
 
+.tetherbot-edit-row {
+    spacing: 4px;
+}
+
+.tetherbot-edit-entry {
+    width: 5.2em;
+}
+
+.tetherbot-icon-button {
+    min-width: 1.8em;
+    min-height: 1.8em;
+    padding: 2px;
+    border-radius: 999px;
+}
+
 .tetherbot-subtle {
     font-size: 0.85em;
 }

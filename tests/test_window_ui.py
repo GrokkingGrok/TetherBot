@@ -156,16 +156,21 @@ def _exercise_window(app, fake, opened, holder, gdk, glib, gtk, render, apply_ru
             assert fake.undone == ["primary/one"]
             window._ask_current()
             assert fake.notes == ["primary/one"]
-            assert window.close_detail.get_visible()
-            assert not window.close_sidebar.get_visible()
+            width, height = window.get_default_size()
+            assert width >= 1200 and height >= 760
+            request_width, request_height = window.get_size_request()
+            assert request_width >= 1100 and request_height >= 640
+            assert window.toolbar.get_content() is window.toasts
+            assert window.get_titlebar() is not window.detail_header
+            assert window.titlebar.get_show_end_title_buttons()
+            assert not window.detail_header.get_show_end_title_buttons()
+            assert not window.detail_header.get_show_start_title_buttons()
+            assert not window.detail_header.get_visible()
             window.split.set_collapsed(True)
             assert window.back.get_visible()
-            window.split.set_show_content(True)
-            assert window.close_detail.get_visible()
-            assert not window.close_sidebar.get_visible()
-            window.split.set_show_content(False)
-            assert window.close_sidebar.get_visible()
-            assert not window.close_detail.get_visible()
+            assert window.detail_header.get_visible()
+            window.split.set_collapsed(False)
+            assert not window.detail_header.get_visible()
             window.search.set_text("keep")
             closed: list[bool] = []
             window.close = lambda: closed.append(True)
@@ -443,6 +448,90 @@ def _exercise_edit(app, fake, holder, glib) -> None:
             dismiss.emit("clicked")
             assert fake.dismissed == 3
             assert not window.timer_box.get_visible()
+            holder["ok"] = True
+        except Exception as exc:
+            holder["error"] = exc
+        app.quit()
+        return False
+
+    app.connect("activate", lambda _app: glib.idle_add(finish))
+    glib.timeout_add(8000, app.quit)
+    app.run(["tetherbot-window"])
+
+
+class _StoreTimer(_Fake):
+    """The window click talks to a real timer file, not a stub that only records."""
+
+    def __init__(self, store) -> None:
+        super().__init__()
+        self.store = store
+
+    def get_timer(self):
+        return self.store.view()
+
+    def attach_timer(self, key):
+        title = next((item["title"] for item in self.items if item["key"] == key), "")
+        return self.store.attach(key, title)
+
+    def start_timer(self, key):
+        title = next((item["title"] for item in self.items if item["key"] == key), "")
+        return self.store.start(key, title)
+
+
+def test_attach_button_click_writes_the_timer(tmp_path):
+    gi = pytest.importorskip("gi")
+    try:
+        gi.require_version("Gtk", "4.0")
+        gi.require_version("Adw", "1")
+        from gi.repository import GLib
+    except ValueError as exc:
+        pytest.skip(str(exc))
+    if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
+        pytest.skip("GTK window test needs a display")
+
+    try:
+        from tetherbot.timer import TimerStore
+        from tetherbot.window import WindowApp
+
+        store = TimerStore(tmp_path)
+        store.start("", "")
+        store.stop()
+        fake = _StoreTimer(store)
+        app = WindowApp(client=fake)
+        holder: dict = {}
+        _exercise_attach_click(app, fake, holder, GLib)
+    finally:
+        reset_tetherbot_logger()
+    if "error" in holder:
+        raise holder["error"]
+    assert holder.get("ok") is True
+
+
+def _exercise_attach_click(app, fake, holder, glib) -> None:
+    def finish():
+        try:
+            window = app.window
+            assert window is not None
+            window.select_key("primary/one")
+            assert window.timer_label.get_label().startswith("Stopped, unassigned")
+            assert window.attach_button.get_visible()
+            window.attach_button.emit("clicked")
+            assert fake.store.view()["state"] == "idle"
+            assert not (fake.store.path).exists()
+            assert not window.timer_box.get_visible()
+            assert not window.attach_button.get_visible()
+            fake.store.start("", "")
+            window._request_timer()
+            assert window.attach_button.get_visible()
+            window.attach_button.emit("clicked")
+            saved = fake.store.view()
+            assert saved["state"] == "running"
+            assert saved["item_key"] == "primary/one"
+            assert saved["item_title"] == "Pack the bag"
+            assert "Pack the bag" in window.timer_label.get_label()
+            assert _has_label(window.list, "Timing")
+            assert not window.attach_button.get_visible()
+            assert window.start_button.get_label() == "Timing"
             holder["ok"] = True
         except Exception as exc:
             holder["error"] = exc

@@ -788,10 +788,6 @@ export function notificationModel(payload, reason, labels) {
             actions.push({id: 'snooze-hour', label: 'Snooze 1 h', key});
             actions.push({id: 'snooze-tomorrow', label: 'Snooze until tomorrow', key});
         }
-        if (bot)
-            actions.push({id: 'open_chat', label: 'Open chat', bot});
-    } else if (bot && reason === 'delivery_failed') {
-        actions.push({id: 'open_chat', label: 'Open chat', bot});
     }
     const title = item.title || 'TetherBot';
     return {
@@ -808,6 +804,10 @@ export function performCall(action, key) {
 
 export function openWindowCall(key) {
     return {method: 'OpenWindow', args: [typeof key === 'string' ? key : '']};
+}
+
+export function botRowCall() {
+    return openWindowCall('bots');
 }
 
 export function undoCall(key) {

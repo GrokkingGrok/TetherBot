@@ -669,7 +669,16 @@ class BridgeApi:
                 keyring = str(secrets.status())
             except Exception:
                 keyring = "missing"
-        return (_dumps({"bots": bots, "keyring": keyring, "slots": slots}),)
+        return (
+            _dumps(
+                {
+                    "bots": bots,
+                    "keyring": keyring,
+                    "slots": slots,
+                    "poll_seconds": self._config_poll_seconds(),
+                }
+            ),
+        )
 
     def _reload_settings(self) -> None:
         """Tell clients to read bots and counts again after a settings change."""
@@ -683,6 +692,24 @@ class BridgeApi:
 
     def _hidden_bots(self) -> frozenset[str]:
         return self._ui().hidden_bots
+
+    def _config_poll_seconds(self) -> int | None:
+        """The feed interval from config.toml, or null when it is unset.
+
+        This is not a secret. The prefs window uses it when the user has
+        not saved a poll interval of their own.
+        """
+
+        config = self._daemon.config
+        if config is None:
+            return None
+        row = config.adapters.get("github-poller")
+        if row is None or row.poll_seconds is None:
+            return None
+        value = row.poll_seconds
+        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+            return None
+        return value
 
     def _slot_stored(self, kind: str, slot: str) -> bool:
         """True when the slot has a secret. The value stays in the bridge."""

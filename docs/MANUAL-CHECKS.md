@@ -426,7 +426,7 @@ git -C ~/.local/share/tetherbot/repos/REPOSITORY remote get-url origin
 - `remote get-url` prints the plain https URL. The token is not in it.
 - If status stays `degraded` on every poll, the reason is `ls-remote failed: auth` or `ls-remote failed: network`. The journal line is the same short reason. It does not include git's output or the token. `auth` means the helper could not supply the token (the configured path, the keyring, or the helper install). `network` means git could not reach the remote.
 - Within one poll interval (120 seconds unless you set a shorter `poll_seconds`, minimum 60), the popup lists the sample ask.
-- Commit a new item, or set `"notify": true` on a new item, in `feed/<bot>.json` and push it with your own git (not by putting the token in the remote). Within one poll, one notification appears. **Approve**, **Veto**, **Snooze**, and **Open chat** work when the item lists those actions. Snooze stays on this machine. Open chat launches Grok Bot when a desktop entry exists. The deep link to one chat is still **TBD, verify**.
+- Commit a new item, or set `"notify": true` on a new item, in `feed/<bot>.json` and push it with your own git (not by putting the token in the remote). Within one poll, one notification appears. **Approve**, **Veto**, and **Snooze** work when the item lists those actions. Snooze stays on this machine. The notification has no Open chat button. A deep link to one bot chat is still an open item.
 
 **Reset.** Leave the repository configured if you are going on to M11. To stop polling, `tetherbotctl disable repo`.
 

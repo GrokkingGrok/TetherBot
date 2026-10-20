@@ -72,7 +72,7 @@ One model covers every kind.
 | `estimate_min` | int 1 to 480 | Optional |
 | `todo_kind` | `task` or `bill` | Optional, `todo` items only |
 | `amount` | string, up to 20 characters | Bills and watch items only. Display text such as `"~$10"`. Never an account number. |
-| `actions` | array | Subset of `approve`, `veto`, `done`, `snooze`, `open_chat`. The extension shows only these. |
+| `actions` | array | Subset of `approve`, `veto`, `done`, `snooze`, `open_chat`. The extension shows the first four when they are listed. `open_chat` may be listed; the desktop does not show it until a deep link to that bot's chat exists. |
 | `notify` | bool | The bot asks the desktop to notify on first sight or on change |
 | `expires_at` | ISO 8601 | Optional. After it, the bridge marks the item `expired` locally |
 | `source` | `{bot, routine?}` | Required. `bot` matches the feed file's `bot` |

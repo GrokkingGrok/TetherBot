@@ -9,6 +9,46 @@ export const UNDO_MIN = 2;
 export const UNDO_MAX = 30;
 export const UNDO_DEFAULT = 5;
 
+function positive(value) {
+    return typeof value === 'number' && Number.isFinite(value) && value > 0;
+}
+
+function clampSeconds(value, lower, upper, fallback) {
+    if (!positive(value))
+        return fallback;
+    return Math.min(upper, Math.max(lower, Math.round(value)));
+}
+
+export function effectivePollSeconds(stored, config) {
+    if (positive(stored))
+        return clampSeconds(stored, POLL_MIN, POLL_MAX, POLL_DEFAULT);
+    if (positive(config))
+        return clampSeconds(config, POLL_MIN, POLL_MAX, POLL_DEFAULT);
+    return POLL_DEFAULT;
+}
+
+export function effectiveUndoSeconds(stored) {
+    if (positive(stored))
+        return clampSeconds(stored, UNDO_MIN, UNDO_MAX, UNDO_DEFAULT);
+    return UNDO_DEFAULT;
+}
+
+export function sameBotList(current, next) {
+    const names = rows => (rows || [])
+        .map(row => (row && typeof row.name === 'string' ? row.name : ''))
+        .join('\0');
+    return names(current) === names(next);
+}
+
+export function rememberExpansion(open, name, choice) {
+    const next = new Set((open || []).filter(item => typeof item === 'string' && item));
+    if (choice === true && typeof name === 'string' && name)
+        next.add(name);
+    else if (choice === false)
+        next.delete(name);
+    return [...next].sort();
+}
+
 export function keyButtonLabel(stored) {
     return stored ? 'Replace keys…' : 'Set up keys…';
 }

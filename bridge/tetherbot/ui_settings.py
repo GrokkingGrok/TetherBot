@@ -43,20 +43,48 @@ class UiSettings:
         object.__setattr__(self, "hidden_bots", bot_set(self.hidden_bots))
 
 
-def clamp_poll_seconds(value: object) -> int:
-    """Keep a poll interval inside 60 to 900 seconds. Anything else is 120."""
+def _positive_int(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value > 0
 
-    if isinstance(value, bool) or not isinstance(value, int):
+
+def clamp_poll_seconds(value: object) -> int:
+    """Keep a poll interval inside 60 to 900 seconds.
+
+    A non-positive value is unset and becomes 120, not the minimum.
+    """
+
+    if not _positive_int(value):
         return POLL_DEFAULT
-    return min(POLL_MAX, max(POLL_MIN, value))
+    return min(POLL_MAX, max(POLL_MIN, int(value)))
 
 
 def clamp_undo_seconds(value: object) -> int:
-    """Keep an undo window inside 2 to 30 seconds. Anything else is 5."""
+    """Keep an undo window inside 2 to 30 seconds.
 
-    if isinstance(value, bool) or not isinstance(value, int):
+    A non-positive value is unset and becomes 5, not the minimum.
+    """
+
+    if not _positive_int(value):
         return UNDO_DEFAULT
-    return min(UNDO_MAX, max(UNDO_MIN, value))
+    return min(UNDO_MAX, max(UNDO_MIN, int(value)))
+
+
+def effective_poll_seconds(stored: object, config: object) -> int:
+    """A saved positive interval, else config.toml, else 120. Never 0."""
+
+    if _positive_int(stored):
+        return clamp_poll_seconds(stored)
+    if _positive_int(config):
+        return clamp_poll_seconds(config)
+    return POLL_DEFAULT
+
+
+def effective_undo_seconds(stored: object) -> int:
+    """A saved positive undo length, else 5. Never 0."""
+
+    if _positive_int(stored):
+        return clamp_undo_seconds(stored)
+    return UNDO_DEFAULT
 
 
 def bot_set(values: object) -> frozenset[str]:
@@ -90,11 +118,12 @@ def load_ui_settings(schema_dir: Path | None = None) -> UiSettings:
         return UiSettings()
     if settings is None:
         return UiSettings()
-    poll_set = settings.get_user_value("poll-seconds") is not None
+    poll_user = _user_int(settings, "poll-seconds")
+    undo_user = _user_int(settings, "undo-seconds")
     return UiSettings(
-        poll_seconds=clamp_poll_seconds(int(settings.get_int("poll-seconds"))),
-        poll_set=poll_set,
-        undo_seconds=clamp_undo_seconds(int(settings.get_int("undo-seconds"))),
+        poll_seconds=poll_user if poll_user is not None else POLL_DEFAULT,
+        poll_set=poll_user is not None,
+        undo_seconds=undo_user if undo_user is not None else UNDO_DEFAULT,
         muted_bots=bot_set(list(settings.get_strv("muted-bots"))),
         hidden_bots=bot_set(list(settings.get_strv("hidden-bots"))),
     )
@@ -128,6 +157,21 @@ def notice_bot(item_json: str) -> str:
         if isinstance(named, str) and _BOT.fullmatch(named):
             return named
     return ""
+
+
+def _user_int(settings: object, key: str) -> int | None:
+    """A positive user-set integer. The schema default and 0 are unset."""
+
+    variant = settings.get_user_value(key)
+    if variant is None:
+        return None
+    try:
+        value = variant.unpack()
+    except Exception:
+        return None
+    if not _positive_int(value):
+        return None
+    return int(value)
 
 
 def _gio_settings(directory: Path) -> object | None:

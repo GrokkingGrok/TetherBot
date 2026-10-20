@@ -325,6 +325,7 @@ def test_settings_hide_bots_and_keys_stay_off_the_bus(tmp_path: Path):
     assert token["stored"] is False
     assert "key" not in primary
     assert "url" not in primary
+    assert setup["poll_seconds"] is None
 
     daemon.ui_settings = UiSettings(hidden_bots=frozenset({"notes"}))
     items = json.loads(api.call("GetItems", ("{}",))[0])
@@ -350,6 +351,25 @@ def test_settings_hide_bots_and_keys_stay_off_the_bus(tmp_path: Path):
     daemon.launch_secret_dialog = lambda slot: opened.append(slot) or True
     assert api.call("RequestSecretEntry", ("primary-actions",)) == (True,)
     assert opened == ["primary-actions"]
+
+
+def test_setup_reports_the_configured_poll_interval(tmp_path: Path):
+    daemon, _seen = _api(
+        tmp_path,
+        "\n".join(
+            [
+                'schema = "tetherbot/1"',
+                "[bridge]",
+                'mode = "webhook-only"',
+                "[adapters.github-poller]",
+                "enabled = false",
+                "poll_seconds = 180",
+            ]
+        ),
+    )
+    assert daemon.api is not None
+    setup = json.loads(daemon.api.call("GetSetup", ())[0])
+    assert setup["poll_seconds"] == 180
 
 
 def test_missing_config_cannot_enable_an_adapter(tmp_path: Path):

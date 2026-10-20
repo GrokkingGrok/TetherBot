@@ -4,7 +4,6 @@
 // session bus. Do not import Soup, open a socket, spawn a network process,
 // or store a secret here.
 
-import Cairo from 'gi://cairo';
 import Clutter from 'gi://Clutter';
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
@@ -23,8 +22,6 @@ import {
     OBJECT_PATH,
     PROXY_SIGNALS,
     ACTIVATE_RETRY_MS,
-    BADGE,
-    FACE,
     dueUndoKeys,
     nextUndoDelay,
     shareUndoWindow,
@@ -99,14 +96,12 @@ export default class TetherBotExtension extends Extension {
             style_class: 'panel-status-menu-box',
             x_expand: false,
         });
-        this._icon = new St.DrawingArea({
+        this._icon = new St.Icon({
             style_class: 'system-status-icon tetherbot-indicator tetherbot-dimmed',
             y_align: Clutter.ActorAlign.CENTER,
             x_align: Clutter.ActorAlign.CENTER,
         });
-        this._badge = 'base';
-        this._icon.connect('repaint', area => this._repaintFace(area));
-        this._icon.connect('style-changed', () => this._syncIcon(this._badge));
+        this._badge = '';
         this._pause = new St.BoxLayout({
             style_class: 'tetherbot-pause',
             visible: false,
@@ -621,76 +616,16 @@ export default class TetherBotExtension extends Extension {
         }
     }
 
-    _panelIconSize() {
-        const node = this._icon && this._icon.get_theme_node ? this._icon.get_theme_node() : null;
-        if (node && node.lookup_length) {
-            try {
-                const found = node.lookup_length('icon-size', true);
-                const length = Array.isArray(found) ? found[1] : found;
-                const ok = Array.isArray(found) ? found[0] : length > 0;
-                if (ok && length > 0)
-                    return length;
-            } catch (error) {
-                console.debug('TetherBot: icon size fell back to 16');
-            }
-        }
-        return 16;
-    }
-
     _syncIcon(kind) {
         if (!this._icon)
             return;
         const badge = kind || 'base';
-        const size = this._panelIconSize();
-        const badgeChanged = badge !== this._badge;
-        const sizeChanged = size !== this._drawnSize;
-        this._badge = badge;
-        this._drawnSize = size;
-        if (sizeChanged) {
-            this._icon.width = size;
-            this._icon.height = size;
-        }
-        if (badgeChanged)
-            this._icon.queue_repaint();
-    }
-
-    _repaintFace(area) {
-        const cr = area.get_context();
-        try {
-            const [width, height] = area.get_surface_size();
-            const node = area.get_theme_node();
-            const color = node && node.get_foreground_color ? node.get_foreground_color() : null;
-            this._drawFace(cr, width, height, color);
-        } finally {
-            cr.$dispose();
-        }
-    }
-
-    _drawFace(cr, width, height, color) {
-        const unit = Math.min(width, height) / FACE.size;
-        if (!(unit > 0))
+        if (this._badge === badge && this._icon.gicon)
             return;
-        const fade = this._badge === 'slash' ? 0.45 : 1;
-        cr.save();
-        cr.scale(unit, unit);
-        cr.pushGroup();
-        if (applyThemeForeground(cr, color)) {
-            strokeRoundRect(cr, FACE.outline);
-            cr.setLineWidth(FACE.smile.width);
-            cr.setLineCap(Cairo.LineCap.ROUND);
-            smile(cr, FACE.smile);
-            cr.stroke();
-            for (const eye of FACE.eyes) {
-                cr.arc(eye.cx, eye.cy, eye.r, 0, Math.PI * 2);
-                cr.fill();
-            }
-        }
-        cr.popGroupToSource();
-        cr.paintWithAlpha(fade);
-        const badge = BADGE[this._badge];
-        if (badge)
-            paintBadge(cr, this._badge, badge);
-        cr.restore();
+        this._badge = badge;
+        const name = badge === 'base' ? 'face-symbolic.svg' : `face-${badge}-symbolic.svg`;
+        const file = this.dir.get_child(`icons/${name}`);
+        this._icon.gicon = Gio.FileIcon.new(file);
     }
 
     _syncTick(view) {
@@ -1693,86 +1628,4 @@ function unpackCounts(value) {
     if (typeof value.deepUnpack === 'function')
         return value.deepUnpack();
     return value;
-}
-
-function applyThemeForeground(cr, color) {
-    if (!color || typeof cr.setSourceColor !== 'function')
-        return false;
-    cr.setSourceColor(color);
-    return true;
-}
-
-function strokeRoundRect(cr, box) {
-    const x = box.x;
-    const y = box.y;
-    const w = box.w;
-    const h = box.h;
-    const r = Math.min(box.radius, w / 2, h / 2);
-    cr.newPath();
-    cr.arc(x + w - r, y + r, r, -Math.PI / 2, 0);
-    cr.arc(x + w - r, y + h - r, r, 0, Math.PI / 2);
-    cr.arc(x + r, y + h - r, r, Math.PI / 2, Math.PI);
-    cr.arc(x + r, y + r, r, Math.PI, Math.PI * 1.5);
-    cr.closePath();
-    cr.setLineWidth(box.width);
-    cr.setLineJoin(Cairo.LineJoin.ROUND);
-    cr.setLineCap(Cairo.LineCap.ROUND);
-    cr.stroke();
-}
-
-function smile(cr, curve) {
-    const c1x = curve.x1 + (2 / 3) * (curve.cx - curve.x1);
-    const c1y = curve.y1 + (2 / 3) * (curve.cy - curve.y1);
-    const c2x = curve.x2 + (2 / 3) * (curve.cx - curve.x2);
-    const c2y = curve.y2 + (2 / 3) * (curve.cy - curve.y2);
-    cr.newPath();
-    cr.moveTo(curve.x1, curve.y1);
-    cr.curveTo(c1x, c1y, c2x, c2y, curve.x2, curve.y2);
-}
-
-function paintBadge(cr, kind, badge) {
-    if (badge.cut) {
-        cr.setOperator(Cairo.Operator.CLEAR);
-        cr.arc(badge.cx, badge.cy, badge.cut, 0, Math.PI * 2);
-        cr.fill();
-        cr.setOperator(Cairo.Operator.OVER);
-    }
-    const color = badge.color || [0.9, 0.2, 0.2, 1];
-    cr.setSourceRGBA(color[0], color[1], color[2], color[3]);
-    if (kind === 'dot') {
-        cr.arc(badge.cx, badge.cy, badge.r, 0, Math.PI * 2);
-        cr.fill();
-        return;
-    }
-    if (kind === 'ring') {
-        cr.setLineWidth(badge.width);
-        cr.arc(badge.cx, badge.cy, badge.r, 0, Math.PI * 2);
-        cr.stroke();
-        return;
-    }
-    if (kind === 'slash') {
-        cr.setLineWidth(badge.width);
-        cr.setLineCap(Cairo.LineCap.ROUND);
-        cr.moveTo(badge.x1, badge.y1);
-        cr.lineTo(badge.x2, badge.y2);
-        cr.stroke();
-        return;
-    }
-    if (kind === 'triangle') {
-        const [a, b, c] = badge.points;
-        cr.moveTo(a[0], a[1]);
-        cr.lineTo(b[0], b[1]);
-        cr.lineTo(c[0], c[1]);
-        cr.closePath();
-        cr.fill();
-        cr.setOperator(Cairo.Operator.CLEAR);
-        cr.setLineWidth(badge.bang.width);
-        cr.setLineCap(Cairo.LineCap.ROUND);
-        cr.moveTo(badge.bang.x, badge.bang.y1);
-        cr.lineTo(badge.bang.x, badge.bang.y2);
-        cr.stroke();
-        cr.arc(badge.bang.x, badge.bang.dotY, badge.bang.r, 0, Math.PI * 2);
-        cr.fill();
-        cr.setOperator(Cairo.Operator.OVER);
-    }
 }

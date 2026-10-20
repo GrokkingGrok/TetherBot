@@ -28,8 +28,6 @@ import {
     timerModel,
     compactBotSection,
     menuModel,
-    BADGE,
-    FACE,
     dueUndoKeys,
     nextUndoDelay,
     notificationModel,
@@ -487,10 +485,6 @@ export function runViewChecks() {
         ['a'],
     );
     assert(hidden.todos.map(row => row.key).join(',') === 'c', 'a sent row stays out of the list');
-    assert(FACE.eyes.length === 2, 'two eyes');
-    assert(FACE.eyes[0].r >= 1.5 && FACE.eyes[1].r >= 1.5, 'eyes stay large enough to see');
-    assert(FACE.outline.width >= 1.4, 'the face is an outline');
-    assert(BADGE.dot.color[2] > BADGE.dot.color[0], 'the dot keeps its accent');
 
     const filtered = JSON.parse(todoFilter(' @home due:today '));
     assert(filtered.kinds.join(',') === 'todo', 'search stays on todos');

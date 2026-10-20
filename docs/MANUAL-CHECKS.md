@@ -2,7 +2,7 @@
 
 Run these on one Fedora 44 desktop with GNOME Shell 50 on Wayland, after you can log in as a normal user. The project is unofficial and not affiliated with xAI.
 
-**Out of scope here:** M9 (webhook-only popup copy), M15 and M16 (a legacy todo sink outside this repository), and M17 (the full uninstall acceptance check). Uninstall is still documented in [SETUP.md](SETUP.md) and is the reset for M1. M18–M24 are the rich-todo checks later in this file. M25 checks that a new login starts the bridge. M26 checks that a todo click opens the window quickly. M27–M42 check the stopwatch. M43–M47 check more than one bot, display names, the compact Bots section, and the popup order. M48–M54 check an optional webhook slot, Sync now, the timer chip, toolbar colors, summary contrast, the bot-row dot and summary, and local dates. M55–M57 check the timer chip on the left, the top-bar width, and a window that updates while it stays open. M58–M64 check the panel icon, Undo, bot order, and a shared webhook slot. Do not treat M9, M15, M16, or M17 as part of the v0.1 runbook.
+**Out of scope here:** M9 (webhook-only popup copy), M15 and M16 (a legacy todo sink outside this repository), and M17 (the full uninstall acceptance check). Uninstall is still documented in [SETUP.md](SETUP.md) and is the reset for M1. M18–M24 are the rich-todo checks later in this file. M25 checks that a new login starts the bridge. M26 checks that a todo click opens the window quickly. M27–M42 check the stopwatch. M43–M47 check more than one bot, display names, the compact Bots section, and the popup order. M48–M54 check an optional webhook slot, Sync now, the timer chip, toolbar colors, summary contrast, the bot-row dot and summary, and local dates. M55–M57 check the timer chip on the left, the top-bar width, and a window that updates while it stays open. M58 and M62 passed on the desktop: the panel icon matches the shell's icon size, and the primary bot stays first. M59–M61 are replaced by M65–M68, which check a face in the shell's status-icon color, eyes that stay visible, Done sending when the shared bar ends, and one batch per menu. M63 and M64 check a shared webhook slot and a missing secret. Do not treat M9, M15, M16, or M17 as part of the v0.1 runbook.
 
 Examples use the bot id `primary`. Yours can be any lowercase id of letters, digits, and hyphens. Use the same id in the bot's feed file, in `config.toml`, and in the commands below.
 
@@ -10,7 +10,7 @@ Nothing in these steps belongs in a chat, in `config.toml`, or in this repositor
 
 ## Suggested order
 
-M1, M2, then the extension install in M14 (log out and back in once), then M3. Do M10 before M4 if the popup has no ask yet. Then M4, M10a, M5, M11, M6, M7, M8, M12, M13. After a rich todo is in the feed, M18 through M24. M25 is the next login after the unit is installed. M26 is a todo click after that. M27 through M42 need a running timer. M43 through M47 need this version installed and a log out, then a second feed file. M48 through M54 need that same login. M55 through M57 need the next install and a log out. M58 through M64 need the install after that, and a log out so the panel icon reloads.
+M1, M2, then the extension install in M14 (log out and back in once), then M3. Do M10 before M4 if the popup has no ask yet. Then M4, M10a, M5, M11, M6, M7, M8, M12, M13. After a rich todo is in the feed, M18 through M24. M25 is the next login after the unit is installed. M26 is a todo click after that. M27 through M42 need a running timer. M43 through M47 need this version installed and a log out, then a second feed file. M48 through M54 need that same login. M55 through M57 need the next install and a log out. M58 and M62 passed on the desktop. M63 and M64 have not been run. M65 through M68 need the install after that, and a log out so the panel icon reloads.
 
 You can stop after any check. Later checks say what they need.
 
@@ -644,10 +644,9 @@ journalctl --user -b /usr/bin/gnome-shell --no-pager | tail -n 80
 
 **Look for.**
 
-- Done in the window hides the item in the window and in the popup, and the action reaches the bot.
-- Done in the popup does not close the menu. The button becomes Undo for about 5 seconds.
-- Undo while that Done is still queued (nothing has been posted yet) brings the item back and nothing is sent.
-- After the action has gone out, Undo sends `reopen`.
+- Done in the window or the popup turns that button into Undo. The menu stays open. Nothing is sent yet, and the footer does not say Queued.
+- Undo before the shared bar ends brings that item back. Nothing is sent for it.
+- When the bar ends, or the menu or the window closes, the pending rows are sent together. The Undo button is gone, so it does not send `reopen`.
 
 ## M23. A feed with no new fields
 
@@ -1057,6 +1056,8 @@ journalctl --user -b /usr/bin/gnome-shell --no-pager | tail -n 80
 
 ## M59. The icon reads as a face
 
+**Replaced by M65 and M66.** The face takes the shell's status-icon color, and both eyes are checked at the panel size.
+
 **Preconditions.** M58.
 
 **Look for.**
@@ -1067,6 +1068,8 @@ journalctl --user -b /usr/bin/gnome-shell --no-pager | tail -n 80
 **Reset.** None.
 
 ## M60. Each Done keeps five seconds, in place
+
+**Replaced by M68.** One shared bar covers every unsent row. A new Done restarts that bar instead of keeping a separate five seconds.
 
 **Preconditions.** M22. At least three open todos are on screen in the popup.
 
@@ -1079,6 +1082,8 @@ journalctl --user -b /usr/bin/gnome-shell --no-pager | tail -n 80
 **Reset.** Undo both, or let them expire.
 
 ## M61. An expiring row does not jump under the pointer
+
+**Replaced by M67.** The action is sent when the bar ends, even while the pointer stays on the list. The row keeps its place until the pointer leaves, and the Undo button is removed.
 
 **Preconditions.** M60. The pointer is over the todo list in the popup, and over the list in the window.
 
@@ -1122,6 +1127,56 @@ journalctl --user -b /usr/bin/gnome-shell --no-pager | tail -n 80
 - Remove the primary secret as well, and store a secret only for a third bot's own slot. The bot with no secret shows `webhook secret is not stored` on its row. Done on that bot waits. Done on the bot that has its own secret still sends. The bridge status stays ok.
 
 **Reset.** Store the primary secret again.
+
+## M65. The panel icon takes the shell color
+
+**Preconditions.** M58. The other status icons use the theme's symbolic color. Log out and back in after installing this version.
+
+**Look for.**
+
+- The TetherBot face is the same color as the other status icons. It is not a dark filled block.
+- With the bridge stopped, the face is dimmer and carries a slash. The slash stays its own color.
+- The only number in the top bar is still the timer.
+
+**Reset.** None.
+
+## M66. Both eyes stay visible
+
+**Preconditions.** M65. Also try a larger panel icon size, if the shell lets you change it.
+
+**Look for.**
+
+- The face shows two eyes and a small smile at the normal panel size and at the larger size.
+- The eyes are not clipped off, and they are not the same color as an empty face.
+- With an open todo, the ring still sits in the corner and stays readable. With an ask waiting, the dot does too.
+
+**Reset.** None.
+
+## M67. Done sends when the bar ends
+
+**Preconditions.** M22. The popup is open, the pointer stays over the todo list, and at least one open todo is on screen.
+
+**Look for.**
+
+- Done turns that button into Undo. A bar starts full and shrinks. The footer does not say Queued while the bar is running.
+- Leave the pointer on the list until the bar ends, about 5 seconds. The action is sent then. The footer shows Queued for that row. The Undo button disappears, and it does not grow wider and stay.
+- That row keeps its place until the pointer leaves the list. Moving the pointer off the list removes the row.
+- In the window, Done on a middle row, then leave the pointer on the list until the bar ends. The button is gone, the row stays until the pointer leaves, and the action has been sent.
+
+**Reset.** None.
+
+## M68. One shared bar, one batch
+
+**Preconditions.** M67. At least three open todos are on screen.
+
+**Look for.**
+
+- Done on one row. About two seconds later, Done on another. Both bars jump back to full and shrink together.
+- Undo one of them. That row comes back as an open todo, and nothing is sent for it. The other row keeps the same bar.
+- Let the bar end with the menu still open. The remaining rows queue together. The footer shows one Queued count for all of them, and the bot receives those clears in one run.
+- Done on two rows, then close the menu before the bar ends. Those rows queue immediately, as one batch. Closing the window with pending rows does the same.
+
+**Reset.** Undo a pending row if you do not want it sent.
 
 ## When you are finished
 

@@ -151,9 +151,16 @@ def _exercise_window(app, fake, opened, holder, gdk, glib, gtk, render, apply_ru
                 focus is not None and focus.is_ancestor(window.search)
             )
             window._on_key(None, gdk.KEY_Return, 0, gdk.ModifierType.CONTROL_MASK)
-            assert fake.done == ["primary/one"]
+            assert fake.done == []
+            assert "primary/one" in window._undo_holds
             window._undo("primary/one")
-            assert fake.undone == ["primary/one"]
+            assert fake.done == []
+            assert fake.undone == []
+            window._on_key(None, gdk.KEY_Return, 0, gdk.ModifierType.CONTROL_MASK)
+            assert fake.done == []
+            window._on_window_close(window)
+            assert fake.done == ["primary/one"]
+            assert fake.undone == []
             window._ask_current()
             assert fake.notes == ["primary/one"]
             width, height = window.get_default_size()

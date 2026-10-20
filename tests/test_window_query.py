@@ -9,6 +9,7 @@ from tetherbot.window_query import (
     ASK_TEXT,
     bot_detail_line,
     can_mark_done,
+    due_undo_keys,
     format_elapsed,
     format_last_seen,
     format_next_run,
@@ -17,6 +18,7 @@ from tetherbot.window_query import (
     is_read_only,
     list_filter,
     merge_undo_items,
+    note_done,
     note_payload,
     open_count_label,
     parse_start_clock,
@@ -166,7 +168,22 @@ def test_safe_http_url_rejects_other_schemes():
     assert safe_http_url("notes") is None
 
 
-def test_a_cleared_row_stays_put_and_each_undo_keeps_its_window():
+def test_cleared_rows_share_one_window_and_leave_together():
+    holds = note_done({}, "a", {"key": "a", "title": "A"}, 0, "b", 0)
+    holds = note_done(holds, "b", {"key": "b", "title": "B"}, 1, "c", 3_000)
+    assert holds["a"]["until"] == holds["b"]["until"] == 8_000
+    shown = merge_undo_items([{"key": "c", "title": "C"}], holds, 3_000)
+    assert [row["key"] for row in shown] == ["a", "b", "c"]
+    assert shown[0]["_undo"]["live"] is True
+    assert shown[0]["_undo"]["fraction"] == shown[1]["_undo"]["fraction"] == 1
+    assert due_undo_keys(holds, 8_000) == ["a", "b"]
+    assert due_undo_keys(holds, 7_999) == []
+    holds.pop("a")
+    assert due_undo_keys(holds, 8_000) == ["b"]
+    assert due_undo_keys(holds, 0, force=True) == ["b"]
+
+
+def test_a_cleared_row_stays_put_until_its_window_ends():
     items = [
         {"key": "a", "title": "A"},
         {"key": "c", "title": "C"},
@@ -212,4 +229,5 @@ def test_a_cleared_row_stays_put_and_each_undo_keeps_its_window():
     )
     assert [row["key"] for row in pinned] == ["a", "c"]
     assert pinned[0]["_undo"]["fraction"] == 0
+    assert pinned[0]["_undo"]["live"] is False
     assert undo_fraction(5_000, 4_000) == 0.2

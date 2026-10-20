@@ -28,8 +28,12 @@ import {
     timerModel,
     compactBotSection,
     menuModel,
+    BADGE,
+    FACE,
+    dueUndoKeys,
     nextUndoDelay,
     notificationModel,
+    shareUndoWindow,
     openWindowCall,
     performCall,
     snoozeCall,
@@ -448,30 +452,45 @@ export function runViewChecks() {
     assert(stayed.todos.map(row => row.key).join(',') === 'a,b,c', 'undo stays where it was');
     assert(stayed.todos[1].undoFraction === 1, 'a new undo has the full window');
 
-    const later = presentTodos(
-        [{key: 'c', title: 'C'}],
-        [
-            {key: 'a', until: NOW + 1000, index: 0, after: 'b', row: {key: 'a', title: 'A'}},
-            {key: 'b', until: NOW + 5000, index: 1, after: 'c', row: {key: 'b', title: 'B'}},
-        ],
-        NOW + 1000,
-    );
-    assert(later.todos.map(row => row.key).join(',') === 'b,c', 'an older undo expires alone');
-    assert(later.todos[0].undoFraction > 0.7, 'the newer undo keeps its own time');
-    assert(nextUndoDelay([
-        {until: NOW + 1000},
-        {until: NOW + 5000},
-    ], NOW) === 1000, 'the next expiry is the soonest hold');
+    const shared = shareUndoWindow([
+        {key: 'a', until: NOW + 1000, sent: false, index: 0, after: 'b', row: {key: 'a', title: 'A'}},
+        {key: 'b', until: NOW + 1000, sent: false, index: 1, after: 'c', row: {key: 'b', title: 'B'}},
+    ], NOW + 4000);
+    assert(shared[0].until === shared[1].until, 'one shared window');
+    assert(shared[0].until === NOW + 4000 + 5000, 'a new done restarts it');
+    const together = presentTodos([{key: 'c', title: 'C'}], shared, NOW + 4000);
+    assert(together.todos.map(row => row.key).join(',') === 'a,b,c', 'both pending rows stay');
+    assert(together.todos[0].undoFraction === 1, 'the first bar restarts full');
+    assert(together.todos[1].undoFraction === 1, 'the second bar matches it');
+    assert(dueUndoKeys(shared, NOW + 4000 + 5000).join(',') === 'a,b', 'they send together');
+    assert(dueUndoKeys(shared.filter(hold => hold.key !== 'a'), NOW + 4000 + 5000).join(',') === 'b', 'undo drops one row');
+    assert(nextUndoDelay(shared, NOW + 4000) === 5000, 'the shared window is the next expiry');
     assert(undoFraction(NOW + 5000, NOW + 4000) === 0.2, 'the bar matches the time left');
 
     const pinned = presentTodos(
         [{key: 'c', title: 'C'}],
-        [{key: 'a', until: NOW, index: 0, row: {key: 'a', title: 'A'}}],
+        [{key: 'a', until: NOW, sent: true, index: 0, row: {key: 'a', title: 'A'}}],
         NOW,
         true,
     );
     assert(pinned.todos.map(row => row.key).join(',') === 'a,c', 'hover keeps the expired row');
-    assert(pinned.todos[0].undoFraction === 0, 'an expired bar is empty');
+    assert(pinned.todos[0].undo === false, 'the expired button is gone');
+    assert(pinned.todos[0].layoutHold === true, 'the row keeps its place');
+    const hidden = presentTodos(
+        [
+            {key: 'a', title: 'A'},
+            {key: 'c', title: 'C'},
+        ],
+        [],
+        NOW,
+        false,
+        ['a'],
+    );
+    assert(hidden.todos.map(row => row.key).join(',') === 'c', 'a sent row stays out of the list');
+    assert(FACE.eyes.length === 2, 'two eyes');
+    assert(FACE.eyes[0].r >= 1.5 && FACE.eyes[1].r >= 1.5, 'eyes stay large enough to see');
+    assert(FACE.outline.width >= 1.4, 'the face is an outline');
+    assert(BADGE.dot.color[2] > BADGE.dot.color[0], 'the dot keeps its accent');
 
     const filtered = JSON.parse(todoFilter(' @home due:today '));
     assert(filtered.kinds.join(',') === 'todo', 'search stays on todos');

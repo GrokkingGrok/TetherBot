@@ -2,7 +2,7 @@
 
 Status: approved. The Decisions section at the end is binding.
 
-The top-bar icon is a simple face, two eyes and a small smile, shipped as symbolic SVGs (base, dot, ring, slash, and triangle). It follows the shell's panel icon size. The ring and the dot are drawn in the SVG, so they scale with the icon. Mock todo titles in this file are generic examples.
+The top-bar icon is a simple face, two eyes and a small smile. The panel paints that face in the shell's status-icon color, at the shell's panel icon size, so it matches the other status icons and a larger panel icon grows it too. The same artwork ships as symbolic SVGs (base, dot, ring, slash, and triangle). The ring and the dot are drawn with the face, so they scale with it. Mock todo titles in this file are generic examples.
 
 Goal: track time on one task at a time from the top bar, and make the top-bar button say one thing at a glance. Losing tracked time is the worst failure, so recovery comes first.
 

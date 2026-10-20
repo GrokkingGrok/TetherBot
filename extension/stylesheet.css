@@ -70,6 +70,7 @@
 .tetherbot-undo {
     padding: 4px 10px;
     min-width: 5.2em;
+    max-width: 5.2em;
 }
 
 .tetherbot-undo-bar {

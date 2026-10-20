@@ -263,6 +263,63 @@ def timer_item_key(timer: object) -> str:
 UNDO_MS = 5000
 
 
+def note_done(
+    holds: Mapping[str, Any] | list[dict[str, Any]],
+    key: str,
+    item: dict[str, Any],
+    index: int,
+    after: str,
+    now_ms: int,
+) -> dict[str, dict[str, Any]]:
+    """Remember one cleared row and restart the shared window for every unsent row."""
+
+    until = int(now_ms) + UNDO_MS
+    updated: dict[str, dict[str, Any]] = {}
+    rows = holds.values() if isinstance(holds, Mapping) else holds
+    for hold in rows:
+        if not isinstance(hold, dict):
+            continue
+        name = hold.get("key")
+        if not isinstance(name, str) or not name:
+            continue
+        row = dict(hold)
+        if not row.get("sent"):
+            row["until"] = until
+        updated[name] = row
+    updated[key] = {
+        "key": key,
+        "index": index,
+        "after": after,
+        "until": until,
+        "item": dict(item),
+        "sent": False,
+    }
+    return updated
+
+
+def due_undo_keys(
+    holds: Mapping[str, Any] | list[dict[str, Any]],
+    now_ms: int,
+    *,
+    force: bool = False,
+) -> list[str]:
+    """Keys whose shared window has ended, in the order they were cleared."""
+
+    rows = list(holds.values()) if isinstance(holds, Mapping) else list(holds)
+    chosen: list[dict[str, Any]] = []
+    now = _millis(now_ms)
+    for hold in rows:
+        if not isinstance(hold, dict) or hold.get("sent"):
+            continue
+        key = hold.get("key")
+        if not isinstance(key, str) or not key:
+            continue
+        if force or _millis(hold.get("until")) <= now:
+            chosen.append(hold)
+    chosen.sort(key=lambda hold: (_millis(hold.get("index")), str(hold.get("key"))))
+    return [str(hold["key"]) for hold in chosen]
+
+
 def undo_fraction(until_ms: object, now_ms: object, window_ms: int = UNDO_MS) -> float:
     """How much of an undo window is left, from 1 down to 0."""
 
@@ -300,7 +357,8 @@ def merge_undo_items(
         if not isinstance(key, str) or not key or not isinstance(item, dict):
             continue
         until = _millis(hold.get("until"))
-        if until <= now_ms and not pin_expired:
+        live = until > now_ms and not hold.get("sent")
+        if not live and not pin_expired:
             continue
         active[key] = hold
     base: list[dict[str, Any]] = []
@@ -332,7 +390,12 @@ def merge_undo_items(
 def _undo_item(hold: dict[str, Any], now_ms: int) -> dict[str, Any]:
     item = dict(hold["item"])
     until = _millis(hold.get("until"))
-    item["_undo"] = {"until": until, "fraction": undo_fraction(until, now_ms)}
+    live = until > now_ms and not hold.get("sent")
+    item["_undo"] = {
+        "until": until,
+        "fraction": undo_fraction(until, now_ms) if live else 0.0,
+        "live": live,
+    }
     return item
 
 

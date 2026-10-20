@@ -4,6 +4,7 @@
 // session bus. Do not import Soup, open a socket, spawn a network process,
 // or store a secret here.
 
+import Cairo from 'gi://cairo';
 import Clutter from 'gi://Clutter';
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
@@ -22,8 +23,11 @@ import {
     OBJECT_PATH,
     PROXY_SIGNALS,
     ACTIVATE_RETRY_MS,
-    UNDO_MS,
+    BADGE,
+    FACE,
+    dueUndoKeys,
     nextUndoDelay,
+    shareUndoWindow,
     undoFraction,
     elapsedSeconds,
     formatElapsed,
@@ -44,7 +48,6 @@ import {
     snoozeCall,
     snoozeIso,
     todoFilter,
-    undoCall,
 } from './view.js';
 
 export default class TetherBotExtension extends Extension {
@@ -63,6 +66,7 @@ export default class TetherBotExtension extends Extension {
         this._query = '';
         this._searched = null;
         this._undoHolds = [];
+        this._hiddenDone = new Set();
         this._undoSources = [];
         this._undoSource = 0;
         this._undoPaintSource = 0;
@@ -95,9 +99,19 @@ export default class TetherBotExtension extends Extension {
             style_class: 'panel-status-menu-box',
             x_expand: false,
         });
-        this._icon = new St.Icon({
+        this._icon = new St.Widget({
             style_class: 'system-status-icon tetherbot-indicator tetherbot-dimmed',
+            y_align: Clutter.ActorAlign.CENTER,
+            x_align: Clutter.ActorAlign.CENTER,
         });
+        this._badge = 'base';
+        this._canvas = new Clutter.Canvas();
+        this._canvas.connect('draw', (canvas, cr, width, height) => {
+            this._paintFace(cr, width, height);
+            return true;
+        });
+        this._icon.set_content(this._canvas);
+        this._icon.connect('style-changed', () => this._syncIcon(this._badge));
         this._pause = new St.BoxLayout({
             style_class: 'tetherbot-pause',
             visible: false,
@@ -139,6 +153,7 @@ export default class TetherBotExtension extends Extension {
     }
 
     disable() {
+        this._flushDue(true);
         this._enabled = false;
         if (this._nameWatch) {
             Gio.bus_unwatch_name(this._nameWatch);
@@ -188,6 +203,7 @@ export default class TetherBotExtension extends Extension {
             this._activateSource = 0;
         }
         this._undoHolds = [];
+        this._hiddenDone = new Set();
         this._bots = [];
         this._items = [];
         this._searched = null;
@@ -237,7 +253,10 @@ export default class TetherBotExtension extends Extension {
                 this._requestBridge();
             else {
                 this._todoPointer = false;
-                this._releasePinnedUndos();
+                this._flushDue(true);
+                this._undoHolds = [];
+                this._armUndoTimer();
+                this._refresh();
             }
         });
         this._watchTodoPointer();
@@ -505,6 +524,7 @@ export default class TetherBotExtension extends Extension {
             return;
         this._undoBars = [];
         const nowMs = Date.now();
+        this._forgetHidden(this._items);
         this._assigning = keepAssigning(this._assigning, this._timer);
         const view = this._paintIndicator(nowMs);
         const labels = botLabels(this._bots);
@@ -531,6 +551,7 @@ export default class TetherBotExtension extends Extension {
             nowMs,
             undoHolds: this._undoHolds,
             pinExpired: this._todoPointer,
+            hiddenKeys: this._hiddenDone ? [...this._hiddenDone] : [],
             activationFailed: this._activationFailed,
             timer: this._timer,
             assigning: this._assigning,
@@ -574,8 +595,8 @@ export default class TetherBotExtension extends Extension {
         const classes = ['system-status-icon', 'tetherbot-indicator'];
         if (view.dimmed && view.iconFile !== 'slash')
             classes.push('tetherbot-dimmed');
-        this._icon.gicon = this._iconFor(view.iconFile);
         this._icon.style_class = classes.join(' ');
+        this._syncIcon(view.iconFile);
         const timeClass = ['tetherbot-time'];
         if (view.textStyle === 'paused')
             timeClass.push('tetherbot-time-paused');
@@ -591,9 +612,96 @@ export default class TetherBotExtension extends Extension {
         return view;
     }
 
-    _iconFor(kind) {
-        const file = this.dir.get_child('icons').get_child(`tetherbot-${kind}-symbolic.svg`);
-        return Gio.FileIcon.new(file);
+    _forgetHidden(items) {
+        if (!this._hiddenDone || this._hiddenDone.size === 0)
+            return;
+        const present = new Set();
+        for (const item of items || []) {
+            if (item && typeof item.key === 'string')
+                present.add(item.key);
+        }
+        for (const key of this._hiddenDone) {
+            if (!present.has(key))
+                this._hiddenDone.delete(key);
+        }
+    }
+
+    _panelIconSize() {
+        const node = this._icon && this._icon.get_theme_node ? this._icon.get_theme_node() : null;
+        if (node && node.lookup_length) {
+            try {
+                const found = node.lookup_length('icon-size', true);
+                const length = Array.isArray(found) ? found[1] : found;
+                const ok = Array.isArray(found) ? found[0] : length > 0;
+                if (ok && length > 0)
+                    return length;
+            } catch (error) {
+                console.debug('TetherBot: icon size fell back to 16');
+            }
+        }
+        return 16;
+    }
+
+    _iconScale() {
+        const scale = this._icon && this._icon.get_resource_scale
+            ? this._icon.get_resource_scale()
+            : 1;
+        return scale > 0 ? scale : 1;
+    }
+
+    _foreground() {
+        const node = this._icon && this._icon.get_theme_node ? this._icon.get_theme_node() : null;
+        const color = node && node.get_foreground_color ? node.get_foreground_color() : null;
+        return channel(color);
+    }
+
+    _syncIcon(kind) {
+        if (!this._icon || !this._canvas)
+            return;
+        const badge = kind || 'base';
+        const size = this._panelIconSize();
+        const scale = this._iconScale();
+        const color = this._foreground().join(',');
+        if (
+            this._badge === badge &&
+            this._drawnSize === size &&
+            this._drawnScale === scale &&
+            this._drawnColor === color
+        )
+            return;
+        this._badge = badge;
+        this._drawnSize = size;
+        this._drawnScale = scale;
+        this._drawnColor = color;
+        this._icon.width = size;
+        this._icon.height = size;
+        const pixels = Math.max(1, Math.round(size * scale));
+        this._canvas.set_size(pixels, pixels);
+        this._canvas.invalidate();
+    }
+
+    _paintFace(cr, width, height) {
+        const unit = Math.min(width, height) / FACE.size;
+        if (!(unit > 0))
+            return;
+        const [red, green, blue, alpha] = this._foreground();
+        const fade = this._badge === 'slash' ? 0.45 : 1;
+        cr.save();
+        cr.scale(unit, unit);
+        cr.setSourceRGBA(red, green, blue, alpha * fade);
+        strokeRoundRect(cr, FACE.outline);
+        cr.setLineWidth(FACE.smile.width);
+        cr.setLineCap(Cairo.LineCap.ROUND);
+        smile(cr, FACE.smile);
+        cr.stroke();
+        for (const eye of FACE.eyes) {
+            cr.arc(eye.cx, eye.cy, eye.r, 0, Math.PI * 2);
+            cr.fill();
+        }
+        const badge = BADGE[this._badge];
+        if (badge)
+            paintBadge(cr, this._badge, badge);
+        cr.restore();
     }
 
     _syncTick(view) {
@@ -1255,7 +1363,7 @@ export default class TetherBotExtension extends Extension {
         });
         const bin = new St.Widget({
             layout_manager: new Clutter.BinLayout(),
-            x_expand: true,
+            x_expand: false,
             y_expand: true,
         });
         const bar = new St.Widget({
@@ -1267,10 +1375,10 @@ export default class TetherBotExtension extends Extension {
             text: 'Undo',
             x_align: Clutter.ActorAlign.CENTER,
             y_align: Clutter.ActorAlign.CENTER,
-            x_expand: true,
         });
         bin.add_child(bar);
         bin.add_child(label);
+        button.x_expand = false;
         button.set_child(bin);
         button.connect('clicked', () => callback());
         this._undoBars.push({bar, until: Number(until) || 0});
@@ -1294,14 +1402,32 @@ export default class TetherBotExtension extends Extension {
     _markDone(row) {
         if (!row || !row.key)
             return;
-        const until = Date.now() + UNDO_MS;
         const index = Number.isFinite(row.index) ? row.index : 0;
         const after = typeof row.after === 'string' ? row.after : '';
-        this._undoHolds = (this._undoHolds || []).filter(hold => hold.key !== row.key);
-        this._undoHolds.push({key: row.key, row, until, index, after});
+        const holds = (this._undoHolds || []).filter(hold => hold.key !== row.key);
+        holds.push({key: row.key, row, until: 0, index, after, sent: false});
+        this._undoHolds = shareUndoWindow(holds, Date.now());
         this._armUndoTimer();
-        this._perform('done', row.key);
         this._render();
+    }
+
+    _flushDue(force = false) {
+        const now = Date.now();
+        const pending = (this._undoHolds || []).filter(hold => hold && !hold.sent && hold.key);
+        const keys = force ? pending.map(hold => hold.key) : dueUndoKeys(pending, now);
+        if (!keys.length)
+            return;
+        if (!this._hiddenDone)
+            this._hiddenDone = new Set();
+        for (const key of keys) {
+            const hold = (this._undoHolds || []).find(item => item && item.key === key);
+            if (!hold || hold.sent)
+                continue;
+            hold.sent = true;
+            hold.until = now;
+            this._hiddenDone.add(key);
+            this._perform('done', key);
+        }
     }
 
     _armUndoTimer() {
@@ -1317,19 +1443,29 @@ export default class TetherBotExtension extends Extension {
             this._undoSource = 0;
             if (!this._enabled)
                 return GLib.SOURCE_REMOVE;
-            if (this._pointerOverTodos()) {
-                this._todoPointer = true;
-                return GLib.SOURCE_REMOVE;
-            }
-            this._releasePinnedUndos();
+            this._expireBatch();
             return GLib.SOURCE_REMOVE;
         });
+    }
+
+    _expireBatch() {
+        const due = dueUndoKeys(this._undoHolds, Date.now()).length > 0;
+        this._flushDue(false);
+        if (!this._pointerOverTodos())
+            this._undoHolds = (this._undoHolds || []).filter(hold => hold && !hold.sent && hold.until > Date.now());
+        this._armUndoTimer();
+        if (!this._enabled)
+            return;
+        if (due)
+            this._refresh();
+        else
+            this._render();
     }
 
     _releasePinnedUndos() {
         const now = Date.now();
         const before = (this._undoHolds || []).length;
-        this._undoHolds = (this._undoHolds || []).filter(hold => hold.until > now);
+        this._undoHolds = (this._undoHolds || []).filter(hold => hold && !hold.sent && hold.until > now);
         if (this._undoHolds.length !== before && this._enabled)
             this._render();
         this._armUndoTimer();
@@ -1398,8 +1534,9 @@ export default class TetherBotExtension extends Extension {
             this._todoPointer = this._pointerOverTodos();
             this._paintUndoBars();
             const clock = Date.now();
-            const due = (this._undoHolds || []).some(hold => !(hold.until > clock));
-            if (due && !this._todoPointer)
+            if (dueUndoKeys(this._undoHolds, clock).length)
+                this._expireBatch();
+            else if (!this._todoPointer && (this._undoHolds || []).some(hold => hold && hold.sent))
                 this._releasePinnedUndos();
             const stillHeld = (this._undoHolds || []).length > 0;
             const undo = this._timer && this._timer.undo;
@@ -1414,10 +1551,7 @@ export default class TetherBotExtension extends Extension {
 
     _undo(key) {
         this._undoHolds = (this._undoHolds || []).filter(hold => hold.key !== key);
-        if (this._proxy && key) {
-            const call = undoCall(key);
-            this._proxy.UndoRemote(...call.args, () => this._refresh());
-        }
+        this._armUndoTimer();
         this._render();
     }
 
@@ -1433,7 +1567,12 @@ export default class TetherBotExtension extends Extension {
         if (!this._proxy || !key)
             return;
         const call = performCall(action, key);
-        this._proxy.PerformActionRemote(...call.args, () => {});
+        this._proxy.PerformActionRemote(...call.args, (_result, error) => {
+            if (!this._enabled || !error || action !== 'done' || !this._hiddenDone)
+                return;
+            this._hiddenDone.delete(key);
+            this._render();
+        });
     }
 
     _openChat(bot) {
@@ -1565,4 +1704,90 @@ function unpackCounts(value) {
     if (typeof value.deepUnpack === 'function')
         return value.deepUnpack();
     return value;
+}
+
+function channel(color) {
+    if (!color)
+        return [0.86, 0.86, 0.86, 1];
+    return ['red', 'green', 'blue', 'alpha'].map((name, index) => {
+        const value = Number(color[name]);
+        if (!Number.isFinite(value))
+            return index === 3 ? 1 : 0.86;
+        return value > 1 ? value / 255 : value;
+    });
+}
+
+function strokeRoundRect(cr, box) {
+    const x = box.x;
+    const y = box.y;
+    const w = box.w;
+    const h = box.h;
+    const r = Math.min(box.radius, w / 2, h / 2);
+    cr.newPath();
+    cr.arc(x + w - r, y + r, r, -Math.PI / 2, 0);
+    cr.arc(x + w - r, y + h - r, r, 0, Math.PI / 2);
+    cr.arc(x + r, y + h - r, r, Math.PI / 2, Math.PI);
+    cr.arc(x + r, y + r, r, Math.PI, Math.PI * 1.5);
+    cr.closePath();
+    cr.setLineWidth(box.width);
+    cr.setLineJoin(Cairo.LineJoin.ROUND);
+    cr.setLineCap(Cairo.LineCap.ROUND);
+    cr.stroke();
+}
+
+function smile(cr, curve) {
+    const c1x = curve.x1 + (2 / 3) * (curve.cx - curve.x1);
+    const c1y = curve.y1 + (2 / 3) * (curve.cy - curve.y1);
+    const c2x = curve.x2 + (2 / 3) * (curve.cx - curve.x2);
+    const c2y = curve.y2 + (2 / 3) * (curve.cy - curve.y2);
+    cr.newPath();
+    cr.moveTo(curve.x1, curve.y1);
+    cr.curveTo(c1x, c1y, c2x, c2y, curve.x2, curve.y2);
+}
+
+function paintBadge(cr, kind, badge) {
+    if (badge.cut) {
+        cr.setOperator(Cairo.Operator.CLEAR);
+        cr.arc(badge.cx, badge.cy, badge.cut, 0, Math.PI * 2);
+        cr.fill();
+        cr.setOperator(Cairo.Operator.OVER);
+    }
+    const color = badge.color || [0.9, 0.2, 0.2, 1];
+    cr.setSourceRGBA(color[0], color[1], color[2], color[3]);
+    if (kind === 'dot') {
+        cr.arc(badge.cx, badge.cy, badge.r, 0, Math.PI * 2);
+        cr.fill();
+        return;
+    }
+    if (kind === 'ring') {
+        cr.setLineWidth(badge.width);
+        cr.arc(badge.cx, badge.cy, badge.r, 0, Math.PI * 2);
+        cr.stroke();
+        return;
+    }
+    if (kind === 'slash') {
+        cr.setLineWidth(badge.width);
+        cr.setLineCap(Cairo.LineCap.ROUND);
+        cr.moveTo(badge.x1, badge.y1);
+        cr.lineTo(badge.x2, badge.y2);
+        cr.stroke();
+        return;
+    }
+    if (kind === 'triangle') {
+        const [a, b, c] = badge.points;
+        cr.moveTo(a[0], a[1]);
+        cr.lineTo(b[0], b[1]);
+        cr.lineTo(c[0], c[1]);
+        cr.closePath();
+        cr.fill();
+        cr.setOperator(Cairo.Operator.CLEAR);
+        cr.setLineWidth(badge.bang.width);
+        cr.setLineCap(Cairo.LineCap.ROUND);
+        cr.moveTo(badge.bang.x, badge.bang.y1);
+        cr.lineTo(badge.bang.x, badge.bang.y2);
+        cr.stroke();
+        cr.arc(badge.bang.x, badge.bang.dotY, badge.bang.r, 0, Math.PI * 2);
+        cr.fill();
+        cr.setOperator(Cairo.Operator.OVER);
+    }
 }

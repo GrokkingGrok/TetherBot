@@ -74,14 +74,29 @@ def test_disable_drops_the_proxy_and_handlers():
     assert "tetherbot-time" in css
     assert "min-width: 4.8em" not in css
     assert "topBarWidthSample" in text
-    icon = text.split("this._icon = new St.Icon({", 1)[1].split("});", 1)[0]
+    icon = text.split("this._icon = new St.Widget({", 1)[1].split("});", 1)[0]
     assert "icon_size" not in icon
+    assert "system-status-icon" in icon
     assert "icon-size" not in css
     assert "tetherbot-undo" in css
+    assert "max-width: 5.2em" in css
     assert "undoFraction" in text
+    assert "get_foreground_color" in text
+    assert "Clutter.Canvas" in text
+    assert "this._icon.gicon" not in text
+    mark = text.split("    _markDone(row) {", 1)[1].split("\n    _", 1)[0]
+    assert "_perform(" not in mark
+    assert "shareUndoWindow" in mark
+    flush = text.split("    _flushDue(", 1)[1].split("\n    _", 1)[0]
+    assert "_perform('done'" in flush
+    close = text.split("open-state-changed", 1)[1].split("});", 1)[0]
+    assert "_flushDue(true)" in close
     face = (EXTENSION / "icons" / "tetherbot-base-symbolic.svg").read_text(encoding="utf-8")
     assert face.count("<circle ") == 2
-    assert "Q8 11.5" in face
+    assert 'r="1.55"' in face
+    assert "Q8 12.15" in face
+    assert "#000" not in face
+    assert "currentColor" in face
     assert "M8 4V1.6" not in face
     fill = text.split("    _fillTimer(block) {", 1)[1].split("\n    _", 1)[0]
     assert fill.index("chipLabel(block.bot") < fill.index("block.subject")
@@ -90,4 +105,6 @@ def test_disable_drops_the_proxy_and_handlers():
     assert "properties_need_reload" in window
     icons = EXTENSION / "icons"
     for name in ("base", "dot", "ring", "slash", "triangle"):
-        assert (icons / f"tetherbot-{name}-symbolic.svg").is_file()
+        body = (icons / f"tetherbot-{name}-symbolic.svg").read_text(encoding="utf-8")
+        assert "#000" not in body
+        assert body.count("<circle ") >= 2

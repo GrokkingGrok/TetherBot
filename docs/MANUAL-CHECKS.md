@@ -1134,7 +1134,8 @@ journalctl --user -b /usr/bin/gnome-shell --no-pager | tail -n 80
 
 **Look for.**
 
-- The TetherBot face is the same color as the other status icons. It is not a dark filled block.
+- The TetherBot face is the same color as the other status icons. It is not a dark filled block, and it is not stuck on one color.
+- Change the desktop accent. The face changes with the other status icons.
 - With the bridge stopped, the face is dimmer and carries a slash. The slash stays its own color.
 - The only number in the top bar is still the timer.
 

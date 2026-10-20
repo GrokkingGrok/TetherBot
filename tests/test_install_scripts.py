@@ -2,6 +2,7 @@
 """Installer scripts stay idempotent and shellcheck-clean. No secrets are read."""
 
 import os
+import re
 import stat
 import subprocess
 import sys
@@ -194,6 +195,67 @@ def test_uninstall_removes_both_enablement_links(tmp_path: Path):
     )
     assert not (user / "default.target.wants" / "tetherbot.service").exists()
     assert not (user / "graphical-session.target.wants" / "tetherbot.service").exists()
+
+
+_IMPORT = re.compile(r"""(?:from|import)\s+['"](\./[^'"]+)['"]""")
+
+
+def _skip_module(name: str) -> bool:
+    base = Path(name).name
+    return base.endswith("_checks.js") or base.startswith("test_")
+
+
+def _runtime_modules() -> set[str]:
+    """JS files GNOME loads, following relative imports.
+
+    ``*_checks.js`` and ``test_*`` are not part of the installed extension.
+    """
+
+    pending = ["extension.js", "prefs.js"]
+    seen: set[str] = set()
+    while pending:
+        name = pending.pop()
+        rel = name.removeprefix("./")
+        if _skip_module(rel) or rel in seen:
+            continue
+        path = ROOT / "extension" / rel
+        assert path.is_file(), rel
+        seen.add(rel)
+        lines = path.read_text(encoding="utf-8").splitlines()
+        text = "\n".join(line.split("//", 1)[0] for line in lines)
+        for spec in _IMPORT.findall(text):
+            pending.append(spec)
+    return seen
+
+
+def test_extension_install_copies_imported_modules(tmp_path: Path):
+    required = _runtime_modules()
+    assert "prefs_model.js" in required
+    assert "view.js" in required
+    assert "prefs_checks.js" not in required
+    home = tmp_path / "home"
+    home.mkdir()
+    env = _env(home)
+    subprocess.run(
+        ["bash", str(ROOT / "scripts" / "install-extension.sh")],
+        check=True,
+        env=env,
+        timeout=30,
+    )
+    dest = (
+        home
+        / ".local"
+        / "share"
+        / "gnome-shell"
+        / "extensions"
+        / "tetherbot@grokkinggrok.github.io"
+    )
+    missing = sorted(name for name in required if not (dest / name).is_file())
+    assert not missing, f"installer skipped imported modules: {', '.join(missing)}"
+    installed_js = [path.name for path in dest.glob("*.js")]
+    assert installed_js
+    for name in installed_js:
+        assert not _skip_module(name), name
 
 
 def test_extension_install_copies_the_uuid(tmp_path: Path):

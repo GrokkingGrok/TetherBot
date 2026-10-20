@@ -90,7 +90,7 @@ TetherBot is pre-alpha. Check items off as they land. Design detail is in [SPEC.
 - [ ] Required `Content-Type` (plan: send `application/json`)
 - [ ] Rate-limit numbers for routine webhooks
 - [ ] Key rotation without recreating the routine
-- [ ] Deep link to a specific bot chat, and the Grok Bot desktop entry id
+- [ ] Deep link to a specific bot chat, and the Grok Bot desktop entry id. Until that exists, the desktop does not show an Open chat button and a bot row does not claim to open that chat.
 - [ ] Proposed, not urgent (only once a second GNOME desktop exists): each desktop writes only `desktop/<machine-id>.json`. `machine-id` is a stable random id generated at install, not the hostname. No two machines write the same file, so pushes cannot conflict. A tap on one desktop resolves the item; every desktop reads all `desktop/*.json` files and hides an item that any desktop has resolved. Snooze stays local to one machine. Migration: the current single-desktop `desktop/state.json` is read as a legacy file and renamed on first run.
 - [ ] Whether Grok Bot ships outbound webhooks, status events, or a local hook that can replace `github-poller`
 - [ ] Decide whether a local todo consumer should call `GetItems` or keep parsing its file

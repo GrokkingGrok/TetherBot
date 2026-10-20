@@ -32,6 +32,7 @@ import {
     nextUndoDelay,
     notificationModel,
     shareUndoWindow,
+    botRowCall,
     openWindowCall,
     performCall,
     snoozeCall,
@@ -320,8 +321,17 @@ export function runViewChecks() {
         source: {bot: 'primary'},
     }), 'new');
     const labels = notified.actions.map(action => action.label);
-    assert(labels.join(',') === 'Approve,Veto,Snooze 1 h,Snooze until tomorrow,Open chat', 'notify buttons');
+    assert(labels.join(',') === 'Approve,Veto,Snooze 1 h,Snooze until tomorrow', 'notify buttons');
+    assert(!notified.actions.some(action => action.id === 'open_chat'), 'no open chat button');
     assert(notified.actions[0].key === 'primary/sample-01', 'notify key');
+    const listedChat = notificationModel({
+        id: 'sample-01',
+        title: 'Hello',
+        actions: ['open_chat', 'approve'],
+        source: {bot: 'primary'},
+    }, 'new');
+    assert(!listedChat.actions.some(action => action.id === 'open_chat'), 'listed open_chat is not a button');
+    assert(listedChat.actions.some(action => action.id === 'approve'), 'approve stays on the notification');
 
     const repaste = notificationModel({
         title: 'Re-paste key',
@@ -339,7 +349,7 @@ export function runViewChecks() {
         body: 'rate cap',
         bot: 'primary',
     }, 'delivery_failed');
-    assert(failed.actions.map(action => action.id).join(',') === 'open_chat', 'delivery opens chat');
+    assert(failed.actions.length === 0, 'delivery has no chat button');
 
     assert(performCall('approve', 'primary/sample-01').args.join('|') === 'primary/sample-01|approve|{}', 'approve call');
     const hour = snoozeMoment('hour', new Date(NOW));
@@ -772,6 +782,8 @@ export function runViewChecks() {
     assert(attachClick.args[0] === 'primary/q4-budget', 'the click carries the todo key');
     const openClick = todoActivation({...pickedRow, pick: false});
     assert(openClick.method === 'OpenWindow', 'a normal row opens the window');
+    const botClick = botRowCall();
+    assert(botClick.method === 'OpenWindow' && botClick.args[0] === 'bots', 'a bot row opens the bots tab');
     assert(approvalCount([ask({actions: ['veto']})], NOW) === 0, 'veto alone is not approval');
 }
 

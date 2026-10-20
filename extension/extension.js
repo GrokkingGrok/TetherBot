@@ -41,6 +41,7 @@ import {
     startServiceCall,
     mergeTodoSearch,
     notificationModel,
+    botRowCall,
     openWindowCall,
     performCall,
     snoozeCall,
@@ -718,7 +719,8 @@ export default class TetherBotExtension extends Extension {
         const detail = [row.summary, row.lastSeen, row.nextRun].filter(Boolean).join(' · ');
         box.add_child(new St.Label({text: detail, style_class: 'tetherbot-subtle'}));
         item.add_child(box);
-        item.connect('activate', () => this._openChat(row.bot));
+        const call = botRowCall();
+        item.connect('activate', () => this._openWindow(call.args[0]));
         return item;
     }
 
@@ -1539,12 +1541,6 @@ export default class TetherBotExtension extends Extension {
         });
     }
 
-    _openChat(bot) {
-        if (!this._proxy || !bot)
-            return;
-        this._proxy.OpenChatRemote(bot, () => {});
-    }
-
     _sync() {
         if (!this._proxy || !this._running)
             return;
@@ -1609,8 +1605,6 @@ export default class TetherBotExtension extends Extension {
             const which = action.id === 'snooze-hour' ? 'hour' : 'tomorrow';
             const call = snoozeCall(action.key, snoozeIso(which, new Date()));
             this._proxy.SnoozeRemote(...call.args, () => {});
-        } else if (action.id === 'open_chat') {
-            this._openChat(action.bot);
         } else if (action.id === 'request_secret') {
             this._proxy.RequestSecretEntryRemote(action.slot || '', () => {});
         }

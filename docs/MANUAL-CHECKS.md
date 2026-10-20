@@ -2,15 +2,15 @@
 
 Run these on one Fedora 44 desktop with GNOME Shell 50 on Wayland, after you can log in as a normal user. The project is unofficial and not affiliated with xAI.
 
-**Out of scope here:** M9 (webhook-only popup copy), M15 and M16 (a legacy todo sink outside this repository), and M17 (the full uninstall acceptance check). Uninstall is still documented in [SETUP.md](SETUP.md) and is the reset for M1. M18–M24 are the rich-todo checks later in this file. M25 checks that a new login starts the bridge. M26 checks that a todo click opens the window quickly. M27–M42 check the stopwatch. M43–M47 check more than one bot, display names, the compact Bots section, and the popup order. M48–M54 check an optional webhook slot, Sync now, the timer chip, toolbar colors, summary contrast, the bot-row dot and summary, and local dates. M55–M57 check the timer chip on the left, the top-bar width, and a window that updates while it stays open. M58 and M62 passed on the desktop: the panel icon matches the shell's icon size, and the primary bot stays first. M59–M61 are replaced by M65–M68, which check a face in the shell's status-icon color, eyes that stay visible, Done sending when the shared bar ends, and one batch per menu. M63 and M64 check a shared webhook slot and a missing secret. Do not treat M9, M15, M16, or M17 as part of the v0.1 runbook.
+**Out of scope here:** M9 (webhook-only popup copy), M15 and M16 (a legacy todo sink outside this repository), and M17 (the full uninstall acceptance check). Uninstall is still documented in [SETUP.md](SETUP.md) and is the reset for M1. M18–M24 are the rich-todo checks later in this file. M25 checks that a new login starts the bridge. M26 checks that a todo click opens the window quickly. M27–M42 check the stopwatch. M43–M47 check more than one bot, display names, the compact Bots section, and the popup order. M48–M54 check an optional webhook slot, Sync now, the timer chip, toolbar colors, summary contrast, the bot-row dot and summary, and local dates. M55–M57 check the timer chip on the left, the top-bar width, and a window that updates while it stays open. M47 and M55–M68 passed on the desktop. M58 and M62 are the panel icon size and `primary` staying first. M59–M61 are replaced by M65–M68: a face in the shell's status-icon color, eyes that stay visible, Done sending when the shared bar ends, and one batch per menu. M63 and M64 are a shared webhook slot and a missing secret on one bot. M69–M73 check the settings screen. Do not treat M9, M15, M16, or M17 as part of the v0.1 runbook.
 
 Examples use the bot id `primary`. Yours can be any lowercase id of letters, digits, and hyphens. Use the same id in the bot's feed file, in `config.toml`, and in the commands below.
 
-Nothing in these steps belongs in a chat, in `config.toml`, or in this repository: not the webhook URL, not the webhook key, and not the GitHub token. The only place you paste them is the hidden prompt from `tetherbotctl secret set`.
+Nothing in these steps belongs in a chat, in `config.toml`, or in this repository: not the webhook URL, not the webhook key, and not the GitHub token. Paste them only in the bridge key dialog opened from Settings, or at the hidden prompt from `tetherbotctl secret set`. A stored key is never shown.
 
 ## Suggested order
 
-M1, M2, then the extension install in M14 (log out and back in once), then M3. Do M10 before M4 if the popup has no ask yet. Then M4, M10a, M5, M11, M6, M7, M8, M12, M13. After a rich todo is in the feed, M18 through M24. M25 is the next login after the unit is installed. M26 is a todo click after that. M27 through M42 need a running timer. M43 through M47 need this version installed and a log out, then a second feed file. M48 through M54 need that same login. M55 through M57 need the next install and a log out. M58 and M62 passed on the desktop. M63 and M64 have not been run. M65 through M68 need the install after that, and a log out so the panel icon reloads.
+M1, M2, then the extension install in M14 (log out and back in once), then M3. Do M10 before M4 if the popup has no ask yet. Then M4, M10a, M5, M11, M6, M7, M8, M12, M13. After a rich todo is in the feed, M18 through M24. M25 is the next login after the unit is installed. M26 is a todo click after that. M27 through M42 need a running timer. M43 through M47 need this version installed and a log out, then a second feed file. M48 through M54 need that same login. M47 and M55 through M68 passed on the desktop. M69 through M73 need the settings install and a log out, so the prefs window and the schema load.
 
 You can stop after any check. Later checks say what they need.
 
@@ -304,7 +304,7 @@ gdbus call --session \
 
 ## M7. Wrong key, re-paste, queue drains
 
-**Preconditions.** M3's real routine is in use again (M6's reset is done). Webhook sender is enabled. The key dialog is not built yet: `RequestSecretEntry` returns false. Re-paste means `tetherbotctl secret set`, not a graphical dialog.
+**Preconditions.** M3's real routine is in use again (M6's reset is done). Webhook sender is enabled. This check uses `tetherbotctl secret set`. The graphical dialog is M69. Either one stores the key. Neither one shows a stored key.
 
 **Commands.** Store a wrong key on purpose. Paste the real **POST to** URL, then a key you invent that is not the routine's key.
 
@@ -1179,6 +1179,70 @@ journalctl --user -b /usr/bin/gnome-shell --no-pager | tail -n 80
 - Done on two rows, then close the menu before the bar ends. Those rows queue immediately, as one batch. Closing the window with pending rows does the same.
 
 **Reset.** Undo a pending row if you do not want it sent.
+
+## M69. Settings opens, and a stored key stays hidden
+
+**Preconditions.** M14. Log out and back in after installing this version so the prefs window loads. The bridge is running. At least one bot has a webhook slot. A key may already be stored with `tetherbotctl secret set`.
+
+**Look for.**
+
+- The top-bar menu's Settings item opens a TetherBot window, not an empty page.
+- Poll interval shows 120 until you change it. Undo timer shows 5 until you change it.
+- Each webhook slot has **Set up keys…** or **Replace keys…**. The GitHub token has the same kind of button. The label is **Replace keys…** only when that slot is already stored.
+- The button opens a separate window. The fields are empty. A stored URL or key is not shown. Cancel closes it and leaves the stored key in place.
+- The only number in the top bar is still the timer.
+
+**Reset.** None. Leave the keys where they were.
+
+## M70. Poll interval stays inside the old bounds
+
+**Preconditions.** M69. `github-poller` is enabled and a feed edit is easy to make.
+
+**Look for.**
+
+- The poll spin does not go below 60 or above 900.
+- Set it to 60. Edit the feed and push. The desktop shows the edit within about a minute without Sync now.
+- Set it back to 120.
+
+**Reset.** Leave the interval at 120.
+
+## M71. Undo length is the same in the popup and the window
+
+**Preconditions.** M69. At least one open todo is on screen. The default undo length is 5 seconds.
+
+**Look for.**
+
+- Set the undo timer to 10. Done in the popup keeps the bar for about 10 seconds. Undo before it ends sends nothing.
+- Done in the window keeps the bar for about the same 10 seconds.
+- Set the undo timer back to 5. The next Done in either place uses the shorter bar.
+- The top bar still has no number except the timer.
+
+**Reset.** Leave the undo timer at 5. Undo a pending row if you do not want it sent.
+
+## M72. Notifications can be turned off for one bot
+
+**Preconditions.** M69. Two bots, each able to publish an item with `notify` set.
+
+**Look for.**
+
+- Turn notifications off for one bot. A new item from that bot does not raise a notification. The other bot still does.
+- The bot row for the quiet bot is still in the popup and the window.
+- Turn notifications back on. A later new item from that bot notifies again.
+
+**Reset.** Leave notifications on for every bot.
+
+## M73. A hidden bot stays out of the popup and the window
+
+**Preconditions.** M69. Two bots, each with an open todo or ask.
+
+**Look for.**
+
+- Hide one bot. Its todos, asks, and row disappear from the popup and from the window. The other bot stays.
+- The hidden bot's items do not come back when you search or switch the window's bot filter.
+- Show that bot again. Its row and items return.
+- The top bar still has no number except the timer.
+
+**Reset.** Leave every bot shown.
 
 ## When you are finished
 

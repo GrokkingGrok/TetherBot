@@ -462,6 +462,7 @@ class TodoWindow(Adw.ApplicationWindow):
         self._timer_generation = 0
         self._link_tags: dict[str, Gtk.TextTag] = {}
         self._undo_holds: dict[str, dict[str, Any]] = {}
+        self._undo_span = 5000
         self._undo_bars: list[tuple[Gtk.ProgressBar, int]] = []
         self._undo_source = 0
         self._undo_paint = 0
@@ -808,6 +809,7 @@ class TodoWindow(Adw.ApplicationWindow):
             self._undo_holds,
             _now_ms(),
             pin_expired=self._list_hovered,
+            window_ms=self._undo_span,
         )
         self._undo_bars = [(self._detail_bar, self._detail_until)]
         self._filling = True
@@ -850,7 +852,7 @@ class TodoWindow(Adw.ApplicationWindow):
         if undo is not None and undo.get("live"):
             until = int(undo.get("until") or 0)
             button, bar = _undo_button()
-            bar.set_fraction(undo_fraction(until, _now_ms()))
+            bar.set_fraction(undo_fraction(until, _now_ms(), self._undo_span))
             button.connect("clicked", lambda _button, item_key=key: self._undo(item_key))
             self._undo_bars.append((bar, until))
             top.append(button)
@@ -945,7 +947,7 @@ class TodoWindow(Adw.ApplicationWindow):
             self._detail_bar.set_fraction(0)
             return
         self._detail_until = int(hold["until"])
-        self._detail_bar.set_fraction(undo_fraction(self._detail_until, now))
+        self._detail_bar.set_fraction(undo_fraction(self._detail_until, now, self._undo_span))
         if self._undo_bars:
             self._undo_bars[0] = (self._detail_bar, self._detail_until)
 
@@ -1234,6 +1236,13 @@ class TodoWindow(Adw.ApplicationWindow):
         if can_mark_done(item, outbound):
             self._mark_done(key)
 
+    def _undo_window_ms(self) -> int:
+        """The shared undo length, from settings, in milliseconds."""
+
+        from tetherbot.ui_settings import resolve_ui_settings
+
+        return resolve_ui_settings(None).undo_seconds * 1000
+
     def _mark_done(self, key: str) -> None:
         index = 0
         snapshot: dict[str, Any] | None = None
@@ -1246,6 +1255,7 @@ class TodoWindow(Adw.ApplicationWindow):
             self._undo_holds,
             _now_ms(),
             pin_expired=self._list_hovered,
+            window_ms=self._undo_span,
         )
         found = False
         for position, item in enumerate(shown):
@@ -1260,6 +1270,7 @@ class TodoWindow(Adw.ApplicationWindow):
             neighbor = shown[index + 1].get("key")
             if isinstance(neighbor, str):
                 shown_after = neighbor
+        self._undo_span = self._undo_window_ms()
         self._undo_holds = note_done(
             self._undo_holds,
             key,
@@ -1267,6 +1278,7 @@ class TodoWindow(Adw.ApplicationWindow):
             index,
             shown_after,
             _now_ms(),
+            self._undo_span,
         )
         self._arm_undo()
         self._fill_rows(self._items)
@@ -1435,7 +1447,7 @@ class TodoWindow(Adw.ApplicationWindow):
     def _paint_undo_bars(self) -> None:
         now = _now_ms()
         for bar, until in self._undo_bars:
-            bar.set_fraction(undo_fraction(until, now))
+            bar.set_fraction(undo_fraction(until, now, self._undo_span))
 
     def _sync_open_undo(self) -> None:
         item = self._current

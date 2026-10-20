@@ -74,6 +74,7 @@ def test_disable_drops_the_proxy_and_handlers():
     assert "disconnectSignal" in text
     assert "_tickSource" in disable
     assert "source_remove" in disable
+    assert "_settings.disconnect" in disable
     assert "GetTimerRemote" in text
     assert "keepAssigning" in text
     assert "todoActivation" in text

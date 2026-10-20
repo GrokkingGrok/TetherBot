@@ -167,6 +167,10 @@ class BridgeDaemon:
 
         if self._loop is None:
             self._loop = GLibMainLoop()
+        if getattr(self, "launch_secret_dialog", None) is None:
+            from tetherbot.secret_dialog import launch_secret_dialog
+
+            self.launch_secret_dialog = launch_secret_dialog
         if not self._started:
             self.start()
         export = None

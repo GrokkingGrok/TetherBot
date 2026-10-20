@@ -618,6 +618,11 @@ class GitHubPoller:
         return str(row.branch)
 
     def _interval(self) -> int:
+        from tetherbot.ui_settings import resolve_ui_settings
+
+        ui = resolve_ui_settings(self._ctx)
+        if ui.poll_set:
+            return ui.poll_seconds
         ctx = self._ctx
         if ctx is None or ctx.config is None:
             return 120

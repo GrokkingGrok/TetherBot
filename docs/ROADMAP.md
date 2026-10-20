@@ -47,12 +47,13 @@ TetherBot is pre-alpha. Check items off as they land. Design detail is in [SPEC.
 - [x] Manual checks M37–M41 passed on the desktop: the minute top-bar format, edit start, the close button and a single titlebar, attach via Add to a todo and Attach timer, Undo after Stop including a paused timer, and a stopped unassigned timer that survives with Dismiss.
 - [ ] Manual checks M18–M36 and M42 for the rich todo view, login start, window open, and the remaining stopwatch checks. Login start and non-blocking window open are on main (#22, #23). The steps are in [MANUAL-CHECKS.md](MANUAL-CHECKS.md). M18–M36 and M42 have not been run on the desktop yet.
 - [x] Manual checks M43–M46 passed on the desktop: a second feed file, display names, the compact Bots section, popup order Timer then Todos then Asks then Bots, and the window Bots tab (summary click, name filter, and the list of bots).
-- [ ] Manual check M47 for the timer after the new popup. The steps are in [MANUAL-CHECKS.md](MANUAL-CHECKS.md). It has not been run on the desktop yet.
+- [x] Manual check M47 passed on the desktop: the timer still behaves after the new popup.
 - [x] Manual checks M48–M54 passed on the desktop: a bot without a webhook slot, Sync now, the timer chip, the toolbar with no counts and the todo ring, the readable summary, the window bot status dot, and local-time dates.
 - [x] Manual checks M55–M57 passed on the desktop: the timer chip on the left, a top bar that hugs the timer text, and a window that updates bot names while it stays open.
 - [x] Manual checks M58 and M62 passed on the desktop: the panel icon matches the shell's icon size, and `primary` stays the first bot.
-- [ ] Manual checks M63 and M64 for a shared webhook slot and a missing secret on one bot. The steps are in [MANUAL-CHECKS.md](MANUAL-CHECKS.md). They have not been run on the desktop yet.
-- [ ] Manual checks M65–M68 for a face in the shell's status-icon color, eyes that stay visible, Done sending when the shared bar ends, and one batch per menu. The steps are in [MANUAL-CHECKS.md](MANUAL-CHECKS.md). They have not been run on the desktop yet.
+- [x] Manual checks M63 and M64 passed on the desktop: several bots can share one webhook slot, and a missing secret stays on that bot.
+- [x] Manual checks M65–M68 passed on the desktop: the face takes the shell accent, both eyes stay visible, Done sends when the shared bar ends, and one menu sends one batch.
+- [ ] Manual checks M69–M73 for the settings screen: key handoff, poll interval, undo length, notifications per bot, and hidden bots. The steps are in [MANUAL-CHECKS.md](MANUAL-CHECKS.md). They have not been run on the desktop yet.
 
 ## v0.2 — early adopters
 
@@ -61,11 +62,10 @@ TetherBot is pre-alpha. Check items off as they land. Design detail is in [SPEC.
 - [ ] `desktop/outbox` for repo-only actions
 - [x] Polish `scripts/install.sh` and `scripts/uninstall.sh` against a real daemon
 - [ ] Review the two prompts in `docs/prompts/` against the running app
-- [ ] `docs/privacy.md` (session-bus trust boundary, what leaves the machine)
-- [ ] GTK4 key dialog owned by the bridge process
+- [x] `docs/privacy.md` (session-bus trust boundary, what leaves the machine). Draft.
+- [x] GTK4 key dialog owned by the bridge process
 - [ ] Webhook-only mode copy in the popup
-- [ ] Money and watch section
-- [ ] Extension prefs (gsettings, UI only) and a "Set up keys..." button
+- [x] Extension prefs (gsettings, UI only) and a "Set up keys..." button
 - [ ] COPR RPM — interest is **TBD, verify**
 - [ ] Feedback from a handful of users
 - [ ] All manual checks M1–M17
@@ -100,6 +100,15 @@ TetherBot is pre-alpha. Check items off as they land. Design detail is in [SPEC.
 - [ ] Nested shell devkit command and package on Fedora 44 (`dbus-run-session gnome-shell --devkit` is the candidate)
 - [ ] Which `systemd --user` sandbox options work on Fedora 44 without breaking libsecret or git, including `ProtectSystem=strict` with `ReadWritePaths=`
 - [ ] Whether a COPR package is worth building for v0.2
+
+## Later
+
+- [ ] Start the stopwatch when the user logs in. The bridge already starts with the graphical session. Starting the timer itself on login is not built.
+- [ ] Money and watch section. Todo filters cover the need for now. A visual money overview is a possible future teaser, not part of v0.2.
+
+## Known bugs (later)
+
+- [ ] Since the symbolic icon in #37, the ring and dot overlays no longer show distinct attention colors. The shell tints the whole symbolic icon with the accent, so the ring and the dot match the face.
 
 ## Resolved
 

@@ -1,0 +1,101 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+"""UI setting bounds. Secrets are not part of this snapshot."""
+
+import shutil
+import subprocess
+from pathlib import Path
+
+import pytest
+
+from tetherbot.adapters.github_poller import GitHubPoller
+from tetherbot.secret_dialog import launch_secret_dialog, save_slot
+from tetherbot.secrets import MemoryBackend, SecretStore
+from tetherbot.ui_settings import (
+    POLL_DEFAULT,
+    UiSettings,
+    clamp_poll_seconds,
+    clamp_undo_seconds,
+    load_ui_settings,
+    notice_bot,
+)
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_poll_and_undo_stay_inside_bounds():
+    assert clamp_poll_seconds(120) == 120
+    assert clamp_poll_seconds(10) == 60
+    assert clamp_poll_seconds(5000) == 900
+    assert clamp_poll_seconds(True) == POLL_DEFAULT
+    assert clamp_undo_seconds(5) == 5
+    assert clamp_undo_seconds(1) == 2
+    assert clamp_undo_seconds(90) == 30
+    settings = UiSettings(
+        poll_seconds=1,
+        poll_set=True,
+        undo_seconds=0,
+        muted_bots=frozenset({"Notes", "primary"}),
+        hidden_bots=frozenset({"other"}),
+    )
+    assert settings.poll_seconds == 60
+    assert settings.undo_seconds == 2
+    assert settings.muted_bots == frozenset({"primary"})
+    assert settings.hidden_bots == frozenset({"other"})
+
+
+def test_notice_bot_reads_the_id_only():
+    assert notice_bot('{"source":{"bot":"primary"},"title":"Hello"}') == "primary"
+    assert notice_bot('{"bot":"notes","title":"Re-paste key"}') == "notes"
+    assert notice_bot('{"bot":"not a bot"}') == ""
+    assert notice_bot("nope") == ""
+
+
+def test_poll_interval_uses_a_saved_setting():
+    poller = GitHubPoller()
+    ctx = type("Ctx", (), {})()
+    ctx.ui_settings = UiSettings(poll_seconds=90, poll_set=True)
+    ctx.config = None
+    poller._ctx = ctx
+    assert poller._interval() == 90
+    ctx.ui_settings = UiSettings()
+    assert poller._interval() == 120
+
+
+def test_save_slot_returns_nothing(tmp_path: Path):
+    del tmp_path
+    store = SecretStore(MemoryBackend())
+    saved = save_slot(
+        store,
+        "primary-actions",
+        "https://hooks.example/hook",
+        "super-secret-key",
+    )
+    assert saved is None
+    assert store.get_webhook("primary-actions").key == "super-secret-key"
+    assert save_slot(store, "github-token", "", "example-token") is None
+    assert store.get_github_token("github-token") == "example-token"
+
+
+def test_dialog_does_not_launch_without_a_display(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.delenv("DISPLAY", raising=False)
+    monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
+    assert launch_secret_dialog("primary-actions") is False
+    assert launch_secret_dialog("not a slot") is False
+
+
+def test_compiled_schema_loads_the_defaults(tmp_path: Path):
+    if shutil.which("glib-compile-schemas") is None:
+        pytest.skip("glib-compile-schemas is not installed")
+    dest = tmp_path / "schemas"
+    dest.mkdir()
+    source = ROOT / "extension" / "schemas" / "org.gnome.shell.extensions.tetherbot.gschema.xml"
+    (dest / source.name).write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+    subprocess.run(["glib-compile-schemas", str(dest)], check=True, timeout=30)
+    loaded = load_ui_settings(dest)
+    assert loaded.poll_seconds == 120
+    assert loaded.poll_set is False
+    assert loaded.undo_seconds == 5
+    assert loaded.muted_bots == frozenset()
+    assert loaded.hidden_bots == frozenset()
+    text = source.read_text(encoding="utf-8")
+    assert "secret" not in text.lower()

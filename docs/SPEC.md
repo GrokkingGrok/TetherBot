@@ -401,6 +401,8 @@ Generic module only. See section 11. Off by default. A concrete legacy inbox for
   3. **Todos**: open items for the user, showing the title and an optional due date, with Done (sends `done` when the bot has an outbound route and the item lists `done`).
   4. **Money and watch**: bills and watch items, read-only, sorted by date, with `amount`.
   5. Footer: bridge state, queued count, "Sync now", "Settings".
+- **Planned popup order (v0.1.x, not built).** The toolbar popup order becomes Timer, Todos, Asks, Bots, then the rest as today: Open TetherBot, the status line, Sync now, and Settings. Money and watch stays a v0.2 section. Today the stopwatch block is the first section, above the bot rows ([STOPWATCH.md](STOPWATCH.md)); Asks and Todos still follow the bot rows.
+- **Planned compact Bots section (v0.1.x, not built).** This depends on Bot display names. When more than one bot is tethered, the popup's Bots section collapses to one summary line, for example `3 bots · all ok`. An individual bot row appears only when that bot is stale, broken, or needs attention, and the summary turns red and names the bot. A healthy setup is one line however many bots there are. The full per-bot list (display name, last seen, next run, open todo count) lives in a Bots tab or section of the TetherBot window. Clicking the summary opens it. Bot names also act as filters on todos, the way tag chips do. With a single bot, the line can read like today's row.
 - **Notifications** (MessageTray, one source): one per `NotificationRequested`. Buttons come from the item: Approve, Veto, Snooze (1 h, or tomorrow 09:00), and Open chat. Notify on first sight, plus a `due_soon` nudge. GNOME Do Not Disturb applies. Delivery failures and "Re-paste key" use the same source. The bridge dedupes by key and `updated_at`.
 - **Empty and error states** are explicit, including "Bridge not running", "Webhook-only mode: bot updates need the repo adapter", and "This feed uses a newer protocol. Update TetherBot."
 - **Prefs** (`prefs.js`, Adw): which counts drive the badge, show or hide each section, notification on or off per bot, and "Set up keys...". UI settings only, in the extension's gsettings schema. The schema file arrives with the prefs milestone. The scaffold prefs window is an empty page.
@@ -510,7 +512,7 @@ Still to write, with the milestones that need them:
 - M24. The window opens from the popup and from the app grid, holds no secrets, and makes no network requests. The extension does not spawn it.
 - M25. Log out and back in. The indicator becomes active within about 10 seconds without a manual `systemctl start`.
 - M26. Clicking a todo in the popup shows the window within about 1.5 seconds from a cold start, and at once when the process is still up.
-- M27–M42. Stopwatch recovery, the top-bar badges, Undo, edit start, attaching a stopped or running timer, and the window close button. The steps are in [MANUAL-CHECKS.md](MANUAL-CHECKS.md) and [STOPWATCH.md](STOPWATCH.md).
+- M27–M42. Stopwatch recovery, the top-bar badges, Undo, edit start, attaching a stopped or running timer, and the window close button. M37–M41 passed on the desktop: the minute top-bar format, edit start, the close button and a single titlebar, attach via Add to a todo and Attach timer, Undo after Stop including a paused timer, and a stopped unassigned timer that survives with Dismiss. M27–M36 and M42 are still open. The steps are in [MANUAL-CHECKS.md](MANUAL-CHECKS.md) and [STOPWATCH.md](STOPWATCH.md).
 
 ## 13. Milestones
 
@@ -531,6 +533,8 @@ Checklists live in [ROADMAP.md](ROADMAP.md).
 - Write access is a fine-grained personal access token scoped to the private data repo only (Contents read and write, plus Metadata read, nothing else), held on the bot side as a bot secret. An expired token must fail visibly.
 - TetherBot is the single todo tracker. An older local todo sync is retired after cutover, not run beside it.
 - `feed/<bot>.json` for more than one bot. More than one desktop may read the same feed. A non-GNOME client is out of scope. On a second machine the bot side is how todos are added. Proposed, not urgent: each desktop writes only `desktop/<machine-id>.json` (a stable random id from install, not the hostname). Every desktop hides an item any machine has resolved. Snooze stays local. **TBD, verify** before a second GNOME desktop exists.
+- Popup section order, not built yet: Timer, Todos, Asks, Bots, then Open TetherBot, the status line, Sync now, and Settings.
+- Compact Bots section for more than one bot, not built yet. It depends on Bot display names. One summary line such as `3 bots · all ok`, with an individual row only when that bot is stale, broken, or needs attention, and then the summary turns red and names the bot. The full list (display name, last seen, next run, open todo count) is a Bots tab or section of the TetherBot window. Clicking the summary opens it. Bot names filter todos the way tag chips do. With one bot, the line can read like today's row.
 - An always-on local device, such as a single-board computer, as an indicator or hub is optional later. The private repo is already the always-on middle.
 
 ### v0.2: early adopters

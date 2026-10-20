@@ -86,6 +86,10 @@ METHOD_OUT: dict[str, str | None] = {
     "GetTimer": "(s)",
     "ResolveTimerWarning": "(s)",
     "AssignStoppedTimer": "(b)",
+    "AdjustTimerStart": "(s)",
+    "SetTimerStart": "(s)",
+    "AssignTimer": "(s)",
+    "DismissTimer": "(s)",
 }
 
 PROPERTY_TYPES = {
@@ -280,7 +284,7 @@ class BridgeApi:
         if not isinstance(item_key, str):
             raise ServiceError(INVALID_ARGS, "item_key is invalid")
         timer = getattr(self._daemon, "timer", None)
-        if timer is not None and timer.active() is not None:
+        if timer is not None and timer.holding() is not None:
             raise ServiceError(TIMER_BUSY, "a timer is already running")
         title = ""
         if item_key:
@@ -348,6 +352,35 @@ class BridgeApi:
         if ok:
             self.note_timer()
         return (ok,)
+
+    def _adjust_timer_start(self, delta_s: int) -> tuple[str]:
+        if isinstance(delta_s, bool) or not isinstance(delta_s, int):
+            raise ServiceError(INVALID_ARGS, "delta is invalid")
+        payload = self._timer_call("adjust_start", delta_s)
+        self.note_timer()
+        return (_dumps(payload),)
+
+    def _set_timer_start(self, started_at: int) -> tuple[str]:
+        if isinstance(started_at, bool) or not isinstance(started_at, int):
+            raise ServiceError(INVALID_ARGS, "started_at is invalid")
+        payload = self._timer_call("set_start", started_at)
+        self.note_timer()
+        return (_dumps(payload),)
+
+    def _assign_timer(self, item_key: str) -> tuple[str]:
+        if not isinstance(item_key, str) or _bad_item_key(item_key):
+            raise ServiceError(INVALID_ARGS, "item_key is invalid")
+        item = self._daemon.store.get(item_key)
+        if item is None or item.kind != "todo" or item.status != "open":
+            raise ServiceError(NOT_FOUND, "item not found")
+        payload = self._timer_call("attach", item_key, item.title)
+        self.note_timer()
+        return (_dumps(payload),)
+
+    def _dismiss_timer(self) -> tuple[str]:
+        payload = self._timer_call("dismiss")
+        self.note_timer()
+        return (_dumps(payload),)
 
     def _stop_owned_timer(self, key: str) -> None:
         timer = getattr(self._daemon, "timer", None)

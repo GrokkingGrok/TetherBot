@@ -27,7 +27,7 @@ LIMIT_S = 24 * 60 * 60
 JUMP_S = 120.0
 UNDO_S = 5.0
 APPLIED_KEEP = 50
-_STATES = frozenset({"running", "paused", "stopping"})
+_STATES = frozenset({"running", "paused", "stopping", "stopped"})
 _WARNINGS = frozenset({"clock_backward", "clock_jump", "over_limit"})
 
 
@@ -96,9 +96,17 @@ class TimerStore:
         self._maybe_warn()
 
     def active(self) -> dict[str, Any] | None:
-        """The on-disk timer, or None when there is nothing to show."""
+        """The running or paused timer, or None."""
 
         if self._timer is None or self._timer.get("state") not in {"running", "paused"}:
+            return None
+        return self._timer
+
+    def holding(self) -> dict[str, Any] | None:
+        """A timer that still occupies the one slot, including a stopped one."""
+
+        state = None if self._timer is None else self._timer.get("state")
+        if state not in {"running", "paused", "stopped"}:
             return None
         return self._timer
 
@@ -134,6 +142,10 @@ class TimerStore:
         payload["now"] = sample.wall
         if elapsed < 0 and not payload.get("warning"):
             payload["warning"] = "clock_backward"
+        if payload.get("state") == "stopped":
+            public = self._public_undo(sample.wall)
+            if public is not None:
+                payload["undo"] = public
         return payload
 
     def poll(self) -> bool:
@@ -142,7 +154,7 @@ class TimerStore:
         return self._maybe_warn()
 
     def start(self, item_key: str, item_title: str) -> dict[str, Any]:
-        if self.active() is not None:
+        if self.holding() is not None:
             raise TimerError("busy", "a timer is already running")
         if not isinstance(item_key, str) or not isinstance(item_title, str):
             raise TimerError("invalid", "item_key is invalid")
@@ -192,7 +204,72 @@ class TimerStore:
         timer = self.active()
         if timer is None:
             raise TimerError("no_timer", "no timer")
-        return self._stop(timer, record=bool(timer.get("item_key")))
+        if timer.get("item_key"):
+            return self._stop(timer, record=True)
+        return self._stop_unassigned(timer)
+
+    def adjust_start(self, delta_s: int) -> dict[str, Any]:
+        """Move the start instant by ``delta_s`` seconds. Negative starts earlier."""
+
+        if isinstance(delta_s, bool) or not isinstance(delta_s, int):
+            raise TimerError("invalid", "delta is invalid")
+        timer = self.active()
+        if timer is None:
+            raise TimerError("no_timer", "no timer")
+        sample = self._clock()
+        end = _session_end(timer, sample.wall)
+        start = end - elapsed_seconds(timer, end)
+        return self._retarget(timer, start + delta_s, end, sample)
+
+    def set_start(self, started_at: int) -> dict[str, Any]:
+        """Replace the session start with a wall-clock instant."""
+
+        if isinstance(started_at, bool) or not isinstance(started_at, int):
+            raise TimerError("invalid", "started_at is invalid")
+        timer = self.active()
+        if timer is None:
+            raise TimerError("no_timer", "no timer")
+        sample = self._clock()
+        end = _session_end(timer, sample.wall)
+        return self._retarget(timer, float(started_at), end, sample)
+
+    def dismiss(self) -> dict[str, Any]:
+        """Drop a stopped unassigned timer. Nothing is recorded."""
+
+        timer = self._timer
+        if timer is None or timer.get("state") != "stopped":
+            raise TimerError("no_timer", "no timer")
+        self._remove_timer_file()
+        self._timer = None
+        self._undo = None
+        return self.view()
+
+    def attach(self, item_key: str, item_title: str) -> dict[str, Any]:
+        """Put the current timer on an open todo.
+
+        A running or paused timer keeps counting on that todo. A stopped
+        unassigned timer is recorded and cleared.
+        """
+
+        if not isinstance(item_key, str) or not item_key or not isinstance(item_title, str):
+            raise TimerError("invalid", "item_key is invalid")
+        timer = self._timer
+        if timer is None:
+            raise TimerError("no_timer", "no timer")
+        if timer.get("state") == "stopped":
+            if not self.assign(str(timer.get("timer_id") or ""), item_key):
+                raise TimerError("no_timer", "no timer")
+            return self.view()
+        if timer.get("state") not in {"running", "paused"}:
+            raise TimerError("no_timer", "no timer")
+        if timer.get("item_key"):
+            raise TimerError("busy", "timer is already on a todo")
+        updated = dict(timer)
+        updated["segments"] = [list(pair) for pair in timer.get("segments") or []]
+        updated["item_key"] = item_key
+        updated["item_title"] = item_title
+        self._commit(updated)
+        return self.view()
 
     def undo_stop(self, timer_id: str) -> bool:
         self._expire_undo()
@@ -208,13 +285,26 @@ class TimerStore:
     def assign(self, timer_id: str, item_key: str) -> bool:
         """Record a stopped standalone timer onto an open todo."""
 
+        if not isinstance(item_key, str) or not item_key:
+            raise TimerError("invalid", "item_key is invalid")
         self._expire_undo()
+        timer = self._timer
+        if (
+            timer is not None
+            and timer.get("state") == "stopped"
+            and timer.get("timer_id") == timer_id
+        ):
+            recorded = _whole(timer.get("accumulated_s"))
+            when = self._clock().wall
+            self._apply(timer_id, item_key, recorded, when)
+            self._remove_timer_file()
+            self._timer = None
+            self._undo = None
+            return True
         undo = self._undo
         sample = self._clock()
         if undo is None or undo.get("kind") != "assign" or undo.get("timer_id") != timer_id:
             return False
-        if not isinstance(item_key, str) or not item_key:
-            raise TimerError("invalid", "item_key is invalid")
         self._apply(timer_id, item_key, int(undo["recorded_s"]), sample.wall)
         self._undo = None
         return True
@@ -245,6 +335,67 @@ class TimerStore:
         elif timer.get("warning") == "clock_backward":
             updated["running_since"] = sample.wall
             updated["state"] = "running"
+        updated["warning"] = None
+        _stamp(updated, sample)
+        self._commit(updated)
+        return self.view()
+
+    def _stop_unassigned(self, timer: dict[str, Any]) -> dict[str, Any]:
+        """Leave a stopped timer on disk until it is assigned or dismissed."""
+
+        sample = self._clock()
+        closed = _close_segment(timer, sample.wall)
+        recorded = _whole(closed["accumulated_s"])
+        closed["accumulated_s"] = float(recorded)
+        closed["state"] = "stopped"
+        closed["running_since"] = None
+        closed["item_key"] = ""
+        closed["item_title"] = ""
+        _stamp(closed, sample)
+        self._commit(closed)
+        self._undo = {
+            "kind": "undo",
+            "until": sample.wall + UNDO_S,
+            "timer_id": closed["timer_id"],
+            "item_key": "",
+            "item_title": "",
+            "recorded_s": recorded,
+            "total_s": 0,
+            "applied": False,
+            "timer": timer,
+        }
+        return {
+            "timer_id": closed["timer_id"],
+            "item_key": "",
+            "item_title": "",
+            "recorded_s": recorded,
+            "total_s": 0,
+        }
+
+    def _retarget(
+        self,
+        timer: dict[str, Any],
+        new_start: float,
+        end: float,
+        sample: ClockSample,
+    ) -> dict[str, Any]:
+        if new_start > end:
+            raise TimerError("invalid", "start is in the future")
+        elapsed = end - new_start
+        if elapsed < 0:
+            raise TimerError("invalid", "start is in the future")
+        limit = float(timer.get("limit_s") or LIMIT_S)
+        if elapsed > limit:
+            raise TimerError("invalid", "start is before the 24 hour limit")
+        updated = dict(timer)
+        if timer.get("state") == "running":
+            updated["segments"] = []
+            updated["accumulated_s"] = 0.0
+            updated["running_since"] = new_start
+        else:
+            updated["segments"] = [[new_start, end]]
+            updated["accumulated_s"] = float(elapsed)
+            updated["running_since"] = None
         updated["warning"] = None
         _stamp(updated, sample)
         self._commit(updated)
@@ -472,6 +623,20 @@ class TimerStore:
         _LOG.info("%s", message)
         if path == self.path:
             self._read_error = "The saved timer could not be read"
+
+
+def _session_end(timer: dict[str, Any], now: float) -> float:
+    """The instant elapsed time stops growing. Paused time ends at the pause."""
+
+    if timer.get("state") == "running":
+        return now
+    segments = timer.get("segments") or []
+    if segments and isinstance(segments[-1], list) and len(segments[-1]) >= 2:
+        return float(segments[-1][1])
+    wall = timer.get("wall_at_transition")
+    if isinstance(wall, (int, float)) and not isinstance(wall, bool):
+        return float(wall)
+    return now
 
 
 def elapsed_seconds(timer: dict[str, Any], now: float) -> float:

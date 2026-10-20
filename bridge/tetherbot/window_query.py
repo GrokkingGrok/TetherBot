@@ -7,7 +7,9 @@ No GTK and no network. The window asks the bridge to apply the filter.
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Mapping
+from datetime import datetime, timedelta
 from typing import Any
 
 from tetherbot import SCHEMA_VERSION
@@ -110,6 +112,40 @@ def format_elapsed(seconds: object) -> str:
     if hours >= 1:
         return f"{hours}:{minutes:02d}:{secs:02d}"
     return f"{minutes}:{secs:02d}"
+
+
+def format_top_bar(seconds: object) -> str:
+    """Panel text: ``41m`` under an hour, ``1:05`` from one hour. No seconds."""
+
+    if isinstance(seconds, bool) or not isinstance(seconds, (int, float)) or seconds < 0:
+        return "--:--"
+    whole = int(seconds)
+    hours, rem = divmod(whole, 3600)
+    minutes = rem // 60
+    if hours >= 1:
+        return f"{hours}:{minutes:02d}"
+    return f"{minutes}m"
+
+
+_START_CLOCK = re.compile(r"(\d{1,2}):([0-5]\d)\Z")
+
+
+def parse_start_clock(text: object, now: datetime | None = None) -> int | None:
+    """Local ``HH:MM`` as unix seconds. A time still ahead of now is yesterday."""
+
+    if not isinstance(text, str):
+        return None
+    match = _START_CLOCK.fullmatch(text.strip())
+    if match is None:
+        return None
+    hours = int(match.group(1))
+    if hours > 23:
+        return None
+    moment = now if now is not None else datetime.now().astimezone()
+    start = moment.replace(hour=hours, minute=int(match.group(2)), second=0, microsecond=0)
+    if start > moment:
+        start -= timedelta(days=1)
+    return int(start.timestamp())
 
 
 def format_tracked(seconds: object) -> str:

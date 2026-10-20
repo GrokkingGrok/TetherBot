@@ -2,7 +2,7 @@
 
 Run these on one Fedora 44 desktop with GNOME Shell 50 on Wayland, after you can log in as a normal user. The project is unofficial and not affiliated with xAI.
 
-**Out of scope here:** M9 (webhook-only popup copy), M15 and M16 (a legacy todo sink outside this repository), and M17 (the full uninstall acceptance check). Uninstall is still documented in [SETUP.md](SETUP.md) and is the reset for M1. M18–M24 are the rich-todo checks later in this file. M25 checks that a new login starts the bridge. M26 checks that a todo click opens the window quickly. M27–M36 check the stopwatch. Do not treat M9, M15, M16, or M17 as part of the v0.1 runbook.
+**Out of scope here:** M9 (webhook-only popup copy), M15 and M16 (a legacy todo sink outside this repository), and M17 (the full uninstall acceptance check). Uninstall is still documented in [SETUP.md](SETUP.md) and is the reset for M1. M18–M24 are the rich-todo checks later in this file. M25 checks that a new login starts the bridge. M26 checks that a todo click opens the window quickly. M27–M41 check the stopwatch. Do not treat M9, M15, M16, or M17 as part of the v0.1 runbook.
 
 Examples use the bot id `primary`. Yours can be any lowercase id of letters, digits, and hyphens. Use the same id in the bot's feed file, in `config.toml`, and in the commands below.
 
@@ -10,7 +10,7 @@ Nothing in these steps belongs in a chat, in `config.toml`, or in this repositor
 
 ## Suggested order
 
-M1, M2, then the extension install in M14 (log out and back in once), then M3. Do M10 before M4 if the popup has no ask yet. Then M4, M10a, M5, M11, M6, M7, M8, M12, M13. After a rich todo is in the feed, M18 through M24. M25 is the next login after the unit is installed. M26 is a todo click after that. M27 through M36 need a running timer.
+M1, M2, then the extension install in M14 (log out and back in once), then M3. Do M10 before M4 if the popup has no ask yet. Then M4, M10a, M5, M11, M6, M7, M8, M12, M13. After a rich todo is in the feed, M18 through M24. M25 is the next login after the unit is installed. M26 is a todo click after that. M27 through M41 need a running timer.
 
 You can stop after any check. Later checks say what they need.
 
@@ -795,6 +795,66 @@ journalctl --user -b /usr/bin/gnome-shell --no-pager | tail -n 80
 
 - With Orca, focus the button in each state and hear the names in [STOPWATCH.md](STOPWATCH.md) section 10.
 - The same states are distinguishable in grayscale: no badge, dot, ring, triangle, slash, pause bars, or dashes.
+
+**Reset.** None.
+
+## M37. The top bar has no seconds
+
+**Preconditions.** A timer is running.
+
+**Look for.**
+
+- Under an hour the button reads `0m`, `5m`, or `41m`, with no leading zero and no seconds.
+- At an hour or more it reads `1:05` or `12:40`.
+- The popup clock may still show seconds.
+
+**Reset.** None.
+
+## M38. Edit a start that was forgotten
+
+**Preconditions.** A timer is running or paused.
+
+**Look for.**
+
+- Edit start offers `-5m`, `-15m`, and `-30m`, and an `HH:MM` entry, in the popup and in the window.
+- `-15m` adds about 15 minutes. The new total survives a bridge restart.
+- A time in the future is refused. A start more than 24 hours ago is refused.
+
+**Reset.** None.
+
+## M39. The window closes
+
+**Preconditions.** The TetherBot window is open.
+
+**Look for.**
+
+- The header has a close button, including when the window is narrow.
+- Ctrl+W closes it. Escape closes it.
+
+**Reset.** None.
+
+## M40. Add the time to a todo
+
+**Preconditions.** A timer is running and is not already on a todo. At least one open todo is in the list.
+
+**Look for.**
+
+- Add to a todo highlights the rows and offers Cancel. Clicking a row attaches the time. The window does not open.
+- The same Attach timer button in the window does it while the timer is still running.
+- Stop a timer that is not on a todo, then add it from the popup. The todo shows the tracked chip.
+
+**Reset.** None.
+
+## M41. A stopped timer stays until you deal with it
+
+**Preconditions.** Stop a timer that is not on a todo.
+
+**Look for.**
+
+- Undo is there for about 5 seconds and then fades. The stopped time is still in the popup and on the top bar.
+- Opening the window does not clear it. `~/.local/state/tetherbot/timer.json` is still there.
+- Undo within 5 seconds resumes the timer and the time keeps counting.
+- Dismiss removes it. After Dismiss, `timer.json` is gone and nothing new was recorded.
 
 **Reset.** None.
 

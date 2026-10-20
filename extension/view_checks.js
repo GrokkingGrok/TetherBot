@@ -15,7 +15,9 @@ import {
     elapsedSeconds,
     formatElapsed,
     formatLastSeen,
+    formatTopBar,
     formatTracked,
+    parseStartClock,
     indicatorView,
     overdueCount,
     itemKey,
@@ -137,6 +139,19 @@ export function runViewChecks() {
     assert(PROXY_METHODS.includes('GetTimerRemote'), 'get timer method');
     assert(formatElapsed(42 * 60 + 10) === '42:10', 'minutes and seconds');
     assert(formatElapsed(3600 + 42 * 60 + 10) === '1:42:10', 'hours');
+    assert(formatTopBar(0) === '0m', 'zero minutes');
+    assert(formatTopBar(5 * 60) === '5m', 'five minutes');
+    assert(formatTopBar(41 * 60) === '41m', 'forty one minutes');
+    assert(formatTopBar(3600 + 5 * 60) === '1:05', 'one hour five');
+    assert(formatTopBar(12 * 3600 + 40 * 60) === '12:40', 'twelve forty');
+    assert(formatTopBar(42 * 60 + 10) === '42m', 'top bar drops seconds');
+    assert(formatTopBar(-1) === '--:--', 'top bar dashes');
+    const clockNow = new Date(2026, 9, 19, 12, 0, 0).getTime();
+    assert(parseStartClock('11:00', clockNow) ===
+        Math.floor(new Date(2026, 9, 19, 11, 0, 0).getTime() / 1000), 'start earlier today');
+    assert(parseStartClock('13:05', clockNow) ===
+        Math.floor(new Date(2026, 9, 18, 13, 5, 0).getTime() / 1000), 'start yesterday');
+    assert(parseStartClock('24:00', clockNow) === null, 'hour out of range');
     assert(formatElapsed(-3) === '--:--', 'negative time is dashes');
     assert(formatTracked(3600 + 42 * 60) === '1:42 tracked', 'tracked chip');
     assert(parseSetTime('1:42') === 3600 + 42 * 60, 'set time hours');
@@ -405,7 +420,7 @@ export function runViewChecks() {
         nowMs: NOW,
     });
     assert(withTime.mark === 'dot', 'approval outranks the timer');
-    assert(withTime.text === '1:42:10', 'time shows beside the dot');
+    assert(withTime.text === '1:42', 'time shows beside the dot');
     assert(withTime.accessibleName ===
         'TetherBot: timer running, 1 hour 42 minutes. 1 approval waiting',
         'timer and approval name');
@@ -449,7 +464,7 @@ export function runViewChecks() {
     });
     assert(paused.showPause === true, 'paused shows pause bars');
     assert(paused.textStyle === 'paused', 'paused time is dimmed');
-    assert(paused.text === '25:03', 'paused time');
+    assert(paused.text === '25m', 'paused time');
     assert(paused.accessibleName ===
         'TetherBot: timer paused at 25 minutes, Email venue about deposit',
         'paused name');
@@ -484,7 +499,21 @@ export function runViewChecks() {
         nowMs: NOW,
     });
     assert(block.kind === 'running', 'running block');
-    assert(block.actions.join(',') === 'Pause,Stop', 'running actions');
+    assert(block.actions.join(',') === 'Pause,Stop,Edit start', 'running actions');
+    const editing = timerModel({
+        running: true,
+        timer: runningTimer,
+        nowMs: NOW,
+        editingStart: true,
+    });
+    assert(editing.kind === 'edit-start', 'edit start');
+    assert(editing.actions.join(',') === '-5m,-15m,-30m,Cancel', 'quick shifts');
+    const loose = timerModel({
+        running: true,
+        timer: {...runningTimer, item_key: '', item_title: ''},
+        nowMs: NOW,
+    });
+    assert(loose.actions.includes('Add to a todo'), 'a running timer can be attached');
     assert(block.subject === 'Draft Q4 grant budget', 'timer subject');
     const stopped = timerModel({
         running: true,
@@ -505,18 +534,49 @@ export function runViewChecks() {
     const standalone = timerModel({
         running: true,
         timer: {
-            state: 'idle',
+            state: 'stopped',
+            accumulated_s: 41 * 60,
+            timer_id: 'tm-2',
             undo: {
-                kind: 'assign',
+                kind: 'undo',
                 until: NOW / 1000 + 4,
                 timer_id: 'tm-2',
-                recorded_s: 90,
+                recorded_s: 41 * 60,
             },
         },
         nowMs: NOW,
     });
-    assert(standalone.kind === 'assign', 'standalone offers add');
-    assert(standalone.action === 'Add to a todo', 'add label');
+    assert(standalone.kind === 'stopped', 'stopped stays in the popup');
+    assert(standalone.title === 'Stopped 41m', 'stopped title');
+    assert(standalone.actions.join(',') === 'Add to a todo,Dismiss', 'assign or dismiss');
+    assert(standalone.undo && standalone.undo.action === 'Undo', 'undo after stop');
+    const picking = timerModel({
+        running: true,
+        assigning: true,
+        timer: {
+            state: 'stopped',
+            accumulated_s: 41 * 60,
+            timer_id: 'tm-2',
+        },
+        nowMs: NOW,
+    });
+    assert(picking.actions.join(',') === 'Cancel', 'pick can cancel');
+    const faded = timerModel({
+        running: true,
+        timer: {state: 'stopped', accumulated_s: 41 * 60, timer_id: 'tm-2'},
+        nowMs: NOW,
+    });
+    assert(faded.kind === 'stopped', 'a faded prompt keeps the stopped time');
+    assert(faded.undo === null, 'undo is gone after five seconds');
+    const stoppedBar = indicatorView({
+        running: true,
+        state: 'ok',
+        timer: {state: 'stopped', accumulated_s: 5 * 60},
+        nowMs: NOW,
+    });
+    assert(stoppedBar.text === '5m', 'stopped top bar');
+    assert(stoppedBar.showPause === false, 'stopped has no pause bars');
+    assert(stoppedBar.textStyle === 'paused', 'stopped time is dimmed');
     const downBlock = timerModel({running: false, nowMs: NOW});
     assert(downBlock.kind === 'down', 'bridge down block');
     assert(downBlock.body.includes('Saved time is safe'), 'saved time copy');
@@ -540,6 +600,27 @@ export function runViewChecks() {
     });
     assert(timedMenu.todos[0].timing === true, 'the timed row says timing');
     assert(timedMenu.todos[0].tracked === '1:42 tracked', 'tracked chip on the row');
+    assert(timedMenu.todos[0].pick === false, 'a tied row is not a pick target');
+    const pickMenu = menuModel({
+        running: true,
+        state: 'ok',
+        reason: '',
+        bots: [{name: 'primary', routes: {outbound: true}}],
+        items: [{
+            key: 'primary/q4-budget',
+            kind: 'todo',
+            title: 'Draft Q4 grant budget',
+            status: 'open',
+            actions: ['done'],
+            source: {bot: 'primary'},
+        }],
+        queueLength: 0,
+        nowMs: NOW,
+        timer: {state: 'stopped', accumulated_s: 60},
+        assigning: true,
+    });
+    assert(pickMenu.todos[0].pick === true, 'a todo row is the pick target');
+    assert(pickMenu.todos[0].canStart === true, 'the row can still start later');
     assert(approvalCount([ask({actions: ['veto']})], NOW) === 0, 'veto alone is not approval');
 }
 

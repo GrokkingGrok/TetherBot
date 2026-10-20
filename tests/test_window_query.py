@@ -2,15 +2,19 @@
 """Window filter JSON and the link allow-list. No GTK."""
 
 import json
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from tetherbot.window_query import (
     ASK_TEXT,
     can_mark_done,
     format_elapsed,
+    format_top_bar,
     format_tracked,
     is_read_only,
     list_filter,
     note_payload,
+    parse_start_clock,
     safe_http_url,
     source_line,
     timer_item_key,
@@ -73,12 +77,34 @@ def test_tracked_time_uses_the_clock_format():
     assert format_elapsed(42 * 60 + 10) == "42:10"
     assert format_elapsed(3600 + 42 * 60 + 10) == "1:42:10"
     assert format_elapsed(-1) == "--:--"
+    assert format_top_bar(0) == "0m"
+    assert format_top_bar(5 * 60) == "5m"
+    assert format_top_bar(41 * 60 + 20) == "41m"
+    assert format_top_bar(3600 + 5 * 60 + 9) == "1:05"
+    assert format_top_bar(12 * 3600 + 40 * 60) == "12:40"
+    assert format_top_bar(-3) == "--:--"
+    assert format_top_bar(True) == "--:--"
     assert format_tracked(90) == "1:30 tracked"
     assert format_tracked(3600 + 42 * 60) == "1:42 tracked"
     assert format_tracked(0) == ""
     assert timer_item_key({"state": "running", "item_key": "primary/one"}) == "primary/one"
+    assert timer_item_key({"state": "stopped", "item_key": "primary/one"}) == ""
     assert timer_item_key({"state": "idle", "item_key": "primary/one"}) == ""
     assert timer_item_key(None) == ""
+
+
+def test_parse_start_clock_uses_today_or_yesterday():
+    zone = ZoneInfo("UTC")
+    now = datetime(2026, 10, 19, 12, 0, tzinfo=zone)
+    assert parse_start_clock("11:00", now) == int(
+        datetime(2026, 10, 19, 11, 0, tzinfo=zone).timestamp()
+    )
+    assert parse_start_clock("13:05", now) == int(
+        datetime(2026, 10, 18, 13, 5, tzinfo=zone).timestamp()
+    )
+    assert parse_start_clock("24:00", now) is None
+    assert parse_start_clock("9:5", now) is None
+    assert parse_start_clock(True, now) is None
 
 
 def test_safe_http_url_rejects_other_schemes():

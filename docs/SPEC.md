@@ -263,11 +263,15 @@ Lists of items pass as JSON strings (`s`), so the item model can grow without br
 | `RetryParked(s action_id) -> ()`, `DropQueued(s action_id) -> ()` | Queue management |
 | `StartTimer(s item_key) -> s timer_json` | `""` starts a standalone timer. An open todo key ties it to that item. `Error.TimerBusy` when one already exists. `Error.NotFound` when the key is not an open todo |
 | `PauseTimer() -> s`, `ResumeTimer() -> s` | Close or reopen the current segment. `Error.NoTimer` when that state is not current |
-| `StopTimer() -> s result_json` | `{timer_id, item_key, recorded_s, total_s}`. A standalone stop records nothing until `AssignStoppedTimer` |
-| `UndoStopTimer(s timer_id) -> b` | Within 5 seconds of that stop or discard |
-| `GetTimer() -> s timer_json` | `{state: "idle"}` when there is none, otherwise the file plus `elapsed_s` and `now` |
+| `StopTimer() -> s result_json` | `{timer_id, item_key, recorded_s, total_s}`. A todo-tied stop records the time. A standalone stop stays as `state: stopped` until assign or dismiss |
+| `UndoStopTimer(s timer_id) -> b` | Within 5 seconds of that stop or discard. A standalone stop stays on disk after the undo window |
+| `GetTimer() -> s timer_json` | `{state: "idle"}` when there is none, otherwise the file plus `elapsed_s` and `now`. Includes a stopped timer |
 | `ResolveTimerWarning(s choice, x seconds) -> s` | `keep`, `set`, or `discard`. `seconds` is used only for `set` |
-| `AssignStoppedTimer(s timer_id, s item_key) -> b` | Attach a just-stopped standalone timer to an open todo |
+| `AssignStoppedTimer(s timer_id, s item_key) -> b` | Record a stopped standalone timer on an open todo |
+| `AdjustTimerStart(x delta_s) -> s` | Shift a running or paused start. Negative starts earlier. Not in the future, and not before the 24 hour limit |
+| `SetTimerStart(x started_at) -> s` | Replace that start with a unix instant. Same checks |
+| `AssignTimer(s item_key) -> s` | Attach the current timer to an open todo. A running timer keeps counting. A stopped timer is recorded |
+| `DismissTimer() -> s` | Delete a stopped unassigned timer and record nothing |
 
 ### 6.3 Signals
 
@@ -281,7 +285,7 @@ Lists of items pass as JSON strings (`s`), so the item model can grow without br
 
 The stopwatch is one timer, owned by the bridge in `$XDG_STATE_HOME/tetherbot/timer.json`. Elapsed time is wall-clock math, not a tick. Per-todo totals live in `item-time.json` on this machine. `GetItems` may add `time_tracked_s`. Nothing about the timer is written to the feed or sent to the bot. The rules, recovery, and the top-bar badge priority are in [STOPWATCH.md](STOPWATCH.md). `tetherbotctl timer` prints status and can start, pause, resume, and stop.
 
-The TetherBot window is a second process, `python3 -m tetherbot.window`. Its application id is `io.github.grokkinggrok.TetherBot`. It is single-instance, appears in the app grid, and talks only to this interface (`GetItems`, `GetTags`, `GetItem`, `PerformAction`, `Undo`, `SendToBot`). It holds no secrets and opens links only after a click. `OpenWindow` sends that app's `select-item` action and returns as soon as the session bus accepts the request. It does not wait for the process. The window is shown first, with a loading line, and fills the list when the bridge answers. After the last window closes, the process stays for about 60 seconds so the next open reuses it. The extension does not launch it itself.
+The TetherBot window is a second process, `python3 -m tetherbot.window`. Its application id is `io.github.grokkinggrok.TetherBot`. It is single-instance, appears in the app grid, and talks only to this interface (`GetItems`, `GetTags`, `GetItem`, `PerformAction`, `Undo`, `SendToBot`, `GetTimer`, `StartTimer`, `StopTimer`, `AssignTimer`, `DismissTimer`, `AdjustTimerStart`, `SetTimerStart`). It holds no secrets and opens links only after a click. Its header shows a close button. Ctrl+W and Escape close the window. `OpenWindow` sends that app's `select-item` action and returns as soon as the session bus accepts the request. It does not wait for the process. The window is shown first, with a loading line, and fills the list when the bridge answers. After the last window closes, the process stays for about 60 seconds so the next open reuses it. The extension does not launch it itself.
 
 `ForgetSecret` deletes that slot from libsecret and does not take the secret value. `RequestSecretEntry` returns false until the key dialog exists; the secret still does not cross D-Bus. A locked or missing keyring sets the bridge state to `degraded` with reason `keyring locked` and never writes a secret file. `OpenChat` returns false until the Grok Bot desktop entry id is known. `SyncNow` is limited to once per 30 seconds and does not poll until an inbound adapter is running, so `LastSync` stays 0. `PerformAction` enqueues `approve`, `veto`, and `done` only. Those three hide the item until the webhook accepts, the action is parked or rejected, or a newer open feed revision clears the mark. `snooze` stays on `Snooze`. `ActionResult` is emitted when a later sender finishes a post.
 
@@ -506,7 +510,7 @@ Still to write, with the milestones that need them:
 - M24. The window opens from the popup and from the app grid, holds no secrets, and makes no network requests. The extension does not spawn it.
 - M25. Log out and back in. The indicator becomes active within about 10 seconds without a manual `systemctl start`.
 - M26. Clicking a todo in the popup shows the window within about 1.5 seconds from a cold start, and at once when the process is still up.
-- M27–M36. Stopwatch recovery, the top-bar badges, and Undo. The steps are in [MANUAL-CHECKS.md](MANUAL-CHECKS.md) and [STOPWATCH.md](STOPWATCH.md).
+- M27–M41. Stopwatch recovery, the top-bar badges, Undo, edit start, attaching a stopped or running timer, and the window close button. The steps are in [MANUAL-CHECKS.md](MANUAL-CHECKS.md) and [STOPWATCH.md](STOPWATCH.md).
 
 ## 13. Milestones
 

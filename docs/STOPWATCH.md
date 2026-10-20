@@ -32,15 +32,16 @@ The button has two slots. The **text slot** shows the timer. The **badge slot** 
 | Approval waiting: an open ask with `approve` in its actions | Filled dot | accent | 2 | time, if a timer exists |
 | Overdue todo: an open, unsnoozed user todo past due | Hollow ring | red | 3 | time, if a timer exists |
 | Clock warning (section 6.5) | Triangle with `!` | amber | 4 | `--:--` |
-| Timer running | no badge | none | 5 | `1:42:10` |
-| Timer paused | two pause bars before the time | text at 60% opacity | 5 | `0:25:03` |
+| Timer running | no badge | none | 5 | `41m` or `1:05` |
+| Timer paused | two pause bars before the time | text at 60% opacity | 5 | `25m` or `1:05` |
+| Timer stopped, not on a todo | no badge | text at 60% opacity, no pause bars | 5 | `41m` or `1:05` |
 | All clear | icon only | none | 6 | none |
 
 Rules:
 
-- Only the top priority badge shows. A timer and a badge show together, for example `1:42:10` with the accent dot.
+- Only the top priority badge shows. A timer and a badge show together, for example `1:42` with the accent dot.
 - Broken hides the time. The bridge owns the timer, so the extension does not show a number it cannot confirm. The popup says the saved time is safe.
-- Time format: `M:SS` under an hour, `H:MM:SS` from one hour. Use tabular figures so the button does not jitter (St support for `font-feature-settings: "tnum"` is **TBD, verify**).
+- Top-bar time has no seconds. Under an hour it is `0m`, `5m`, `41m` (no leading zero). From one hour it is `h:mm`, for example `1:05` and `12:40`. The popup clock may still show seconds. Use tabular figures so the button does not jitter (St support for `font-feature-settings: "tnum"` is **TBD, verify**).
 - The badge has a cutout ring in the bar color so it reads against the icon at 16 px.
 - The old count badge and the amber attention color on the icon go away. Amber stays for the bot row dot in the popup and for the clock warning.
 - No blinking, pulsing, or animation in any state.
@@ -49,26 +50,30 @@ Rules:
 
 The stopwatch block is the first section of the popup, above the bot rows. See the mockup.
 
-- **Running:** a "Timer running" label with a solid dot, the elapsed time in large text, the todo title and bot id (or "Timer" when standalone), then Pause and Stop.
-- **Paused:** "Paused" with the pause glyph, the frozen time dimmed, then Resume and Stop.
+- **Running:** a "Timer running" label with a solid dot, the elapsed time in large text, the todo title and bot id (or "Timer" when standalone), then Pause, Stop, and Edit start. A timer that is not on a todo also offers Add to a todo.
+- **Paused:** "Paused" with the pause glyph, the frozen time dimmed, then Resume, Stop, and Edit start.
+- **Edit start:** `-5m`, `-15m`, and `-30m`, plus an `HH:MM` entry. The new start cannot be in the future, cannot be before the 24 hour limit, and is stored as one span so the elapsed time cannot go negative.
 - **Idle:** "No timer running" and a Start timer button for a standalone timer.
 - **Clock warning:** the saved time, one sentence on why, and Keep, Set time..., and Discard (section 6.5).
 - **Bridge down:** "Timer unavailable: bridge not running. Saved time is safe on disk and keeps counting."
-- **After Stop:** "Recorded 1:42:10 on <title>" with a 5-second Undo, the same pattern as Done.
+- **After Stop on a todo:** "Recorded 1:42:10 on <title>" with a 5-second Undo, the same pattern as Done.
+- **After Stop with no todo:** the time stays as "Stopped" until the user adds it to a todo or dismisses it. Undo is offered for 5 seconds and then fades. The stopped entry stays. Opening the window does not clear it.
 
 Todo rows (popup and window):
 
 - An idle row has an icon-only play button next to Done. On hover or focus it can widen to "Start timer".
 - The row that owns the timer shows a "Timing" label instead of the play button.
 - A todo with recorded time shows a neutral chip, for example `1:42 tracked`.
-- Starting a timer while another one exists asks one question in place: "Stop <title> and start this one?" with Switch and Cancel.
-- The window detail pane gets the same Start timer button next to Done.
+- Starting a timer while another one exists asks one question in place: "Stop <title> and start this one?" with Switch and Cancel. A stopped unassigned timer asks "Discard the stopped time and start this one?"
+- Add to a todo puts the popup in pick mode. The rows are highlighted, the title says what the click will do, and Cancel leaves pick mode. Clicking a row attaches the time. It does not open the window.
+- A running or paused timer that is not already on a todo can be attached the same way. A timer that is already on a todo stays there until Stop.
+- The window detail pane gets the same Start timer button next to Done, plus Attach timer when the current timer can move onto that todo. The sidebar shows the same Edit start controls. The window has a close button, and Ctrl+W and Escape close it.
 
 ## 5. Timer data model
 
 The bridge owns all timer state. The extension and the window only render it.
 
-File: `$XDG_STATE_HOME/tetherbot/timer.json` (default `~/.local/state/tetherbot/timer.json`). Mode 0600. Written with `files.write_private_json`: write a temp file, fsync it, rename over the old file, fsync the directory. Written on every start, pause, resume, stop, and warning choice, and at no other time.
+File: `$XDG_STATE_HOME/tetherbot/timer.json` (default `~/.local/state/tetherbot/timer.json`). Mode 0600. Written with `files.write_private_json`: write a temp file, fsync it, rename over the old file, fsync the directory. Written on every start, pause, resume, stop, start edit, attach, and warning choice. Dismiss and a recorded stop delete the file.
 
 ```json
 {
@@ -151,8 +156,8 @@ Normal NTP slews are small and stay under the 120 s threshold. Suspend is counte
 
 Stop writes `state: stopping` with the final segment closed (fsync), adds `accumulated_s` to that todo's `total_s` in `item-time.json`, increments `sessions`, sets `last_stopped_at`, adds the timer id to `applied` (fsync), then deletes `timer.json`. The recorded value is rounded down to whole seconds.
 
-- A standalone timer records nothing. Stop shows the time with Undo and then it is gone.
-- Undo within 5 seconds subtracts the amount, drops the id from `applied`, and restores the timer as it was. Time during the undo window counts, as if Stop never happened.
+- A timer that is already on a todo records as above. Undo within 5 seconds subtracts the amount, drops the id from `applied`, and restores the timer as it was. Time during the undo window counts, as if Stop never happened.
+- A timer that is not on a todo is written as `state: stopped` and the file stays. Undo within 5 seconds restores the running timer, and time during that window counts. After 5 seconds the Undo control fades and the stopped timer remains until Assign or Dismiss. Dismiss deletes the file and records nothing. Assign adds the stopped total to the todo, then deletes the file.
 - Done on a todo that owns the timer stops the timer first, records the time, then sends Done.
 - An item that leaves the feed while timed keeps running under `item_title`. Stop records under its key anyway.
 - Nothing is written to the feed or `desktop/state.json`, and nothing is sent to the bot.
@@ -163,14 +168,18 @@ Additive within `io.github.grokkinggrok.TetherBot1`. Update `data/io.github.grok
 
 | Signature | Behavior |
 |---|---|
-| `StartTimer(s item_key) -> s timer_json` | `""` starts a standalone timer. Otherwise the key must be an open todo, or `Error.NotFound`. If a timer exists, `Error.TimerBusy`, and the client calls `StopTimer` first to switch |
+| `StartTimer(s item_key) -> s timer_json` | `""` starts a standalone timer. Otherwise the key must be an open todo, or `Error.NotFound`. If a running, paused, or stopped timer exists, `Error.TimerBusy` |
 | `PauseTimer() -> s timer_json` | Closes the open segment. `Error.NoTimer` if nothing runs |
 | `ResumeTimer() -> s timer_json` | Sets `running_since` to now. `Error.NoTimer` if nothing is paused |
-| `StopTimer() -> s result_json` | `{timer_id, item_key, recorded_s, total_s}`. Works when running or paused |
-| `UndoStopTimer(s timer_id) -> b` | Within 5 s of that stop or discard. False after that |
-| `GetTimer() -> s timer_json` | `{state: "idle"}` when there is none. Otherwise the file fields plus `elapsed_s` and `now` from the bridge |
+| `StopTimer() -> s result_json` | `{timer_id, item_key, recorded_s, total_s}`. A todo-tied stop records and deletes the file. A standalone stop leaves `state: stopped` |
+| `UndoStopTimer(s timer_id) -> b` | Within 5 s of that stop or discard. False after that. The stopped file stays if this is a standalone stop |
+| `GetTimer() -> s timer_json` | `{state: "idle"}` when there is none. Otherwise the file fields plus `elapsed_s` and `now` from the bridge. A stopped timer is included |
 | `ResolveTimerWarning(s choice, x seconds) -> s timer_json` | `choice` is `keep`, `set`, or `discard`. `seconds` is used only for `set` |
-| `AssignStoppedTimer(s timer_id, s item_key) -> b` | Within 5 s of stopping a standalone timer, record that time on an open todo. False after the window or when the id does not match |
+| `AssignStoppedTimer(s timer_id, s item_key) -> b` | Record a stopped standalone timer on an open todo. Also accepts the in-memory 5 s snapshot from older stops |
+| `AdjustTimerStart(x delta_s) -> s timer_json` | Move the start of a running or paused timer. Negative starts earlier. Rejects a future start and a start before the 24 hour limit |
+| `SetTimerStart(x started_at) -> s timer_json` | Replace the start with a unix instant. Same checks as `AdjustTimerStart` |
+| `AssignTimer(s item_key) -> s timer_json` | Attach the current timer to an open todo. A stopped timer is recorded. A running or paused timer keeps counting on that todo. `Error.TimerBusy` when it is already on a todo |
+| `DismissTimer() -> s timer_json` | Delete a stopped unassigned timer and record nothing |
 
 | Signal | When |
 |---|---|
@@ -185,11 +194,12 @@ Not now. One option: the Done action body carries `time_tracked_s` when the todo
 ## 10. Accessibility
 
 - Every state has a distinct shape: no badge, dot, ring, triangle, slash, pause bars, dashes. The states read in grayscale and with any accent color, including a red accent.
-- No flashing or motion. The seconds text is the only thing that changes.
+- No flashing or motion. The elapsed text is the only thing that changes. The top bar has no seconds.
 - The button's accessible name names the state in words, and is updated once a minute, not every second:
   - `TetherBot: all clear`
   - `TetherBot: timer running, 1 hour 42 minutes, Draft Q4 grant budget`
   - `TetherBot: timer paused at 25 minutes, Email venue about deposit`
+  - `TetherBot: timer stopped at 41 minutes`
   - `TetherBot: 1 approval waiting`
   - `TetherBot: timer running, 1 hour 42 minutes. 1 approval waiting`
   - `TetherBot: 2 overdue todos`
@@ -223,6 +233,11 @@ Manual checks, next free numbers in [MANUAL-CHECKS.md](MANUAL-CHECKS.md):
 - M34. Stop, then Undo within 5 s. The recorded total goes back. Done on a timed todo records the time first.
 - M35. Stop the bridge with an approval waiting and a timer running. The slash shows and the time hides. Start it again. The time and the dot come back.
 - M36. With Orca, focus the button in each state and hear the names in section 10. Check the states in grayscale.
+- M37. The top bar shows `41m` under an hour and `1:05` from one hour, with no seconds. The popup may still show seconds.
+- M38. Edit start on a running timer. `-15m` adds about 15 minutes. A future time and a start before the 24 hour limit are refused. The same controls are in the window.
+- M39. The window has a close button. Ctrl+W and Escape close it.
+- M40. Stop a timer that is not on a todo. Add to a todo, then click a row. The time lands on that todo and the window does not open. Cancel leaves pick mode. The same attach works from the window, including while the timer is still running.
+- M41. After that Stop, wait out the 5 second Undo. The top bar and the popup still show the stopped time, and `timer.json` is still there. Dismiss is what clears it. Undo within 5 seconds resumes with the time kept.
 
 ## 12. Open questions
 
@@ -244,9 +259,12 @@ Manual checks, next free numbers in [MANUAL-CHECKS.md](MANUAL-CHECKS.md):
 - Clock warning (clock moved backward, or more than 24 hours elapsed): amber triangle, `--:--`, and Keep, Set time..., or Discard. The 24-hour limit is fixed for now.
 - Starting a timer while another is running asks for confirmation first.
 - Done on a timed todo stops the timer and records the time on that todo.
-- After Stop, a 5-second Undo, the same as Done.
-- Stopping a standalone timer shows "Add to a todo" for 5 seconds, like Undo. If it isn't used, the prompt goes away on its own and the time is dropped. No tap is needed to dismiss it.
-- Time format: `42:10` under an hour, `1:42:10` at an hour or more.
+- After Stop, a 5-second Undo, the same as Done. Undo resumes the timer and the time during that window counts.
+- Stopping a timer that is not on a todo keeps it until the user adds it to a todo or dismisses it. The 5-second Undo fades. The stopped time does not.
+- A running or paused timer that is not on a todo can be attached without stopping first.
+- Edit start can move a running or paused timer earlier. The start cannot be in the future or before the 24 hour limit.
+- Top-bar time format: `41m` under an hour, `1:05` at an hour or more. No seconds in the top bar. The popup may keep seconds.
+- The TetherBot window closes from its close button, from Ctrl+W, and from Escape.
 - Slash (broken) only for a bridge that is down or an auth or keyring error. Smaller problems, like a stale feed, show only in the popup.
 - Paused: pause bars and dimmed time. Broken hides the time.
 - The placeholder robot glyph in the mockups becomes the real TetherBot icon. Ship it as symbolic SVGs, one per badge state (base, dot, ring, slash, triangle), and replace the envelope icon.

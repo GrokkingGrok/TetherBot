@@ -9,10 +9,11 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Mapping
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, tzinfo
 from typing import Any
 
 from tetherbot import SCHEMA_VERSION
+from tetherbot.todos import display_zone, format_local_stamp
 
 VIEWS = ("all", "mine", "bots", "waiting", "today")
 SORTS = ("due", "priority", "created", "updated")
@@ -68,8 +69,8 @@ def note_payload(item_key: str) -> tuple[str, str]:
     return bot, json.dumps(payload, separators=(",", ":"))
 
 
-def source_line(item: Mapping[str, Any]) -> str:
-    """Bot, routine, and updated time, with the empty parts left out."""
+def source_line(item: Mapping[str, Any], zone: tzinfo | None = None) -> str:
+    """Bot, routine, and updated time in the desktop's local zone."""
 
     source = item.get("source") if isinstance(item.get("source"), Mapping) else {}
     label = item.get("display_name")
@@ -83,9 +84,22 @@ def source_line(item: Mapping[str, Any]) -> str:
     if not isinstance(routine, str):
         routine = ""
     updated = item.get("updated_at")
-    if not isinstance(updated, str):
-        updated = ""
-    return " · ".join(part for part in (bot, routine, updated) if part)
+    stamp = ""
+    if isinstance(updated, str) and updated:
+        stamp = format_local_stamp(updated, zone if zone is not None else display_zone())
+    return " · ".join(part for part in (bot, routine, stamp) if part)
+
+
+def bot_detail_line(bot: Mapping[str, Any], now_unix: int) -> str:
+    """Summary, last seen, next run, and open todo count for one bot row."""
+
+    summary = bot.get("summary")
+    if not isinstance(summary, str):
+        summary = ""
+    seen = format_last_seen(bot.get("last_seen"), now_unix)
+    nxt = format_next_run(bot.get("next_run"), now_unix)
+    todos = open_count_label(bot.get("open_todos"), "todo")
+    return " · ".join(part for part in (summary, seen, nxt, todos) if part)
 
 
 def is_read_only(item: Mapping[str, Any]) -> bool:

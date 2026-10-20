@@ -29,8 +29,8 @@ The button has two slots. The **text slot** shows the timer. The **badge slot** 
 | State | Shape | Color | Priority | Text slot |
 |---|---|---|---|---|
 | Broken: bridge not running, `unconfigured`, `failed_closed`, or an auth reason (keyring locked, rejected key, routine not found) | Dimmed icon with a slash across it | red | 1 (highest) | none |
-| Approval waiting: an open ask with `approve` in its actions | Filled dot | accent | 2 | time, if a timer exists |
-| Overdue todo: an open, unsnoozed user todo past due | Hollow ring | red | 3 | time, if a timer exists |
+| Bot needs attention, or an open ask | Filled dot | accent | 2 | time, if a timer exists |
+| Open todo | Hollow ring | red | 3 | time, if a timer exists |
 | Clock warning (section 6.5) | Triangle with `!` | amber | 4 | `--:--` |
 | Timer running | no badge | none | 5 | `41m` or `1:05` |
 | Timer paused | two pause bars before the time | text at 60% opacity | 5 | `25m` or `1:05` |
@@ -40,6 +40,7 @@ The button has two slots. The **text slot** shows the timer. The **badge slot** 
 Rules:
 
 - Only the top priority badge shows. A timer and a badge show together, for example `1:42` with the accent dot.
+- The text slot is only the timer, or `--:--` on a clock warning. It never shows a count of asks, todos, or bots.
 - Broken hides the time. The bridge owns the timer, so the extension does not show a number it cannot confirm. The popup says the saved time is safe.
 - Top-bar time has no seconds. Under an hour it is `0m`, `5m`, `41m` (no leading zero). From one hour it is `h:mm`, for example `1:05` and `12:40`. The popup clock may still show seconds. Use tabular figures so the button does not jitter (St support for `font-feature-settings: "tnum"` is **TBD, verify**).
 - The badge has a cutout ring in the bar color so it reads against the icon at 16 px.
@@ -200,9 +201,10 @@ Not now. One option: the Done action body carries `time_tracked_s` when the todo
   - `TetherBot: timer running, 1 hour 42 minutes, Draft Q4 grant budget`
   - `TetherBot: timer paused at 25 minutes, Email venue about deposit`
   - `TetherBot: timer stopped at 41 minutes`
-  - `TetherBot: 1 approval waiting`
-  - `TetherBot: timer running, 1 hour 42 minutes. 1 approval waiting`
-  - `TetherBot: 2 overdue todos`
+  - `TetherBot: an ask is waiting`
+  - `TetherBot: a bot needs attention`
+  - `TetherBot: timer running, 1 hour 42 minutes. an ask is waiting`
+  - `TetherBot: open todos`
   - `TetherBot: timer needs a check`
   - `TetherBot: bridge not running`
 - The tooltip uses the same text. `extension/view_checks.js` expects the old `2 asks, 3 todos` names, so those tests change.

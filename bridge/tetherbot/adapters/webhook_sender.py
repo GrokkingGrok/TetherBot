@@ -182,8 +182,13 @@ class WebhookSender:
             if action.state == "pending":
                 pending.setdefault(action.bot, []).append(action)
         held = set(self._stopped)
+        config = ctx.config
         for bot, rows in pending.items():
             if bot in held:
+                continue
+            bot_config = None if config is None else config.bots.get(bot)
+            if bot_config is not None and not bot_config.webhook_slot:
+                held.add(bot)
                 continue
             moment = _hold(rows)
             if moment is not None and now < moment:
@@ -193,6 +198,8 @@ class WebhookSender:
     def _lookup(self, ctx: Any, bot: str) -> Any:
         config = ctx.config
         bot_config = None if config is None else config.bots.get(bot)
+        if bot_config is not None and not bot_config.webhook_slot:
+            return None
         if bot_config is None:
             self._set_overlay("degraded", "bot has no webhook slot")
             self._notify_once(bot, "missing-slot", "Webhook paused", "bot has no webhook slot", "")

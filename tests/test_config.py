@@ -136,3 +136,30 @@ def test_optional_bot_display_name(tmp_path: Path):
     )
     with pytest.raises(ConfigError, match="display_name"):
         load_config(path)
+
+
+def test_missing_webhook_slot_loads_and_a_bad_slot_stays_on_that_bot(tmp_path: Path):
+    path = tmp_path / "config.toml"
+    path.write_text(
+        "\n".join(
+            [
+                'schema = "tetherbot/1"',
+                "[bots.primary]",
+                'webhook_slot = "primary-actions"',
+                "[bots.notes]",
+                'display_name = "Notes"',
+                "[bots.other]",
+                'webhook_slot = "NOT A SLOT"',
+                'display_name = "Other"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+    config = load_config(path)
+    assert config.bots["notes"].webhook_slot == ""
+    assert config.bots["notes"].slot_error == ""
+    assert config.bots["notes"].display_name == "Notes"
+    assert config.bots["primary"].webhook_slot == "primary-actions"
+    assert config.bots["other"].webhook_slot == ""
+    assert "other" in config.bots["other"].slot_error
+    assert "NOT A SLOT" not in config.bots["other"].slot_error

@@ -2,11 +2,12 @@
 """Window filter JSON and the link allow-list. No GTK."""
 
 import json
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from tetherbot.window_query import (
     ASK_TEXT,
+    bot_detail_line,
     can_mark_done,
     format_elapsed,
     format_last_seen,
@@ -77,9 +78,25 @@ def test_done_and_source_rules():
     assert not can_mark_done(open_item, False)
     assert not can_mark_done({**open_item, "status": "done"}, True)
     assert is_read_only({"status": "open", "local": {"acted": {"action_id": "a1"}}})
-    assert source_line(open_item) == "primary · daily · 2026-10-17T11:40:00+00:00"
+    pacific = timezone(timedelta(hours=-7))
+    assert source_line(open_item, pacific) == "primary · daily · Oct 17, 4:40 AM"
     named = {**open_item, "display_name": "Primary"}
-    assert source_line(named) == "Primary · daily · 2026-10-17T11:40:00+00:00"
+    assert source_line(named, pacific) == "Primary · daily · Oct 17, 4:40 AM"
+    assert "2026-10-17T" not in source_line(open_item, pacific)
+
+
+def test_bot_detail_line_includes_the_summary():
+    now = 1_700_000_000
+    detail = bot_detail_line(
+        {
+            "summary": "Needs a look",
+            "last_seen": now - 240,
+            "next_run": now + 3600,
+            "open_todos": 1,
+        },
+        now,
+    )
+    assert detail == "Needs a look · last seen 4 m ago · next run in 1 h · 1 open todo"
 
 
 def test_bot_list_times_and_counts():

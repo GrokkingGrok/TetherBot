@@ -7,6 +7,7 @@ by name. An unknown schema major fails closed.
 
 from __future__ import annotations
 
+import logging
 import re
 import tomllib
 from collections.abc import Mapping
@@ -59,6 +60,7 @@ class SinkConfig:
 class BotConfig:
     webhook_slot: str
     display_name: str = ""
+    slot_error: str = ""
 
 
 @dataclass(frozen=True)
@@ -209,16 +211,30 @@ def _bots(raw: object) -> dict[str, BotConfig]:
             raise ConfigError("bot names must match [a-z0-9-]{1,64}")
         if not isinstance(table, dict):
             raise ConfigError(f"bots.{name} must be a table")
-        slot = table.get("webhook_slot")
-        if not isinstance(slot, str) or _SLOT.fullmatch(slot) is None:
-            raise ConfigError(f"bots.{name}.webhook_slot must match [a-z0-9-]{1,64}")
+        slot, slot_error = _webhook_slot(str(name), table.get("webhook_slot", ""))
         label = table.get("display_name", "")
         if label is None:
             label = ""
         if not isinstance(label, str) or "\n" in label or "\r" in label or len(label) > 40:
             raise ConfigError(f"bots.{name}.display_name must be one line, at most 40 characters")
-        parsed[str(name)] = BotConfig(webhook_slot=slot, display_name=label.strip())
+        parsed[str(name)] = BotConfig(
+            webhook_slot=slot,
+            display_name=label.strip(),
+            slot_error=slot_error,
+        )
     return parsed
+
+
+def _webhook_slot(name: str, raw: object) -> tuple[str, str]:
+    """A missing slot means no outbound route. A bad value is that bot's problem."""
+
+    if raw is None or raw == "":
+        return "", ""
+    if isinstance(raw, str) and _SLOT.fullmatch(raw) is not None:
+        return raw, ""
+    message = f"bots.{name}.webhook_slot must match [a-z0-9-]{{1,64}}"
+    logging.getLogger("tetherbot").warning("%s", message)
+    return "", message
 
 
 def _queue(raw: object) -> QueueConfig:

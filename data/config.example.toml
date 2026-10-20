@@ -38,7 +38,7 @@ enabled = false
 # previous_unit = ""
 
 # [bots.primary]
-# webhook_slot = "primary-actions"
+# webhook_slot = "primary-actions"   # optional; omit it and this bot has no outbound actions
 # display_name = "Primary"   # optional; wins over display_name in the feed
 #
 # A second bot is another table and its own feed file. The slug stays the id.

@@ -27,15 +27,13 @@ from tetherbot.window_launch import APP_ID  # noqa: E402
 from tetherbot.window_query import (  # noqa: E402
     SORTS,
     VIEWS,
+    bot_detail_line,
     can_mark_done,
-    format_last_seen,
-    format_next_run,
     format_top_bar,
     format_tracked,
     is_read_only,
     list_filter,
     note_payload,
-    open_count_label,
     parse_start_clock,
     safe_http_url,
     source_line,
@@ -86,7 +84,39 @@ _CSS = """
 }
 .tether-row-done { opacity: 0.7; }
 .tether-source { opacity: 0.75; }
+.tether-dot { font-size: 0.85em; }
+.tether-dot-ok, .tether-dot-idle { color: #26a269; }
+.tether-dot-degraded, .tether-dot-offline,
+.tether-dot-paused, .tether-dot-needs_you { color: #e5a50a; }
+.tether-dot-working { color: #1c71d8; }
+.tether-dot-failed_closed, .tether-dot-unconfigured,
+.tether-dot-error { color: #c01c28; }
+.tether-dot-unknown { color: #9a9996; }
+.tether-dark .tether-dot-ok, .tether-dark .tether-dot-idle { color: #8ff0a4; }
+.tether-dark .tether-dot-degraded,
+.tether-dark .tether-dot-offline,
+.tether-dark .tether-dot-paused,
+.tether-dark .tether-dot-needs_you { color: #f8d06a; }
+.tether-dark .tether-dot-working { color: #99c1f1; }
+.tether-dark .tether-dot-failed_closed,
+.tether-dark .tether-dot-unconfigured,
+.tether-dark .tether-dot-error { color: #ff8b8b; }
 """
+
+_DOT_STATES = frozenset(
+    {
+        "ok",
+        "idle",
+        "degraded",
+        "offline",
+        "paused",
+        "needs_you",
+        "working",
+        "failed_closed",
+        "unconfigured",
+        "error",
+    }
+)
 
 
 class BridgeError(Exception):
@@ -1303,15 +1333,19 @@ class TodoWindow(Adw.ApplicationWindow):
         self._filling = False
 
     def _make_bot_row(self, bot: dict[str, Any], label: str, now: int) -> Gtk.ListBoxRow:
+        state = bot.get("state")
+        if not isinstance(state, str) or state not in _DOT_STATES:
+            state = "unknown"
+        dot = Gtk.Label(label="●")
+        dot.add_css_class("tether-dot")
+        dot.add_css_class(f"tether-dot-{state}")
+        dot.set_valign(Gtk.Align.CENTER)
         title = Gtk.Label(label=label, xalign=0, hexpand=True)
         title.set_ellipsize(Pango.EllipsizeMode.END)
-        seen = format_last_seen(bot.get("last_seen"), now)
-        nxt = format_next_run(bot.get("next_run"), now)
-        todos = open_count_label(bot.get("open_todos"), "todo")
-        detail = Gtk.Label(
-            label=" · ".join(part for part in (seen, nxt, todos) if part),
-            xalign=0,
-        )
+        head = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        head.append(dot)
+        head.append(title)
+        detail = Gtk.Label(label=bot_detail_line(bot, now), xalign=0)
         detail.add_css_class("dim-label")
         detail.set_ellipsize(Pango.EllipsizeMode.END)
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
@@ -1319,7 +1353,7 @@ class TodoWindow(Adw.ApplicationWindow):
         box.set_margin_bottom(6)
         box.set_margin_start(8)
         box.set_margin_end(8)
-        box.append(title)
+        box.append(head)
         box.append(detail)
         row = Gtk.ListBoxRow(child=box)
         row.bot_id = str(bot.get("name") or "")

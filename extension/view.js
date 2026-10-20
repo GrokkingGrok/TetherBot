@@ -219,6 +219,25 @@ function visibleOpen(item, nowMs) {
     return true;
 }
 
+function hasOpenAsk(items, nowMs) {
+    return (items || []).some(item => visibleOpen(item, nowMs) && item.kind === 'ask');
+}
+
+function hasOpenTodo(items, nowMs) {
+    return (items || []).some(item => visibleOpen(item, nowMs) && item.kind === 'todo');
+}
+
+function botsNeedAttention(bots) {
+    for (const bot of bots || []) {
+        if (!bot)
+            continue;
+        const asks = bot.openAsks !== undefined ? bot.openAsks : bot.open_asks;
+        if (botNeedsAttention({state: bot.state, openAsks: asks}))
+            return true;
+    }
+    return false;
+}
+
 export function approvalCount(items, nowMs) {
     let count = 0;
     for (const item of items || []) {
@@ -256,6 +275,7 @@ export function indicatorView({
     reason = '',
     activationFailed = true,
     items = [],
+    bots = [],
     timer = null,
     nowMs = 0,
 }) {
@@ -279,14 +299,15 @@ export function indicatorView({
     const warning = active && (Boolean(timer.warning) || elapsed < 0);
     const paused = active && timer.state === 'paused';
     const stopped = Boolean(timer && timer.state === 'stopped');
-    const approvals = slash ? 0 : approvalCount(items, nowMs);
-    const overdue = slash ? 0 : overdueCount(items, nowMs);
+    const askWaiting = !slash && hasOpenAsk(items, nowMs);
+    const botAttention = !slash && botsNeedAttention(bots);
+    const openTodos = !slash && hasOpenTodo(items, nowMs);
     let mark = null;
     if (slash)
         mark = 'slash';
-    else if (approvals > 0)
+    else if (askWaiting || botAttention)
         mark = 'dot';
-    else if (overdue > 0)
+    else if (openTodos)
         mark = 'ring';
     else if (warning)
         mark = 'triangle';
@@ -312,30 +333,22 @@ export function indicatorView({
         accessibleName = `TetherBot: timer paused at ${spoken}, ${title}`;
     else if (active)
         accessibleName = `TetherBot: timer running, ${spoken}, ${title}`;
-    if (!slash && mark === 'dot') {
-        const noun = approvals === 1 ? '1 approval waiting' : `${approvals} approvals waiting`;
+    let extra = '';
+    if (!slash && mark === 'dot')
+        extra = askWaiting ? 'an ask is waiting' : 'a bot needs attention';
+    else if (!slash && mark === 'ring')
+        extra = 'open todos';
+    if (extra) {
         if (warning)
-            accessibleName = `TetherBot: timer needs a check. ${noun}`;
+            accessibleName = `TetherBot: timer needs a check. ${extra}`;
         else if (stopped)
-            accessibleName = `TetherBot: timer stopped at ${spoken}. ${noun}`;
+            accessibleName = `TetherBot: timer stopped at ${spoken}. ${extra}`;
         else if (active && paused)
-            accessibleName = `TetherBot: timer paused at ${spoken}. ${noun}`;
+            accessibleName = `TetherBot: timer paused at ${spoken}. ${extra}`;
         else if (active)
-            accessibleName = `TetherBot: timer running, ${spoken}. ${noun}`;
+            accessibleName = `TetherBot: timer running, ${spoken}. ${extra}`;
         else
-            accessibleName = `TetherBot: ${noun}`;
-    } else if (!slash && mark === 'ring') {
-        const noun = `${overdue} overdue todo${overdue === 1 ? '' : 's'}`;
-        if (warning)
-            accessibleName = `TetherBot: timer needs a check. ${noun}`;
-        else if (stopped)
-            accessibleName = `TetherBot: timer stopped at ${spoken}. ${noun}`;
-        else if (active && paused)
-            accessibleName = `TetherBot: timer paused at ${spoken}. ${noun}`;
-        else if (active)
-            accessibleName = `TetherBot: timer running, ${spoken}. ${noun}`;
-        else
-            accessibleName = `TetherBot: ${noun}`;
+            accessibleName = `TetherBot: ${extra}`;
     }
     const iconFile = mark === 'dot' ? 'dot'
         : mark === 'ring' ? 'ring'

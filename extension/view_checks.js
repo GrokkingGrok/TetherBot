@@ -91,7 +91,8 @@ export function runViewChecks() {
     });
     assert(attention.mark === 'dot', 'open asks are the dot');
     assert(attention.iconFile === 'dot', 'approval icon');
-    assert(attention.accessibleName === 'TetherBot: 2 approvals waiting', 'approval name');
+    assert(attention.text === '', 'asks add no toolbar number');
+    assert(attention.accessibleName === 'TetherBot: an ask is waiting', 'approval name');
 
     const quiet = indicatorView({
         running: true,
@@ -99,7 +100,7 @@ export function runViewChecks() {
         items: [],
         nowMs: NOW,
     });
-    assert(quiet.mark === null, 'todos alone are not a badge');
+    assert(quiet.mark === null, 'an empty list has no badge');
     assert(quiet.iconFile === 'base', 'clear icon');
     assert(quiet.accessibleName === 'TetherBot: all clear', 'clear name');
 
@@ -452,7 +453,7 @@ export function runViewChecks() {
     assert(withTime.mark === 'dot', 'approval outranks the timer');
     assert(withTime.text === '1:42', 'time shows beside the dot');
     assert(withTime.accessibleName ===
-        'TetherBot: timer running, 1 hour 42 minutes. 1 approval waiting',
+        'TetherBot: timer running, 1 hour 42 minutes. an ask is waiting',
         'timer and approval name');
     const overdueItem = {
         key: 'primary/fair',
@@ -470,9 +471,50 @@ export function runViewChecks() {
         items: [overdueItem, botTodo, overdueItem],
         nowMs: NOW,
     });
-    assert(overdueOnly.mark === 'ring', 'overdue is the ring');
+    assert(overdueOnly.mark === 'ring', 'open todos use the ring');
+    assert(overdueOnly.text === '', 'open todos add no toolbar number');
     assert(overdueCount([overdueItem, botTodo], NOW) === 1, 'bot todos are not overdue');
-    assert(overdueOnly.accessibleName === 'TetherBot: 2 overdue todos', 'overdue name');
+    assert(overdueOnly.accessibleName === 'TetherBot: open todos', 'open todo name');
+    const plainTodo = indicatorView({
+        running: true,
+        state: 'ok',
+        items: [{
+            key: 'primary/bag',
+            kind: 'todo',
+            title: 'Pack the bag',
+            status: 'open',
+            owner: 'user',
+            actions: ['done'],
+        }],
+        nowMs: NOW,
+    });
+    assert(plainTodo.mark === 'ring', 'a todo that is not overdue still marks the icon');
+    assert(plainTodo.text === '', 'a plain todo adds no number');
+    const needy = indicatorView({
+        running: true,
+        state: 'ok',
+        items: [],
+        bots: [{name: 'notes', state: 'needs_you', open_asks: 0}],
+        nowMs: NOW,
+    });
+    assert(needy.mark === 'dot', 'a bot that needs attention uses the dot');
+    assert(needy.text === '', 'attention adds no number');
+    assert(needy.accessibleName === 'TetherBot: a bot needs attention', 'attention name');
+    const bothMarks = indicatorView({
+        running: true,
+        state: 'ok',
+        items: [{
+            key: 'primary/bag',
+            kind: 'todo',
+            title: 'Pack the bag',
+            status: 'open',
+            actions: ['done'],
+        }],
+        bots: [{name: 'notes', state: 'needs_you', open_asks: 0}],
+        nowMs: NOW,
+    });
+    assert(bothMarks.mark === 'dot', 'attention outranks open todos');
+    assert(bothMarks.text === '', 'the toolbar still has no count');
     const staleFeed = indicatorView({
         running: true,
         state: 'degraded',

@@ -27,7 +27,7 @@ TetherBot is pre-alpha. Check items off as they land. Design detail is in [SPEC.
 
 - [x] Bot write access to the private data repo, using the decided fine-grained token (see Resolved). The writer is `tools/feed_write.py` (#18). The token stays in an environment variable on the bot (default `TETHERBOT_FEED_TOKEN`), never in this repo. An expired token exits with a one-line error.
 - [x] Crash-proof stopwatch and the robot top-bar icon, [STOPWATCH.md](STOPWATCH.md). One timer, stored by the bridge in `timer.json`. This is the last item before the single-tracker cutover.
-- [ ] TetherBot is the single todo tracker. An older local todo sync is retired after cutover, not run in parallel.
+- [x] TetherBot is the single todo tracker. An older local todo sync is retired after cutover, not run in parallel.
 - [x] Remote capture. The user messages their bot from a phone while away. The bot writes a `kind: todo` item with `tools/feed_write.py add-todo`. The desktop shows it on the next poll or at boot. Done in the popup reports back over the webhook, and the bridge records the item closed (the existing flow).
 - [x] A bot's daily summary run can post that day's asks and todos with `tools/feed_write.py` (`add-ask`, `add-todo`, and `status`). The desktop bot row shows `status.summary` when that block is set, and otherwise counts the open items.
 - [x] `feed/<bot>.json` for more than one bot. The writer accepts `--bot` and edits only that bot's file. `"bot"` stays the string id, so an existing `feed/primary.json` needs no migration. A second bot is another file, for example `feed/notes.json`.
@@ -46,7 +46,9 @@ TetherBot is pre-alpha. Check items off as they land. Design detail is in [SPEC.
 - [x] Popup: chips, search, at most 8 todos, Open TetherBot, and a 5-second Undo
 - [x] Manual checks M37–M41 passed on the desktop: the minute top-bar format, edit start, the close button and a single titlebar, attach via Add to a todo and Attach timer, Undo after Stop including a paused timer, and a stopped unassigned timer that survives with Dismiss.
 - [ ] Manual checks M18–M36 and M42 for the rich todo view, login start, window open, and the remaining stopwatch checks. Login start and non-blocking window open are on main (#22, #23). The steps are in [MANUAL-CHECKS.md](MANUAL-CHECKS.md). M18–M36 and M42 have not been run on the desktop yet.
-- [ ] Manual checks M43–M47 for more than one bot, display names, the compact Bots section, the popup order, and the window Bots tab. Log out and back in after installing the extension. The steps are in [MANUAL-CHECKS.md](MANUAL-CHECKS.md). They have not been run on the desktop yet.
+- [x] Manual checks M43–M46 passed on the desktop: a second feed file, display names, the compact Bots section, popup order Timer then Todos then Asks then Bots, and the window Bots tab (summary click, name filter, and the list of bots).
+- [ ] Manual check M47 for the timer after the new popup. The steps are in [MANUAL-CHECKS.md](MANUAL-CHECKS.md). It has not been run on the desktop yet.
+- [ ] Manual checks M48–M54 for an optional webhook slot, Sync now, the timer chip, toolbar colors with no counts, summary contrast, the bot-row dot and summary, and local dates. The steps are in [MANUAL-CHECKS.md](MANUAL-CHECKS.md). They have not been run on the desktop yet.
 
 ## v0.2 — early adopters
 

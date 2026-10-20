@@ -77,6 +77,7 @@ export default class TetherBotExtension extends Extension {
         this._assignBusy = false;
         this._tickSource = 0;
         this._promptSource = 0;
+        this._syncLabelSource = 0;
         this._inTick = false;
         this._timerTimeLabel = null;
         this._timeEntry = null;
@@ -156,6 +157,10 @@ export default class TetherBotExtension extends Extension {
         if (this._promptSource) {
             GLib.source_remove(this._promptSource);
             this._promptSource = 0;
+        }
+        if (this._syncLabelSource) {
+            GLib.source_remove(this._syncLabelSource);
+            this._syncLabelSource = 0;
         }
         if (this._activateSource) {
             GLib.source_remove(this._activateSource);
@@ -532,6 +537,7 @@ export default class TetherBotExtension extends Extension {
             reason: this._reason,
             activationFailed: this._activationFailed,
             items: this._items,
+            bots: this._bots,
             timer: this._timer,
             nowMs,
         });
@@ -784,14 +790,20 @@ export default class TetherBotExtension extends Extension {
             const time = new St.Label({text: block.time || '', style_class: 'tetherbot-clock'});
             this._timerTimeLabel = time;
             box.add_child(time);
-            const subject = new St.BoxLayout();
-            subject.add_child(new St.Label({text: block.subject || ''}));
-            if (block.bot) {
-                subject.add_child(new St.Label({
-                    text: `  ${block.bot}`,
-                    style_class: 'tetherbot-subtle',
-                }));
-            }
+            const subject = new St.BoxLayout({
+                style_class: 'tetherbot-timer-subject',
+                x_expand: true,
+            });
+            const title = new St.Label({
+                text: block.subject || '',
+                y_align: Clutter.ActorAlign.CENTER,
+                x_expand: true,
+            });
+            if (title.clutter_text)
+                title.clutter_text.ellipsize = Pango.EllipsizeMode.END;
+            subject.add_child(title);
+            if (block.bot)
+                subject.add_child(chipLabel(block.bot, 'neutral'));
             box.add_child(subject);
             if (block.assigning) {
                 box.add_child(new St.Label({
@@ -1244,9 +1256,36 @@ export default class TetherBotExtension extends Extension {
     }
 
     _sync() {
-        if (!this._proxy)
+        if (!this._proxy || !this._running)
             return;
-        this._proxy.SyncNowRemote(() => this._refresh());
+        this._armSyncLabel('Syncing…');
+        this._proxy.SyncNowRemote((_result, error) => {
+            if (!this._enabled)
+                return;
+            if (error) {
+                this._armSyncLabel('Sync now');
+                return;
+            }
+            this._refresh();
+            this._armSyncLabel('Updated', 2500);
+        });
+    }
+
+    _armSyncLabel(text, revertMs = 0) {
+        if (this._syncLabelSource) {
+            GLib.source_remove(this._syncLabelSource);
+            this._syncLabelSource = 0;
+        }
+        if (this._syncItem && this._syncItem.label)
+            this._syncItem.label.text = text;
+        if (!revertMs)
+            return;
+        this._syncLabelSource = GLib.timeout_add(GLib.PRIORITY_DEFAULT, revertMs, () => {
+            this._syncLabelSource = 0;
+            if (this._enabled && this._syncItem && this._syncItem.label)
+                this._syncItem.label.text = 'Sync now';
+            return GLib.SOURCE_REMOVE;
+        });
     }
 
     _showNotification(payload, reason) {

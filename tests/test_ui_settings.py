@@ -15,6 +15,8 @@ from tetherbot.ui_settings import (
     UiSettings,
     clamp_poll_seconds,
     clamp_undo_seconds,
+    effective_poll_seconds,
+    effective_undo_seconds,
     load_ui_settings,
     notice_bot,
 )
@@ -38,7 +40,7 @@ def test_poll_and_undo_stay_inside_bounds():
         hidden_bots=frozenset({"other"}),
     )
     assert settings.poll_seconds == 60
-    assert settings.undo_seconds == 2
+    assert settings.undo_seconds == 5
     assert settings.muted_bots == frozenset({"primary"})
     assert settings.hidden_bots == frozenset({"other"})
 
@@ -50,14 +52,48 @@ def test_notice_bot_reads_the_id_only():
     assert notice_bot("nope") == ""
 
 
+def test_zero_is_the_default_not_the_minimum():
+    assert clamp_poll_seconds(0) == 120
+    assert clamp_poll_seconds(-4) == 120
+    assert clamp_undo_seconds(0) == 5
+    assert effective_poll_seconds(None, None) == 120
+    assert effective_poll_seconds(0, 180) == 180
+    assert effective_poll_seconds(None, 180) == 180
+    assert effective_poll_seconds(200, 180) == 200
+    assert effective_poll_seconds(10, 180) == 60
+    assert effective_poll_seconds(None, 0) == 120
+    assert effective_poll_seconds(None, 5000) == 900
+    assert effective_undo_seconds(0) == 5
+    assert effective_undo_seconds(None) == 5
+    assert effective_undo_seconds(1) == 2
+    assert effective_undo_seconds(12) == 12
+
+
+def test_schema_defaults_match_the_labels():
+    text = (
+        ROOT / "extension" / "schemas" / "org.gnome.shell.extensions.tetherbot.gschema.xml"
+    ).read_text(encoding="utf-8")
+    poll = text.split('name="poll-seconds"', 1)[1].split("</key>", 1)[0]
+    undo = text.split('name="undo-seconds"', 1)[1].split("</key>", 1)[0]
+    assert "<default>120</default>" in poll
+    assert 'min="60"' in poll and 'max="900"' in poll
+    assert "<default>5</default>" in undo
+    assert 'min="2"' in undo and 'max="30"' in undo
+
+
 def test_poll_interval_uses_a_saved_setting():
     poller = GitHubPoller()
     ctx = type("Ctx", (), {})()
     ctx.ui_settings = UiSettings(poll_seconds=90, poll_set=True)
-    ctx.config = None
+    row = type("Row", (), {"poll_seconds": 180})()
+    ctx.config = type("Cfg", (), {"adapters": {"github-poller": row}})()
     poller._ctx = ctx
     assert poller._interval() == 90
     ctx.ui_settings = UiSettings()
+    assert poller._interval() == 180
+    row.poll_seconds = 0
+    assert poller._interval() == 120
+    ctx.config = None
     assert poller._interval() == 120
 
 

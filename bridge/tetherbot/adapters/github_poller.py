@@ -618,18 +618,18 @@ class GitHubPoller:
         return str(row.branch)
 
     def _interval(self) -> int:
-        from tetherbot.ui_settings import resolve_ui_settings
+        from tetherbot.ui_settings import effective_poll_seconds, resolve_ui_settings
 
         ui = resolve_ui_settings(self._ctx)
-        if ui.poll_set:
-            return ui.poll_seconds
+        config_poll = None
         ctx = self._ctx
-        if ctx is None or ctx.config is None:
-            return 120
-        row = ctx.config.adapters.get(self.name)
-        if row is None or row.poll_seconds is None:
-            return 120
-        return int(row.poll_seconds)
+        config = None if ctx is None else getattr(ctx, "config", None)
+        if config is not None:
+            row = config.adapters.get(self.name)
+            if row is not None:
+                config_poll = row.poll_seconds
+        stored = ui.poll_seconds if ui.poll_set else None
+        return effective_poll_seconds(stored, config_poll)
 
     def _needs_local_state(self) -> bool:
         if self._state_dirty:

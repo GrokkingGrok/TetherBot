@@ -114,6 +114,21 @@
       <arg name="item_key" type="s" direction="in"/>
       <arg name="ok" type="b" direction="out"/>
     </method>
+    <method name="AdjustTimerStart">
+      <arg name="delta_s" type="x" direction="in"/>
+      <arg name="timer_json" type="s" direction="out"/>
+    </method>
+    <method name="SetTimerStart">
+      <arg name="started_at" type="x" direction="in"/>
+      <arg name="timer_json" type="s" direction="out"/>
+    </method>
+    <method name="AssignTimer">
+      <arg name="item_key" type="s" direction="in"/>
+      <arg name="timer_json" type="s" direction="out"/>
+    </method>
+    <method name="DismissTimer">
+      <arg name="timer_json" type="s" direction="out"/>
+    </method>
 
     <signal name="ItemsChanged">
       <arg name="added" type="as"/>

@@ -63,6 +63,16 @@
     font-weight: bold;
 }
 
+.tetherbot-pick {
+    background-color: rgba(53, 132, 228, 0.28);
+    border-radius: 8px;
+    padding: 2px 6px;
+}
+
+.tetherbot-pick-row {
+    background-color: rgba(53, 132, 228, 0.16);
+}
+
 .tetherbot-subtle {
     font-size: 0.85em;
 }

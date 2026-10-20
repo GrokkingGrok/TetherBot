@@ -156,8 +156,23 @@ def _exercise_window(app, fake, opened, holder, gdk, glib, gtk, render, apply_ru
             assert fake.undone == ["primary/one"]
             window._ask_current()
             assert fake.notes == ["primary/one"]
+            assert window.close_detail.get_visible()
+            assert not window.close_sidebar.get_visible()
             window.split.set_collapsed(True)
             assert window.back.get_visible()
+            window.split.set_show_content(True)
+            assert window.close_detail.get_visible()
+            assert not window.close_sidebar.get_visible()
+            window.split.set_show_content(False)
+            assert window.close_sidebar.get_visible()
+            assert not window.close_detail.get_visible()
+            window.search.set_text("keep")
+            closed: list[bool] = []
+            window.close = lambda: closed.append(True)
+            assert window._on_key(None, gdk.KEY_Escape, 0, gdk.ModifierType(0))
+            assert window.search.get_text() == "keep"
+            assert window._on_key(None, gdk.KEY_w, 0, gdk.ModifierType.CONTROL_MASK)
+            assert closed == [True, True]
             runs = render("[docs](https://example.test/docs)")
             apply_runs(window.buffer, runs, window._link_tags)
             assert "https://example.test/docs" in window._link_tags
@@ -277,6 +292,178 @@ def _exercise_timer(app, fake, holder, glib) -> None:
     app.connect("activate", lambda _app: glib.idle_add(finish))
     glib.timeout_add(8000, app.quit)
     app.run(["tetherbot-window"])
+
+
+class _EditFake(_TimerFake):
+    def __init__(self) -> None:
+        super().__init__()
+        self.timer = {
+            "state": "stopped",
+            "elapsed_s": 41 * 60,
+            "item_key": "",
+            "item_title": "",
+        }
+        self.adjusted: list[int] = []
+        self.starts: list[int] = []
+        self.attached: list[str] = []
+        self.dismissed = 0
+
+    def adjust_start(self, delta):
+        self.adjusted.append(delta)
+        elapsed = int(self.timer.get("elapsed_s") or 0) - delta
+        self.timer = {
+            "state": "running",
+            "item_key": "",
+            "item_title": "",
+            "elapsed_s": elapsed,
+        }
+        return dict(self.timer)
+
+    def set_start(self, started_at):
+        self.starts.append(started_at)
+        self.timer = {
+            "state": "running",
+            "item_key": "",
+            "item_title": "",
+            "elapsed_s": 5 * 60,
+        }
+        return dict(self.timer)
+
+    def attach_timer(self, key):
+        self.attached.append(key)
+        self.timer = {"state": "idle"}
+        return dict(self.timer)
+
+    def dismiss_timer(self):
+        self.dismissed += 1
+        self.timer = {"state": "idle"}
+        return dict(self.timer)
+
+
+def test_window_edits_a_start_and_keeps_a_stopped_timer():
+    gi = pytest.importorskip("gi")
+    try:
+        gi.require_version("Gtk", "4.0")
+        gi.require_version("Adw", "1")
+        from gi.repository import GLib
+    except ValueError as exc:
+        pytest.skip(str(exc))
+    if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
+        pytest.skip("GTK window test needs a display")
+
+    try:
+        from tetherbot.window import WindowApp
+
+        fake = _EditFake()
+        app = WindowApp(client=fake)
+        holder: dict = {}
+        _exercise_edit(app, fake, holder, GLib)
+    finally:
+        reset_tetherbot_logger()
+    if "error" in holder:
+        raise holder["error"]
+    assert holder.get("ok") is True
+
+
+def _exercise_edit(app, fake, holder, glib) -> None:
+    def finish():
+        try:
+            window = app.window
+            assert window is not None
+            window.select_key("primary/one")
+            assert window.timer_label.get_label() == "Stopped, unassigned · 41m"
+            assert window.attach_button.get_visible()
+            window.attach_button.emit("clicked")
+            assert fake.attached == ["primary/one"]
+            assert not window.timer_box.get_visible()
+            fake.timer = {
+                "state": "running",
+                "item_key": "",
+                "item_title": "",
+                "elapsed_s": 5 * 60,
+            }
+            window._request_timer()
+            assert window.timer_label.get_label() == "Timer running · 5m"
+            assert window.attach_button.get_visible()
+            edit = _find_button(window.timer_actions, "Edit start")
+            assert edit is not None
+            edit.emit("clicked")
+            assert window.edit_start_box.get_visible()
+            shift = _find_button(window.edit_start_box, "-5m")
+            assert shift is not None
+            shift.emit("clicked")
+            assert fake.adjusted == [-300]
+            assert window.timer_label.get_label() == "Timer running · 10m"
+            window._set_editing_start(True)
+            window.start_entry.set_text("nope")
+            window._on_set_start()
+            assert fake.starts == []
+            window.start_entry.set_text("09:30")
+            window._on_set_start()
+            assert len(fake.starts) == 1
+            assert isinstance(fake.starts[0], int)
+            fake.timer = {
+                "state": "stopped",
+                "elapsed_s": 41 * 60,
+                "item_key": "",
+                "item_title": "",
+            }
+            window._request_timer()
+            other = _find_play(window.list, "Start timer: Email venue about deposit")
+            assert other is not None
+            other.emit("clicked")
+            assert window.switch_label.get_label() == (
+                "Discard the stopped time and start this one?"
+            )
+            window.switch_button.emit("clicked")
+            assert fake.dismissed == 1
+            assert fake.started[-1] == "primary/two"
+            fake.timer = {
+                "state": "running",
+                "item_key": "",
+                "item_title": "",
+                "elapsed_s": 60,
+            }
+            window._request_timer()
+            window._start_timer("primary/one", "Pack the bag")
+            assert window.switch_label.get_label() == "Stop Timer and start this one?"
+            window.switch_button.emit("clicked")
+            assert fake.stopped == 1
+            assert fake.dismissed == 2
+            assert fake.started[-1] == "primary/one"
+            fake.timer = {
+                "state": "stopped",
+                "elapsed_s": 41 * 60,
+                "item_key": "",
+                "item_title": "",
+            }
+            window._request_timer()
+            dismiss = _find_button(window.timer_actions, "Dismiss")
+            assert dismiss is not None
+            dismiss.emit("clicked")
+            assert fake.dismissed == 3
+            assert not window.timer_box.get_visible()
+            holder["ok"] = True
+        except Exception as exc:
+            holder["error"] = exc
+        app.quit()
+        return False
+
+    app.connect("activate", lambda _app: glib.idle_add(finish))
+    glib.timeout_add(8000, app.quit)
+    app.run(["tetherbot-window"])
+
+
+def _find_button(widget, label: str):
+    if hasattr(widget, "get_label") and widget.get_label() == label:
+        return widget
+    child = widget.get_first_child() if hasattr(widget, "get_first_child") else None
+    while child is not None:
+        found = _find_button(child, label)
+        if found is not None:
+            return found
+        child = child.get_next_sibling()
+    return None
 
 
 def _has_label(widget, text: str) -> bool:

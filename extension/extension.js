@@ -23,9 +23,12 @@ import {
     PROXY_SIGNALS,
     ACTIVATE_RETRY_MS,
     UNDO_MS,
+    elapsedSeconds,
+    formatElapsed,
     indicatorView,
     menuModel,
     parseSetTime,
+    parseStartClock,
     timerModel,
     startServiceCall,
     mergeTodoSearch,
@@ -65,8 +68,10 @@ export default class TetherBotExtension extends Extension {
         this._timerError = '';
         this._switchAsk = null;
         this._settingTime = false;
+        this._editingStart = false;
         this._setHint = '';
         this._assigning = false;
+        this._assignBusy = false;
         this._tickSource = 0;
         this._promptSource = 0;
         this._inTick = false;
@@ -473,6 +478,7 @@ export default class TetherBotExtension extends Extension {
             nowMs,
             switchAsk: this._switchAsk,
             settingTime: this._settingTime,
+            editingStart: this._editingStart,
             assigning: this._assigning,
             error: this._timerError,
         });
@@ -572,8 +578,8 @@ export default class TetherBotExtension extends Extension {
         this._inTick = true;
         const view = this._paintIndicator(Date.now());
         this._inTick = false;
-        if (this._timerTimeLabel && view.text)
-            this._timerTimeLabel.text = view.text;
+        if (this._timerTimeLabel && this._timer)
+            this._timerTimeLabel.text = formatElapsed(elapsedSeconds(this._timer, Date.now() / 1000));
         if (view.textStyle !== 'run' || !view.text || view.text === '--:--') {
             this._tickSource = 0;
             return GLib.SOURCE_REMOVE;
@@ -667,7 +673,9 @@ export default class TetherBotExtension extends Extension {
     }
 
     _todoRow(row) {
-        const item = new PopupMenu.PopupBaseMenuItem({reactive: false});
+        const item = new PopupMenu.PopupBaseMenuItem({reactive: Boolean(row.pick)});
+        if (row.pick)
+            item.add_style_class_name('tetherbot-pick-row');
         const box = new St.BoxLayout({
             orientation: Clutter.Orientation.VERTICAL,
             x_expand: true,
@@ -679,13 +687,21 @@ export default class TetherBotExtension extends Extension {
         });
         const title = new St.Button({
             label: row.title,
-            style_class: 'tetherbot-title',
+            style_class: row.pick ? 'tetherbot-title tetherbot-pick' : 'tetherbot-title',
             x_align: Clutter.ActorAlign.START,
             x_expand: true,
+            accessible_name: row.pick ? `Add time to ${row.title}` : row.title,
         });
         if (title.clutter_text)
             title.clutter_text.ellipsize = Pango.EllipsizeMode.END;
-        title.connect('clicked', () => this._openWindow(row.key));
+        title.connect('clicked', () => {
+            if (row.pick)
+                this._assignTo(row.key);
+            else
+                this._openWindow(row.key);
+        });
+        if (row.pick)
+            item.connect('activate', () => this._assignTo(row.key));
         const heading = new St.BoxLayout({x_expand: true});
         if (row.chips && row.chips.priority) {
             heading.add_child(chipLabel(row.chips.priority, row.chips.priorityTone));
@@ -707,9 +723,7 @@ export default class TetherBotExtension extends Extension {
                 style_class: 'tetherbot-timing',
                 y_align: Clutter.ActorAlign.CENTER,
             }));
-        } else if (row.addToTimer) {
-            top.add_child(this._actionButton('Add', () => this._assignTo(row.key), false));
-        } else if (row.canStart) {
+        } else if (row.canStart && !row.pick) {
             top.add_child(this._playButton(row));
         }
         if (row.undo) {
@@ -778,7 +792,55 @@ export default class TetherBotExtension extends Extension {
                 }));
             }
             box.add_child(subject);
+            if (block.assigning) {
+                box.add_child(new St.Label({
+                    text: 'Choose a todo',
+                    style_class: 'tetherbot-subtle',
+                }));
+            }
             box.add_child(this._timerActions(block.actions || []));
+        } else if (block.kind === 'stopped') {
+            box.add_child(new St.Label({text: block.title || 'Stopped'}));
+            if (block.undo) {
+                box.add_child(this._actionButton('Undo', () => this._undoStop(), false));
+            }
+            if (block.assigning) {
+                box.add_child(new St.Label({
+                    text: 'Choose a todo',
+                    style_class: 'tetherbot-subtle',
+                }));
+            } else {
+                box.add_child(new St.Label({
+                    text: 'Not on a todo yet',
+                    style_class: 'tetherbot-subtle',
+                }));
+            }
+            box.add_child(this._timerActions(block.actions || []));
+        } else if (block.kind === 'edit-start') {
+            box.add_child(new St.Label({text: block.title || 'Edit start'}));
+            box.add_child(this._timerActions(['-5m', '-15m', '-30m']));
+            const entry = new St.Entry({
+                hint_text: block.hint || 'HH:MM',
+                style_class: 'tetherbot-search',
+                can_focus: true,
+                x_expand: true,
+            });
+            this._timeEntry = entry;
+            if (this._setHint) {
+                box.add_child(new St.Label({
+                    text: this._setHint,
+                    style_class: 'tetherbot-subtle',
+                }));
+            }
+            const row = new St.BoxLayout({x_expand: true});
+            row.add_child(entry);
+            row.add_child(this._actionButton('Set start', () => this._submitStartClock(), false));
+            row.add_child(this._actionButton('Cancel', () => {
+                this._editingStart = false;
+                this._setHint = '';
+                this._render();
+            }, false));
+            box.add_child(row);
         } else if (block.kind === 'warning') {
             box.add_child(new St.Label({text: block.title}));
             box.add_child(new St.Label({
@@ -864,8 +926,22 @@ export default class TetherBotExtension extends Extension {
             this._undoStop();
         else if (label === 'Add to a todo') {
             this._assigning = true;
+            this._editingStart = false;
             this._render();
-        } else if (label === 'Keep')
+        } else if (label === 'Dismiss')
+            this._timerCall('DismissTimerRemote');
+        else if (label === 'Edit start') {
+            this._editingStart = true;
+            this._assigning = false;
+            this._setHint = '';
+            this._render();
+        } else if (label === '-5m')
+            this._adjustStart(-300);
+        else if (label === '-15m')
+            this._adjustStart(-900);
+        else if (label === '-30m')
+            this._adjustStart(-1800);
+        else if (label === 'Keep')
             this._resolveWarning('keep', 0);
         else if (label === 'Discard')
             this._resolveWarning('discard', 0);
@@ -876,21 +952,30 @@ export default class TetherBotExtension extends Extension {
             this._confirmSwitch();
         else if (label === 'Cancel') {
             this._switchAsk = null;
+            this._assigning = false;
+            this._editingStart = false;
+            this._setHint = '';
             this._render();
         }
     }
 
     _startTimer(key) {
-        const active = this._timer &&
-            (this._timer.state === 'running' || this._timer.state === 'paused');
-        const current = active ? String(this._timer.item_key || '') : '';
-        if (active && current !== String(key || '')) {
-            this._switchAsk = {key: key || '', title: this._timer.item_title || 'Timer'};
+        const state = this._timer && this._timer.state;
+        const holding = state === 'running' || state === 'paused' || state === 'stopped';
+        const current = holding ? String(this._timer.item_key || '') : '';
+        if (holding && current !== String(key || '')) {
+            this._switchAsk = {
+                key: key || '',
+                title: this._timer.item_title || 'Timer',
+                discard: state === 'stopped',
+            };
             this._settingTime = false;
+            this._editingStart = false;
+            this._assigning = false;
             this._render();
             return;
         }
-        if (active)
+        if (holding)
             return;
         this._switchAsk = null;
         this._timerCall('StartTimerRemote', [key || '']);
@@ -898,19 +983,47 @@ export default class TetherBotExtension extends Extension {
 
     _confirmSwitch() {
         const ask = this._switchAsk;
+        const timer = this._timer;
         if (!ask || !this._proxy)
             return;
         this._switchAsk = null;
-        this._proxy.StopTimerRemote((result, error) => {
+        const startNext = () => {
+            this._proxy.StartTimerRemote(ask.key || '', (_started, error) => {
+                this._afterTimerWrite(error);
+            });
+        };
+        if (timer && timer.state === 'stopped') {
+            this._proxy.DismissTimerRemote((_result, error) => {
+                if (!this._enabled)
+                    return;
+                if (error) {
+                    this._noteTimerError(error);
+                    return;
+                }
+                startNext();
+            });
+            return;
+        }
+        const tied = Boolean(timer && timer.item_key);
+        this._proxy.StopTimerRemote((_result, error) => {
             if (!this._enabled)
                 return;
             if (error) {
-                this._timerError = 'Could not save the timer';
-                this._render();
+                this._noteTimerError(error);
                 return;
             }
-            this._proxy.StartTimerRemote(ask.key || '', (started, startError) => {
-                this._afterTimerWrite(startError);
+            if (tied) {
+                startNext();
+                return;
+            }
+            this._proxy.DismissTimerRemote((_dismissed, dismissError) => {
+                if (!this._enabled)
+                    return;
+                if (dismissError) {
+                    this._noteTimerError(dismissError);
+                    return;
+                }
+                startNext();
             });
         });
     }
@@ -923,11 +1036,38 @@ export default class TetherBotExtension extends Extension {
     }
 
     _assignTo(key) {
-        const id = this._timer && this._timer.undo ? this._timer.undo.timer_id || '' : '';
-        if (!this._proxy || !id || !key)
+        if (!this._proxy || !key || this._assignBusy)
             return;
+        this._assignBusy = true;
         this._assigning = false;
-        this._proxy.AssignStoppedTimerRemote(id, key, (_result, error) => {
+        this._proxy.AssignTimerRemote(key, (_result, error) => {
+            this._assignBusy = false;
+            this._afterTimerWrite(error);
+        });
+    }
+
+    _adjustStart(delta) {
+        if (!this._proxy)
+            return;
+        this._editingStart = false;
+        this._proxy.AdjustTimerStartRemote(delta, (_result, error) => {
+            this._afterTimerWrite(error);
+        });
+    }
+
+    _submitStartClock() {
+        const started = parseStartClock(this._timeEntry ? this._timeEntry.text : '', Date.now());
+        if (started === null) {
+            this._setHint = 'Use HH:MM';
+            this._editingStart = true;
+            this._render();
+            return;
+        }
+        if (!this._proxy)
+            return;
+        this._editingStart = false;
+        this._setHint = '';
+        this._proxy.SetTimerStartRemote(started, (_result, error) => {
             this._afterTimerWrite(error);
         });
     }
@@ -959,12 +1099,18 @@ export default class TetherBotExtension extends Extension {
         this._proxy[method](...args, (_result, error) => this._afterTimerWrite(error));
     }
 
+    _noteTimerError(error) {
+        const text = error && error.message ? String(error.message) : '';
+        const safe = /future|24 hour|already on a todo|no timer|not found/i.test(text);
+        this._timerError = safe ? text : 'Could not save the timer';
+        this._render();
+    }
+
     _afterTimerWrite(error) {
         if (!this._enabled)
             return;
         if (error) {
-            this._timerError = 'Could not save the timer';
-            this._render();
+            this._noteTimerError(error);
             return;
         }
         this._timerError = '';
@@ -988,8 +1134,10 @@ export default class TetherBotExtension extends Extension {
         this._timer = parsed && typeof parsed === 'object' ? parsed : {state: 'idle'};
         if (this._timer.read_error)
             this._timerError = '';
-        const undo = this._timer.undo;
-        if (!undo || undo.kind !== 'assign')
+        const state = this._timer.state;
+        const canPick = state === 'stopped' ||
+            ((state === 'running' || state === 'paused') && !this._timer.item_key);
+        if (!canPick)
             this._assigning = false;
         if (this._timer.state === 'running' || this._timer.state === 'paused')
             this._switchAsk = null;

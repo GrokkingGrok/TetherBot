@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import sys
+import time
 from collections.abc import Callable
 from typing import Any
 
@@ -27,10 +28,12 @@ from tetherbot.window_query import (  # noqa: E402
     SORTS,
     VIEWS,
     can_mark_done,
+    format_top_bar,
     format_tracked,
     is_read_only,
     list_filter,
     note_payload,
+    parse_start_clock,
     safe_http_url,
     source_line,
     timer_item_key,
@@ -146,6 +149,18 @@ class BridgeClient:
 
     def stop_timer(self) -> dict[str, Any]:
         return _object_dict(self._call("StopTimer", "()", ()))
+
+    def adjust_start(self, delta_s: int) -> dict[str, Any]:
+        return _object_dict(self._call("AdjustTimerStart", "(x)", (delta_s,)))
+
+    def set_start(self, started_at: int) -> dict[str, Any]:
+        return _object_dict(self._call("SetTimerStart", "(x)", (started_at,)))
+
+    def attach_timer(self, item_key: str) -> dict[str, Any]:
+        return _object_dict(self._call("AssignTimer", "(s)", (item_key,)))
+
+    def dismiss_timer(self) -> dict[str, Any]:
+        return _object_dict(self._call("DismissTimer", "()", ()))
 
     def load_timer(self, done: Callable[[dict[str, Any], BridgeError | None], None]) -> None:
         """Read the stopwatch without blocking the first paint."""
@@ -375,7 +390,8 @@ class TodoWindow(Adw.ApplicationWindow):
         self._current: dict[str, Any] | None = None
         self._items: list[dict[str, Any]] = []
         self._timer: dict[str, Any] = {"state": "idle"}
-        self._switch_ask: dict[str, str] | None = None
+        self._switch_ask: dict[str, Any] | None = None
+        self._editing_start = False
         self._timer_generation = 0
         self._link_tags: dict[str, Gtk.TextTag] = {}
         self.open_uri = _open_uri
@@ -422,6 +438,29 @@ class TodoWindow(Adw.ApplicationWindow):
         done_row.append(done_label)
         done_row.append(self.show_done)
         self.banner = Adw.Banner(revealed=False)
+        self.timer_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        self.timer_box.set_visible(False)
+        self.timer_label = Gtk.Label(xalign=0, wrap=True)
+        self.timer_actions = Gtk.Box(spacing=6)
+        self.edit_start_box = Gtk.Box(spacing=6)
+        self.edit_start_box.set_visible(False)
+        for label, delta in (("-5m", -300), ("-15m", -900), ("-30m", -1800)):
+            button = Gtk.Button(label=label)
+            button.connect("clicked", self._on_adjust_start, delta)
+            self.edit_start_box.append(button)
+        self.start_entry = Gtk.Entry(placeholder_text="HH:MM")
+        self.start_entry.set_max_width_chars(6)
+        self.start_entry.connect("activate", self._on_set_start)
+        set_start = Gtk.Button(label="Set start")
+        set_start.connect("clicked", self._on_set_start)
+        cancel_edit = Gtk.Button(label="Cancel")
+        cancel_edit.connect("clicked", lambda _button: self._set_editing_start(False))
+        self.edit_start_box.append(self.start_entry)
+        self.edit_start_box.append(set_start)
+        self.edit_start_box.append(cancel_edit)
+        self.timer_box.append(self.timer_label)
+        self.timer_box.append(self.timer_actions)
+        self.timer_box.append(self.edit_start_box)
         self.switch_box = Gtk.Box(spacing=8)
         self.switch_box.set_visible(False)
         self.switch_label = Gtk.Label(xalign=0, hexpand=True, wrap=True)
@@ -442,6 +481,7 @@ class TodoWindow(Adw.ApplicationWindow):
         controls.set_margin_top(12)
         controls.set_margin_bottom(6)
         controls.append(self.banner)
+        controls.append(self.timer_box)
         controls.append(self.switch_box)
         controls.append(self.search)
         controls.append(self._view_buttons)
@@ -457,6 +497,8 @@ class TodoWindow(Adw.ApplicationWindow):
         sidebar_header.set_title_widget(
             Adw.WindowTitle.new("TetherBot", "Unofficial. Not affiliated with xAI.")
         )
+        self.close_sidebar = Gtk.WindowControls(side=Gtk.PackType.END)
+        sidebar_header.pack_end(self.close_sidebar)
         sidebar_bar.add_top_bar(sidebar_header)
         self.split.set_sidebar(Adw.NavigationPage.new(sidebar_bar, "Todos"))
 
@@ -491,6 +533,9 @@ class TodoWindow(Adw.ApplicationWindow):
         self.done_button.connect("clicked", lambda _button: self._done_current())
         self.start_button = Gtk.Button(label="Start timer")
         self.start_button.connect("clicked", lambda _button: self._start_current())
+        self.attach_button = Gtk.Button(label="Attach timer")
+        self.attach_button.connect("clicked", lambda _button: self._attach_current())
+        self.attach_button.set_visible(False)
         self.copy_button = Gtk.Button(label="Copy text")
         self.copy_button.connect("clicked", lambda _button: self._copy_current())
         self.ask_button = Gtk.Button(label="Ask the bot about this")
@@ -498,6 +543,7 @@ class TodoWindow(Adw.ApplicationWindow):
         buttons = Gtk.Box(spacing=8)
         buttons.append(self.done_button)
         buttons.append(self.start_button)
+        buttons.append(self.attach_button)
         buttons.append(self.copy_button)
         buttons.append(self.ask_button)
         self.source = Gtk.Label(xalign=0, wrap=True)
@@ -515,7 +561,11 @@ class TodoWindow(Adw.ApplicationWindow):
         detail_bar = Adw.ToolbarView(content=detail)
         detail_header = Adw.HeaderBar()
         detail_header.pack_start(self.back)
+        self.close_detail = Gtk.WindowControls(side=Gtk.PackType.END)
+        detail_header.pack_end(self.close_detail)
         detail_bar.add_top_bar(detail_header)
+        self.split.connect("notify::show-content", lambda *_args: self._sync_window_controls())
+        self._sync_window_controls()
         self.split.set_content(Adw.NavigationPage.new(detail_bar, "Detail"))
         self._show_item(None)
 
@@ -781,14 +831,21 @@ class TodoWindow(Adw.ApplicationWindow):
     def _start_timer(self, key: str, title: str) -> None:
         if not hasattr(self.client, "start_timer"):
             return
-        active = timer_item_key(self._timer)
-        if active and active != key:
+        state = self._timer.get("state") if isinstance(self._timer, dict) else ""
+        holding = state in {"running", "paused", "stopped"}
+        current = timer_item_key(self._timer) if holding else ""
+        if holding and current != key:
             running = self._timer.get("item_title")
             shown = running if isinstance(running, str) and running else "Timer"
-            self._switch_ask = {"key": key, "title": shown, "next": title}
+            self._switch_ask = {
+                "key": key,
+                "title": shown,
+                "next": title,
+                "discard": state == "stopped",
+            }
             self._sync_switch()
             return
-        if active == key and active:
+        if holding:
             return
         self._switch_ask = None
         self._sync_switch()
@@ -800,21 +857,29 @@ class TodoWindow(Adw.ApplicationWindow):
         if isinstance(started, dict) and started:
             self._timer = started
         self._fill_rows(self._items)
+        self._sync_timer_strip()
         self.refresh()
 
     def _confirm_switch(self) -> None:
         ask = self._switch_ask
-        if (
-            not ask
-            or not hasattr(self.client, "stop_timer")
-            or not hasattr(self.client, "start_timer")
-        ):
+        if not ask or not hasattr(self.client, "start_timer"):
             return
         key = ask.get("key") or ""
+        state = self._timer.get("state")
+        tied = bool(timer_item_key(self._timer))
         self._switch_ask = None
         self._sync_switch()
         try:
-            self.client.stop_timer()
+            if state == "stopped":
+                if not hasattr(self.client, "dismiss_timer"):
+                    return
+                self.client.dismiss_timer()
+            else:
+                if not hasattr(self.client, "stop_timer"):
+                    return
+                self.client.stop_timer()
+                if not tied and hasattr(self.client, "dismiss_timer"):
+                    self.client.dismiss_timer()
             started = self.client.start_timer(key)
         except BridgeError as exc:
             self._toast(str(exc) or "Could not save the timer")
@@ -833,8 +898,11 @@ class TodoWindow(Adw.ApplicationWindow):
         if not ask:
             self.switch_box.set_visible(False)
             return
-        title = ask.get("title") or "Timer"
-        self.switch_label.set_label(f"Stop {title} and start this one?")
+        if ask.get("discard"):
+            self.switch_label.set_label("Discard the stopped time and start this one?")
+        else:
+            title = ask.get("title") or "Timer"
+            self.switch_label.set_label(f"Stop {title} and start this one?")
         self.switch_box.set_visible(True)
 
     def _sync_start_button(self, item: dict[str, Any] | None) -> None:
@@ -845,14 +913,131 @@ class TodoWindow(Adw.ApplicationWindow):
         if not offered or item is None:
             self.start_button.set_label("Start timer")
             self.start_button.set_sensitive(False)
+        else:
+            key = str(item.get("key") or "")
+            if timer_item_key(self._timer) == key and key:
+                self.start_button.set_label("Timing")
+                self.start_button.set_sensitive(False)
+            else:
+                self.start_button.set_label("Start timer")
+                self.start_button.set_sensitive(True)
+        self.attach_button.set_visible(self._can_attach(item))
+
+    def _can_attach(self, item: dict[str, Any] | None) -> bool:
+        if item is None or not hasattr(self.client, "attach_timer") or is_read_only(item):
+            return False
+        state = self._timer.get("state")
+        if state == "stopped":
+            return True
+        return state in {"running", "paused"} and not timer_item_key(self._timer)
+
+    def _set_editing_start(self, editing: bool) -> None:
+        self._editing_start = editing
+        state = self._timer.get("state")
+        self.edit_start_box.set_visible(
+            editing and state in {"running", "paused"} and hasattr(self.client, "adjust_start")
+        )
+
+    def _sync_timer_strip(self) -> None:
+        timer = self._timer if isinstance(self._timer, dict) else {}
+        state = timer.get("state")
+        has_timer = hasattr(self.client, "get_timer") or hasattr(self.client, "load_timer")
+        if state not in {"running", "paused", "stopped"} or not has_timer:
+            self._editing_start = False
+            self.timer_box.set_visible(False)
+            self.edit_start_box.set_visible(False)
             return
-        key = str(item.get("key") or "")
-        if timer_item_key(self._timer) == key and key:
-            self.start_button.set_label("Timing")
-            self.start_button.set_sensitive(False)
+        clock = format_top_bar(_display_elapsed(timer))
+        title = timer.get("item_title") if isinstance(timer.get("item_title"), str) else ""
+        if state == "stopped":
+            text = f"Stopped, unassigned · {clock}"
+        elif state == "paused":
+            text = f"Paused · {clock}"
+        else:
+            text = f"Timer running · {clock}"
+        if title:
+            text = f"{text} · {title}"
+        self.timer_label.set_label(text)
+        self.timer_box.set_visible(True)
+        _clear_box(self.timer_actions)
+        if state == "stopped" and hasattr(self.client, "dismiss_timer"):
+            dismiss = Gtk.Button(label="Dismiss")
+            dismiss.connect("clicked", lambda _button: self._dismiss_timer())
+            self.timer_actions.append(dismiss)
+        elif state in {"running", "paused"} and hasattr(self.client, "adjust_start"):
+            edit = Gtk.Button(label="Edit start")
+            edit.connect("clicked", lambda _button: self._set_editing_start(True))
+            self.timer_actions.append(edit)
+        if state not in {"running", "paused"}:
+            self._editing_start = False
+        self._set_editing_start(self._editing_start)
+
+    def _on_adjust_start(self, _button: Gtk.Button, delta: int) -> None:
+        if not hasattr(self.client, "adjust_start"):
             return
-        self.start_button.set_label("Start timer")
-        self.start_button.set_sensitive(True)
+        try:
+            updated = self.client.adjust_start(int(delta))
+        except BridgeError as exc:
+            self._toast(str(exc) or "Could not save the timer")
+            return
+        self._apply_timer_result(updated)
+
+    def _on_set_start(self, _widget: Gtk.Widget | None = None) -> None:
+        if not hasattr(self.client, "set_start"):
+            return
+        started = parse_start_clock(self.start_entry.get_text())
+        if started is None:
+            self._toast("Use HH:MM")
+            return
+        try:
+            updated = self.client.set_start(started)
+        except BridgeError as exc:
+            self._toast(str(exc) or "Could not save the timer")
+            return
+        self.start_entry.set_text("")
+        self._apply_timer_result(updated)
+
+    def _attach_current(self) -> None:
+        item = self._current
+        if not isinstance(item, dict) or not self._can_attach(item):
+            return
+        key = item.get("key")
+        if not isinstance(key, str) or not key:
+            return
+        try:
+            updated = self.client.attach_timer(key)
+        except BridgeError as exc:
+            self._toast(str(exc) or "Could not save the timer")
+            return
+        self._apply_timer_result(updated)
+
+    def _dismiss_timer(self) -> None:
+        if not hasattr(self.client, "dismiss_timer"):
+            return
+        try:
+            updated = self.client.dismiss_timer()
+        except BridgeError as exc:
+            self._toast(str(exc) or "Could not save the timer")
+            return
+        self._apply_timer_result(updated)
+
+    def _apply_timer_result(self, updated: object) -> None:
+        if isinstance(updated, dict) and updated:
+            self._timer = updated
+        self._editing_start = False
+        self._fill_rows(self._items)
+        self._sync_timer_strip()
+        self._sync_start_button(self._current)
+
+    def _sync_window_controls(self) -> None:
+        collapsed = bool(self.split.get_collapsed())
+        showing = bool(self.split.get_show_content()) if collapsed else True
+        if not collapsed:
+            self.close_sidebar.set_visible(False)
+            self.close_detail.set_visible(True)
+            return
+        self.close_sidebar.set_visible(not showing)
+        self.close_detail.set_visible(showing)
 
     def _request_timer(self) -> None:
         self._timer_generation += 1
@@ -885,6 +1070,8 @@ class TodoWindow(Adw.ApplicationWindow):
         self._timer = timer if isinstance(timer, dict) else {"state": "idle"}
         self._fill_rows(self._items)
         self._sync_switch()
+        self._sync_timer_strip()
+        self._sync_start_button(self._current)
 
     def _done_current(self) -> None:
         item = self._current
@@ -1018,6 +1205,7 @@ class TodoWindow(Adw.ApplicationWindow):
 
     def _on_collapsed(self, split: Adw.NavigationSplitView, _pspec: Any) -> None:
         self.back.set_visible(bool(split.get_collapsed()))
+        self._sync_window_controls()
 
     def _on_text_click(self, _gesture: Gtk.GestureClick, _n: int, x: float, y: float) -> None:
         href = _href_at(self.text, self._link_tags, x, y)
@@ -1049,8 +1237,11 @@ class TodoWindow(Adw.ApplicationWindow):
         if control and keyval in {Gdk.KEY_Return, Gdk.KEY_KP_Enter}:
             self._done_current()
             return True
-        if keyval == Gdk.KEY_Escape and self.search.get_text():
-            self.search.set_text("")
+        if control and keyval in {Gdk.KEY_w, Gdk.KEY_W}:
+            self.close()
+            return True
+        if keyval == Gdk.KEY_Escape:
+            self.close()
             return True
         if _focus_is_text(self):
             return False
@@ -1292,6 +1483,25 @@ def _fill_chip_box(box: Gtk.FlowBox, chips: Any) -> None:
             ordered.append(chip)
     for chip in ordered:
         box.append(_chip(str(chip["label"]), str(chip.get("tone") or "neutral")))
+
+
+def _display_elapsed(timer: dict[str, Any]) -> float:
+    """Prefer the bridge elapsed value. Fall back to the stored segments."""
+
+    elapsed = timer.get("elapsed_s")
+    if isinstance(elapsed, (int, float)) and not isinstance(elapsed, bool):
+        return float(elapsed)
+    accumulated = timer.get("accumulated_s")
+    if isinstance(accumulated, (int, float)) and not isinstance(accumulated, bool):
+        base = float(accumulated)
+    else:
+        base = 0.0
+    if timer.get("state") != "running":
+        return base
+    since = timer.get("running_since")
+    if isinstance(since, bool) or not isinstance(since, (int, float)):
+        return base
+    return base + max(0.0, time.time() - float(since))
 
 
 def _clear_box(box: Gtk.Widget) -> None:

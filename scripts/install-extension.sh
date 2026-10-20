@@ -39,12 +39,69 @@ case "${DEST}" in
     ;;
 esac
 
+# A local module the shell actually loads. Checks and tests stay in the repo.
+skip_module() {
+  local base
+  base="$(basename "$1")"
+  [[ "${base}" == *_checks.js || "${base}" == test_* ]]
+}
+
+# GNOME loads extension.js and prefs.js by name. Follow their relative
+# imports so a new runtime module is installed with them.
+collect_modules() {
+  local -A seen=()
+  local pending=()
+  local index=0
+  local rel current
+  consider() {
+    rel="${1#./}"
+    if skip_module "${rel}"; then
+      return 0
+    fi
+    case "${rel}" in
+      *..*)
+        echo "tetherbot: refusing extension import ${rel}" >&2
+        exit 1
+        ;;
+    esac
+    if [[ -n "${seen[${rel}]:-}" ]]; then
+      return 0
+    fi
+    if [[ ! -f "${ROOT}/extension/${rel}" ]]; then
+      echo "tetherbot: extension import is missing: ${rel}" >&2
+      exit 1
+    fi
+    seen[${rel}]=1
+    pending+=("${rel}")
+  }
+  consider "extension.js"
+  consider "prefs.js"
+  while [[ "${index}" -lt "${#pending[@]}" ]]; do
+    current="${pending[${index}]}"
+    index=$((index + 1))
+    while IFS= read -r rel; do
+      [[ -z "${rel}" ]] && continue
+      consider "${rel}"
+    done < <(
+      sed 's|//.*||' "${ROOT}/extension/${current}" \
+        | grep -oE "(from|import)[[:space:]]+['\"]\\./[^'\"]+['\"]" \
+        | sed -E "s/.*['\"]\\.\\///; s/['\"].*//" \
+        || true
+    )
+  done
+  printf '%s\n' "${pending[@]}"
+}
+
 rm -rf "${DEST}"
 install -d "${DEST}"
-for name in extension.js view.js prefs.js stylesheet.css metadata.json \
-  io.github.grokkinggrok.TetherBot1.xml; do
+for name in stylesheet.css metadata.json io.github.grokkinggrok.TetherBot1.xml; do
   install -m 0644 "${ROOT}/extension/${name}" "${DEST}/${name}"
 done
+while IFS= read -r module; do
+  [[ -z "${module}" ]] && continue
+  install -d "${DEST}/$(dirname "${module}")"
+  install -m 0644 "${ROOT}/extension/${module}" "${DEST}/${module}"
+done < <(collect_modules)
 if [[ -d "${ROOT}/extension/icons" ]]; then
   install -d "${DEST}/icons"
   for icon in "${ROOT}/extension/icons/"*.svg; do

@@ -33,6 +33,30 @@ def test_extension_code_has_no_network_api():
             assert token not in code, f"{path.name} contains {token}"
 
 
+# Constructors and helpers Shell 46–50 removed. Using one of these throws
+# while the extension is loading or the first time that line runs.
+REMOVED_CLUTTER = (
+    "Clutter.Canvas",
+    "Clutter.Image",
+    "Clutter.ClickAction",
+    "Clutter.TapAction",
+    "Clutter.DragAction",
+    "Clutter.Color",
+    "Clutter.cairo_set_source_color",
+    "Clutter.Container",
+    "Clutter.CairoTexture",
+    "Clutter.Texture",
+    "get_seat_state",
+)
+
+
+def test_extension_does_not_use_removed_clutter_apis():
+    for path in sorted(EXTENSION.glob("*.js")):
+        code = _code(path.read_text(encoding="utf-8"))
+        for token in REMOVED_CLUTTER:
+            assert token not in code, f"{path.name} contains {token}"
+
+
 def test_disable_drops_the_proxy_and_handlers():
     text = (EXTENSION / "extension.js").read_text(encoding="utf-8")
     assert "makeProxyWrapper" in text
@@ -74,15 +98,20 @@ def test_disable_drops_the_proxy_and_handlers():
     assert "tetherbot-time" in css
     assert "min-width: 4.8em" not in css
     assert "topBarWidthSample" in text
-    icon = text.split("this._icon = new St.Widget({", 1)[1].split("});", 1)[0]
+    icon = text.split("this._icon = new St.DrawingArea({", 1)[1].split("});", 1)[0]
     assert "icon_size" not in icon
     assert "system-status-icon" in icon
     assert "icon-size" not in css
     assert "tetherbot-undo" in css
     assert "max-width: 5.2em" in css
     assert "undoFraction" in text
+    assert "get_theme_node" in text
     assert "get_foreground_color" in text
-    assert "Clutter.Canvas" in text
+    assert "queue_repaint" in text
+    assert "get_context" in text
+    assert "$dispose" in text
+    assert "setSourceColor" in text
+    assert "0.86" not in text
     assert "this._icon.gicon" not in text
     mark = text.split("    _markDone(row) {", 1)[1].split("\n    _", 1)[0]
     assert "_perform(" not in mark

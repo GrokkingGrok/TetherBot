@@ -1,9 +1,10 @@
-/* TetherBot top-bar indicator and popup. The face icon carries its own
-   badge color, drawn in the SVG so the ring and dot scale with the shell's
-   panel icon size. Amber stays on the bot-row dot. Digits stay tabular so
-   the panel width does not jump as the timer counts. The indicator uses
-   the shell's system-status-icon size, so a larger panel icon grows this
-   one too. */
+/* TetherBot top-bar indicator and popup. The face is drawn by the panel
+   from the theme foreground, so it follows the same color as the other
+   status icons. Badge marks keep their own colors and scale with the
+   shell's panel icon size. Amber stays on the bot-row dot. Digits stay
+   tabular so the panel width does not jump as the timer counts. The
+   indicator uses the shell's system-status-icon size, so a larger panel
+   icon grows this one too. */
 
 .tetherbot-dimmed {
     opacity: 0.45;

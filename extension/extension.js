@@ -99,18 +99,13 @@ export default class TetherBotExtension extends Extension {
             style_class: 'panel-status-menu-box',
             x_expand: false,
         });
-        this._icon = new St.Widget({
+        this._icon = new St.DrawingArea({
             style_class: 'system-status-icon tetherbot-indicator tetherbot-dimmed',
             y_align: Clutter.ActorAlign.CENTER,
             x_align: Clutter.ActorAlign.CENTER,
         });
         this._badge = 'base';
-        this._canvas = new Clutter.Canvas();
-        this._canvas.connect('draw', (canvas, cr, width, height) => {
-            this._paintFace(cr, width, height);
-            return true;
-        });
-        this._icon.set_content(this._canvas);
+        this._icon.connect('repaint', area => this._repaintFace(area));
         this._icon.connect('style-changed', () => this._syncIcon(this._badge));
         this._pause = new St.BoxLayout({
             style_class: 'tetherbot-pause',
@@ -642,62 +637,56 @@ export default class TetherBotExtension extends Extension {
         return 16;
     }
 
-    _iconScale() {
-        const scale = this._icon && this._icon.get_resource_scale
-            ? this._icon.get_resource_scale()
-            : 1;
-        return scale > 0 ? scale : 1;
-    }
-
-    _foreground() {
-        const node = this._icon && this._icon.get_theme_node ? this._icon.get_theme_node() : null;
-        const color = node && node.get_foreground_color ? node.get_foreground_color() : null;
-        return channel(color);
-    }
-
     _syncIcon(kind) {
-        if (!this._icon || !this._canvas)
+        if (!this._icon)
             return;
         const badge = kind || 'base';
         const size = this._panelIconSize();
-        const scale = this._iconScale();
-        const color = this._foreground().join(',');
-        if (
-            this._badge === badge &&
-            this._drawnSize === size &&
-            this._drawnScale === scale &&
-            this._drawnColor === color
-        )
-            return;
+        const badgeChanged = badge !== this._badge;
+        const sizeChanged = size !== this._drawnSize;
         this._badge = badge;
         this._drawnSize = size;
-        this._drawnScale = scale;
-        this._drawnColor = color;
-        this._icon.width = size;
-        this._icon.height = size;
-        const pixels = Math.max(1, Math.round(size * scale));
-        this._canvas.set_size(pixels, pixels);
-        this._canvas.invalidate();
+        if (sizeChanged) {
+            this._icon.width = size;
+            this._icon.height = size;
+        }
+        if (badgeChanged)
+            this._icon.queue_repaint();
     }
 
-    _paintFace(cr, width, height) {
+    _repaintFace(area) {
+        const cr = area.get_context();
+        try {
+            const [width, height] = area.get_surface_size();
+            const node = area.get_theme_node();
+            const color = node && node.get_foreground_color ? node.get_foreground_color() : null;
+            this._drawFace(cr, width, height, color);
+        } finally {
+            cr.$dispose();
+        }
+    }
+
+    _drawFace(cr, width, height, color) {
         const unit = Math.min(width, height) / FACE.size;
         if (!(unit > 0))
             return;
-        const [red, green, blue, alpha] = this._foreground();
         const fade = this._badge === 'slash' ? 0.45 : 1;
         cr.save();
         cr.scale(unit, unit);
-        cr.setSourceRGBA(red, green, blue, alpha * fade);
-        strokeRoundRect(cr, FACE.outline);
-        cr.setLineWidth(FACE.smile.width);
-        cr.setLineCap(Cairo.LineCap.ROUND);
-        smile(cr, FACE.smile);
-        cr.stroke();
-        for (const eye of FACE.eyes) {
-            cr.arc(eye.cx, eye.cy, eye.r, 0, Math.PI * 2);
-            cr.fill();
+        cr.pushGroup();
+        if (applyThemeForeground(cr, color)) {
+            strokeRoundRect(cr, FACE.outline);
+            cr.setLineWidth(FACE.smile.width);
+            cr.setLineCap(Cairo.LineCap.ROUND);
+            smile(cr, FACE.smile);
+            cr.stroke();
+            for (const eye of FACE.eyes) {
+                cr.arc(eye.cx, eye.cy, eye.r, 0, Math.PI * 2);
+                cr.fill();
+            }
         }
+        cr.popGroupToSource();
+        cr.paintWithAlpha(fade);
         const badge = BADGE[this._badge];
         if (badge)
             paintBadge(cr, this._badge, badge);
@@ -1706,15 +1695,11 @@ function unpackCounts(value) {
     return value;
 }
 
-function channel(color) {
-    if (!color)
-        return [0.86, 0.86, 0.86, 1];
-    return ['red', 'green', 'blue', 'alpha'].map((name, index) => {
-        const value = Number(color[name]);
-        if (!Number.isFinite(value))
-            return index === 3 ? 1 : 0.86;
-        return value > 1 ? value / 255 : value;
-    });
+function applyThemeForeground(cr, color) {
+    if (!color || typeof cr.setSourceColor !== 'function')
+        return false;
+    cr.setSourceColor(color);
+    return true;
 }
 
 function strokeRoundRect(cr, box) {

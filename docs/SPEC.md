@@ -510,7 +510,7 @@ Still to write, with the milestones that need them:
 - M24. The window opens from the popup and from the app grid, holds no secrets, and makes no network requests. The extension does not spawn it.
 - M25. Log out and back in. The indicator becomes active within about 10 seconds without a manual `systemctl start`.
 - M26. Clicking a todo in the popup shows the window within about 1.5 seconds from a cold start, and at once when the process is still up.
-- M27–M41. Stopwatch recovery, the top-bar badges, Undo, edit start, attaching a stopped or running timer, and the window close button. The steps are in [MANUAL-CHECKS.md](MANUAL-CHECKS.md) and [STOPWATCH.md](STOPWATCH.md).
+- M27–M42. Stopwatch recovery, the top-bar badges, Undo, edit start, attaching a stopped or running timer, and the window close button. The steps are in [MANUAL-CHECKS.md](MANUAL-CHECKS.md) and [STOPWATCH.md](STOPWATCH.md).
 
 ## 13. Milestones
 

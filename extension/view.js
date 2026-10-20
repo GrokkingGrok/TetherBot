@@ -364,6 +364,22 @@ function liveUndo(timer, nowSec) {
     return {action: 'Undo', timerId: undo.timer_id || '', title};
 }
 
+export function keepAssigning(assigning, timer) {
+    if (!assigning || !timer || typeof timer !== 'object')
+        return false;
+    if (timer.state === 'stopped')
+        return true;
+    return (timer.state === 'running' || timer.state === 'paused') && !timer.item_key;
+}
+
+export function todoActivation(row) {
+    if (!row || !row.key)
+        return null;
+    if (row.pick)
+        return {method: 'AssignTimer', args: [row.key]};
+    return {method: 'OpenWindow', args: [row.key]};
+}
+
 export function timerModel({
     running,
     activationFailed = true,

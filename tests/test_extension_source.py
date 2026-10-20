@@ -51,6 +51,12 @@ def test_disable_drops_the_proxy_and_handlers():
     assert "_tickSource" in disable
     assert "source_remove" in disable
     assert "GetTimerRemote" in text
+    assert "keepAssigning" in text
+    assert "todoActivation" in text
+    render = text.split("    _render() {", 1)[1].split("\n    _", 1)[0]
+    assert "keepAssigning" in render
+    assert "_expireAssign" not in text
+    assert "undo.kind === 'assign'" not in text
     assert "network-offline" not in text
     assert "mail-unread" not in text
     css = (EXTENSION / "stylesheet.css").read_text(encoding="utf-8")

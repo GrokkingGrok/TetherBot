@@ -374,8 +374,8 @@ class TodoWindow(Adw.ApplicationWindow):
 
     def __init__(self, app: Adw.Application, client: Any) -> None:
         super().__init__(application=app, title="TetherBot")
-        self.set_default_size(960, 680)
-        self.set_size_request(360, 280)
+        self.set_default_size(1280, 800)
+        self.set_size_request(1180, 680)
         self.set_icon_name(APP_ID)
         self.client = client
         self._filling = False
@@ -404,10 +404,19 @@ class TodoWindow(Adw.ApplicationWindow):
             client.set_listener(self.refresh)
 
     def _build(self) -> None:
+        self.titlebar = Adw.HeaderBar()
+        self.titlebar.set_title_widget(
+            Adw.WindowTitle.new("TetherBot", "Unofficial. Not affiliated with xAI.")
+        )
         self.toasts = Adw.ToastOverlay()
         self.split = Adw.NavigationSplitView()
+        self.split.set_min_sidebar_width(300)
+        self.split.set_max_sidebar_width(460)
         self.toasts.set_child(self.split)
-        self.set_content(self.toasts)
+        self.toolbar = Adw.ToolbarView()
+        self.toolbar.add_top_bar(self.titlebar)
+        self.toolbar.set_content(self.toasts)
+        self.set_content(self.toolbar)
         style = Adw.StyleManager.get_default()
         self._sync_theme(style)
         style.connect("notify::dark", self._sync_theme)
@@ -493,13 +502,6 @@ class TodoWindow(Adw.ApplicationWindow):
         sidebar_box.append(controls)
         sidebar_box.append(scrolled)
         sidebar_bar = Adw.ToolbarView(content=sidebar_box)
-        sidebar_header = Adw.HeaderBar()
-        sidebar_header.set_title_widget(
-            Adw.WindowTitle.new("TetherBot", "Unofficial. Not affiliated with xAI.")
-        )
-        self.close_sidebar = Gtk.WindowControls(side=Gtk.PackType.END)
-        sidebar_header.pack_end(self.close_sidebar)
-        sidebar_bar.add_top_bar(sidebar_header)
         self.split.set_sidebar(Adw.NavigationPage.new(sidebar_bar, "Todos"))
 
         self.back = Gtk.Button(icon_name="go-previous-symbolic")
@@ -559,13 +561,12 @@ class TodoWindow(Adw.ApplicationWindow):
         detail.append(buttons)
         detail.append(self.source)
         detail_bar = Adw.ToolbarView(content=detail)
-        detail_header = Adw.HeaderBar()
-        detail_header.pack_start(self.back)
-        self.close_detail = Gtk.WindowControls(side=Gtk.PackType.END)
-        detail_header.pack_end(self.close_detail)
-        detail_bar.add_top_bar(detail_header)
-        self.split.connect("notify::show-content", lambda *_args: self._sync_window_controls())
-        self._sync_window_controls()
+        self.detail_header = Adw.HeaderBar()
+        self.detail_header.set_show_start_title_buttons(False)
+        self.detail_header.set_show_end_title_buttons(False)
+        self.detail_header.pack_start(self.back)
+        self.detail_header.set_visible(False)
+        detail_bar.add_top_bar(self.detail_header)
         self.split.set_content(Adw.NavigationPage.new(detail_bar, "Detail"))
         self._show_item(None)
 
@@ -1009,6 +1010,9 @@ class TodoWindow(Adw.ApplicationWindow):
         except BridgeError as exc:
             self._toast(str(exc) or "Could not save the timer")
             return
+        if not isinstance(updated, dict) or not updated.get("state"):
+            self._request_timer()
+            return
         self._apply_timer_result(updated)
 
     def _dismiss_timer(self) -> None:
@@ -1028,16 +1032,6 @@ class TodoWindow(Adw.ApplicationWindow):
         self._fill_rows(self._items)
         self._sync_timer_strip()
         self._sync_start_button(self._current)
-
-    def _sync_window_controls(self) -> None:
-        collapsed = bool(self.split.get_collapsed())
-        showing = bool(self.split.get_show_content()) if collapsed else True
-        if not collapsed:
-            self.close_sidebar.set_visible(False)
-            self.close_detail.set_visible(True)
-            return
-        self.close_sidebar.set_visible(not showing)
-        self.close_detail.set_visible(showing)
 
     def _request_timer(self) -> None:
         self._timer_generation += 1
@@ -1204,8 +1198,9 @@ class TodoWindow(Adw.ApplicationWindow):
             self.remove_css_class("tether-dark")
 
     def _on_collapsed(self, split: Adw.NavigationSplitView, _pspec: Any) -> None:
-        self.back.set_visible(bool(split.get_collapsed()))
-        self._sync_window_controls()
+        collapsed = bool(split.get_collapsed())
+        self.back.set_visible(collapsed)
+        self.detail_header.set_visible(collapsed)
 
     def _on_text_click(self, _gesture: Gtk.GestureClick, _n: int, x: float, y: float) -> None:
         href = _href_at(self.text, self._link_tags, x, y)

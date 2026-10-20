@@ -44,7 +44,11 @@ def test_window_sources_do_not_touch_the_network_or_secrets():
     assert "GetTimer" in window
     assert "Start timer" in window
     assert "set_icon_name(APP_ID)" in window
-    assert "WindowControls" in window
+    assert "set_titlebar" not in window
+    assert "ToolbarView" in window
+    assert "WindowControls" not in window
+    assert "set_default_size(1280, 800)" in window
+    assert "set_size_request(1180, 680)" in window
     assert "KEY_w" in window
     assert "KEY_Escape" in window
     assert "AssignTimer" in window

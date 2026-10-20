@@ -52,7 +52,7 @@ The stopwatch block is the first section of the popup, above the bot rows. See t
 
 - **Running:** a "Timer running" label with a solid dot, the elapsed time in large text, the todo title and bot id (or "Timer" when standalone), then Pause, Stop, and Edit start. A timer that is not on a todo also offers Add to a todo.
 - **Paused:** "Paused" with the pause glyph, the frozen time dimmed, then Resume, Stop, and Edit start.
-- **Edit start:** `-5m`, `-15m`, and `-30m`, plus an `HH:MM` entry. The new start cannot be in the future, cannot be before the 24 hour limit, and is stored as one span so the elapsed time cannot go negative.
+- **Edit start:** one row with `-5m`, `-15m`, `-30m`, a small `HH:MM` field, Set, and a close control. The new start cannot be in the future, cannot be before the 24 hour limit, and is stored as one span so the elapsed time cannot go negative.
 - **Idle:** "No timer running" and a Start timer button for a standalone timer.
 - **Clock warning:** the saved time, one sentence on why, and Keep, Set time..., and Discard (section 6.5).
 - **Bridge down:** "Timer unavailable: bridge not running. Saved time is safe on disk and keeps counting."
@@ -67,7 +67,7 @@ Todo rows (popup and window):
 - Starting a timer while another one exists asks one question in place: "Stop <title> and start this one?" with Switch and Cancel. A stopped unassigned timer asks "Discard the stopped time and start this one?"
 - Add to a todo puts the popup in pick mode. The rows are highlighted, the title says what the click will do, and Cancel leaves pick mode. Clicking a row attaches the time. It does not open the window.
 - A running or paused timer that is not already on a todo can be attached the same way. A timer that is already on a todo stays there until Stop.
-- The window detail pane gets the same Start timer button next to Done, plus Attach timer when the current timer can move onto that todo. The sidebar shows the same Edit start controls. The window has a close button, and Ctrl+W and Escape close it.
+- The window detail pane gets the same Start timer button next to Done, plus Attach timer when the current timer can move onto that todo. Attach timer puts the running or stopped timer on the open todo in front of you. The sidebar shows Edit start. The window has one titlebar, with one set of window buttons. Ctrl+W and Escape close it.
 
 ## 5. Timer data model
 
@@ -238,6 +238,7 @@ Manual checks, next free numbers in [MANUAL-CHECKS.md](MANUAL-CHECKS.md):
 - M39. The window has a close button. Ctrl+W and Escape close it.
 - M40. Stop a timer that is not on a todo. Add to a todo, then click a row. The time lands on that todo and the window does not open. Cancel leaves pick mode. The same attach works from the window, including while the timer is still running.
 - M41. After that Stop, wait out the 5 second Undo. The top bar and the popup still show the stopped time, and `timer.json` is still there. Dismiss is what clears it. Undo within 5 seconds resumes with the time kept.
+- M42. Add to a todo highlights the rows and shows Cancel until you pick one or cancel. Attach timer in the window puts the current timer on the open todo and the row says Timing. The window opens wide enough that its single close button stays on screen. Enlarging it does not add a second set of window buttons. Edit start in the popup is one row.
 
 ## 12. Open questions
 

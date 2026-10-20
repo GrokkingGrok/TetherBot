@@ -17,7 +17,9 @@ import {
     formatLastSeen,
     formatTopBar,
     formatTracked,
+    keepAssigning,
     parseStartClock,
+    todoActivation,
     indicatorView,
     overdueCount,
     itemKey,
@@ -621,6 +623,17 @@ export function runViewChecks() {
     });
     assert(pickMenu.todos[0].pick === true, 'a todo row is the pick target');
     assert(pickMenu.todos[0].canStart === true, 'the row can still start later');
+    const runningLoose = {state: 'running', item_key: '', item_title: ''};
+    assert(keepAssigning(true, runningLoose) === true, 'pick stays while choosing a todo');
+    assert(keepAssigning(true, {state: 'stopped'}) === true, 'a stopped timer stays pickable');
+    assert(keepAssigning(true, runningTimer) === false, 'a tied timer leaves pick mode');
+    assert(keepAssigning(false, runningLoose) === false, 'cancel stays cancelled');
+    const pickedRow = pickMenu.todos[0];
+    const attachClick = todoActivation(pickedRow);
+    assert(attachClick.method === 'AssignTimer', 'a picked row attaches');
+    assert(attachClick.args[0] === 'primary/q4-budget', 'the click carries the todo key');
+    const openClick = todoActivation({...pickedRow, pick: false});
+    assert(openClick.method === 'OpenWindow', 'a normal row opens the window');
     assert(approvalCount([ask({actions: ['veto']})], NOW) === 0, 'veto alone is not approval');
 }
 

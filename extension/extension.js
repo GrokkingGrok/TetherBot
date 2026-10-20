@@ -26,10 +26,12 @@ import {
     elapsedSeconds,
     formatElapsed,
     indicatorView,
+    keepAssigning,
     menuModel,
     parseSetTime,
     parseStartClock,
     timerModel,
+    todoActivation,
     startServiceCall,
     mergeTodoSearch,
     notificationModel,
@@ -469,7 +471,7 @@ export default class TetherBotExtension extends Extension {
         if (!this._indicator)
             return;
         const nowMs = Date.now();
-        this._expireAssign(nowMs);
+        this._assigning = keepAssigning(this._assigning, this._timer);
         const view = this._paintIndicator(nowMs);
         const block = timerModel({
             running: this._running,
@@ -587,15 +589,6 @@ export default class TetherBotExtension extends Extension {
         return GLib.SOURCE_CONTINUE;
     }
 
-    _expireAssign(nowMs) {
-        if (!this._assigning)
-            return;
-        const undo = this._timer && this._timer.undo;
-        const open = undo && undo.kind === 'assign' && Number(undo.until) > nowMs / 1000;
-        if (!open)
-            this._assigning = false;
-    }
-
     _fillBots(rows) {
         this._botSection.removeAll();
         this._botSection.addMenuItem(sectionTitle('Bots'));
@@ -694,14 +687,9 @@ export default class TetherBotExtension extends Extension {
         });
         if (title.clutter_text)
             title.clutter_text.ellipsize = Pango.EllipsizeMode.END;
-        title.connect('clicked', () => {
-            if (row.pick)
-                this._assignTo(row.key);
-            else
-                this._openWindow(row.key);
-        });
+        title.connect('clicked', () => this._activateTodo(row));
         if (row.pick)
-            item.connect('activate', () => this._assignTo(row.key));
+            item.connect('activate', () => this._activateTodo(row));
         const heading = new St.BoxLayout({x_expand: true});
         if (row.chips && row.chips.priority) {
             heading.add_child(chipLabel(row.chips.priority, row.chips.priorityTone));
@@ -817,30 +805,36 @@ export default class TetherBotExtension extends Extension {
             }
             box.add_child(this._timerActions(block.actions || []));
         } else if (block.kind === 'edit-start') {
-            box.add_child(new St.Label({text: block.title || 'Edit start'}));
-            box.add_child(this._timerActions(['-5m', '-15m', '-30m']));
-            const entry = new St.Entry({
-                hint_text: block.hint || 'HH:MM',
-                style_class: 'tetherbot-search',
-                can_focus: true,
+            const row = new St.BoxLayout({
                 x_expand: true,
+                style_class: 'tetherbot-edit-row',
+                y_align: Clutter.ActorAlign.CENTER,
+            });
+            for (const label of ['-5m', '-15m', '-30m'])
+                row.add_child(this._actionButton(label, () => this._timerAction(label), false));
+            const entry = new St.Entry({
+                hint_text: 'HH:MM',
+                style_class: 'tetherbot-edit-entry',
+                can_focus: true,
             });
             this._timeEntry = entry;
-            if (this._setHint) {
-                box.add_child(new St.Label({
-                    text: this._setHint,
-                    style_class: 'tetherbot-subtle',
-                }));
-            }
-            const row = new St.BoxLayout({x_expand: true});
             row.add_child(entry);
-            row.add_child(this._actionButton('Set start', () => this._submitStartClock(), false));
-            row.add_child(this._actionButton('Cancel', () => {
+            row.add_child(this._actionButton('Set', () => this._submitStartClock(), false));
+            const cancel = new St.Button({
+                icon_name: 'window-close-symbolic',
+                style_class: 'tetherbot-icon-button',
+                can_focus: true,
+                accessible_name: 'Cancel',
+            });
+            cancel.connect('clicked', () => {
                 this._editingStart = false;
                 this._setHint = '';
                 this._render();
-            }, false));
+            });
+            row.add_child(cancel);
             box.add_child(row);
+            if (this._setHint)
+                box.add_child(new St.Label({text: this._setHint, style_class: 'tetherbot-subtle'}));
         } else if (block.kind === 'warning') {
             box.add_child(new St.Label({text: block.title}));
             box.add_child(new St.Label({
@@ -1033,6 +1027,16 @@ export default class TetherBotExtension extends Extension {
         if (!this._proxy)
             return;
         this._proxy.UndoStopTimerRemote(id, (_result, error) => this._afterTimerWrite(error));
+    }
+
+    _activateTodo(row) {
+        const action = todoActivation(row);
+        if (!action)
+            return;
+        if (action.method === 'AssignTimer')
+            this._assignTo(action.args[0]);
+        else
+            this._openWindow(action.args[0]);
     }
 
     _assignTo(key) {

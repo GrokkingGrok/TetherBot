@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
+  <g opacity="0.45">
+    <path fill="currentColor" fill-rule="evenodd" d="M5.45 1.35 H10.55 A4.1 4.1 0 0 1 14.65 5.45 V10.55 A4.1 4.1 0 0 1 10.55 14.65 H5.45 A4.1 4.1 0 0 1 1.35 10.55 V5.45 A4.1 4.1 0 0 1 5.45 1.35 Z M5.45 3.05 A2.4 2.4 0 0 0 3.05 5.45 V10.55 A2.4 2.4 0 0 0 5.45 12.95 H10.55 A2.4 2.4 0 0 0 12.95 10.55 V5.45 A2.4 2.4 0 0 0 10.55 3.05 Z"/>
+    <circle cx="5.5" cy="6.55" r="1.55" fill="currentColor"/>
+    <circle cx="10.5" cy="6.55" r="1.55" fill="currentColor"/>
+    <path fill="currentColor" d="M5.05 9.5 Q8 12.15 10.95 9.5 Q8 13.05 5.05 10.7 Z"/>
+  </g>
+  <polygon fill="currentColor" points="1.53,2.87 2.87,1.53 14.47,13.13 13.13,14.47"/>
+</svg>

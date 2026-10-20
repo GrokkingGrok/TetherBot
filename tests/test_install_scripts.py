@@ -216,8 +216,8 @@ def test_extension_install_copies_the_uuid(tmp_path: Path):
     )
     assert (dest / "metadata.json").is_file()
     assert (dest / "extension.js").is_file()
-    assert (dest / "icons" / "tetherbot-base-symbolic.svg").is_file()
-    assert (dest / "icons" / "tetherbot-slash-symbolic.svg").is_file()
+    assert (dest / "icons" / "face-symbolic.svg").is_file()
+    assert (dest / "icons" / "face-slash-symbolic.svg").is_file()
     assert not (dest / "test_view.js").exists()
     subprocess.run(
         ["bash", str(ROOT / "scripts" / "uninstall.sh")],

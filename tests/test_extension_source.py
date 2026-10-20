@@ -98,21 +98,18 @@ def test_disable_drops_the_proxy_and_handlers():
     assert "tetherbot-time" in css
     assert "min-width: 4.8em" not in css
     assert "topBarWidthSample" in text
-    icon = text.split("this._icon = new St.DrawingArea({", 1)[1].split("});", 1)[0]
+    icon = text.split("this._icon = new St.Icon({", 1)[1].split("});", 1)[0]
     assert "icon_size" not in icon
     assert "system-status-icon" in icon
     assert "icon-size" not in css
     assert "tetherbot-undo" in css
     assert "max-width: 5.2em" in css
     assert "undoFraction" in text
-    assert "get_theme_node" in text
-    assert "get_foreground_color" in text
-    assert "queue_repaint" in text
-    assert "get_context" in text
-    assert "$dispose" in text
-    assert "setSourceColor" in text
+    assert "Gio.FileIcon" in text
+    assert "face-symbolic.svg" in text
+    assert "St.DrawingArea" not in text
+    assert "get_foreground_color" not in text
     assert "0.86" not in text
-    assert "this._icon.gicon" not in text
     mark = text.split("    _markDone(row) {", 1)[1].split("\n    _", 1)[0]
     assert "_perform(" not in mark
     assert "shareUndoWindow" in mark
@@ -120,11 +117,11 @@ def test_disable_drops_the_proxy_and_handlers():
     assert "_perform('done'" in flush
     close = text.split("open-state-changed", 1)[1].split("});", 1)[0]
     assert "_flushDue(true)" in close
-    face = (EXTENSION / "icons" / "tetherbot-base-symbolic.svg").read_text(encoding="utf-8")
+    face = (EXTENSION / "icons" / "face-symbolic.svg").read_text(encoding="utf-8")
     assert face.count("<circle ") == 2
     assert 'r="1.55"' in face
     assert "Q8 12.15" in face
-    assert "#000" not in face
+    assert "#" not in face
     assert "currentColor" in face
     assert "M8 4V1.6" not in face
     fill = text.split("    _fillTimer(block) {", 1)[1].split("\n    _", 1)[0]
@@ -133,7 +130,23 @@ def test_disable_drops_the_proxy_and_handlers():
     assert "g-properties-changed" in window
     assert "properties_need_reload" in window
     icons = EXTENSION / "icons"
-    for name in ("base", "dot", "ring", "slash", "triangle"):
-        body = (icons / f"tetherbot-{name}-symbolic.svg").read_text(encoding="utf-8")
-        assert "#000" not in body
-        assert body.count("<circle ") >= 2
+    variants = {
+        "face-symbolic.svg": 2,
+        "face-dot-symbolic.svg": 3,
+        "face-ring-symbolic.svg": 2,
+        "face-slash-symbolic.svg": 2,
+        "face-triangle-symbolic.svg": 2,
+    }
+    for name, circles in variants.items():
+        body = (icons / name).read_text(encoding="utf-8")
+        assert name.endswith("-symbolic.svg")
+        assert "#" not in body
+        assert "currentColor" in body
+        assert 'r="1.55"' in body
+        assert body.count("<circle ") == circles
+        assert "error" not in body
+        assert "warning" not in body
+    ring = (icons / "face-ring-symbolic.svg").read_text(encoding="utf-8")
+    assert "A1.65" in ring
+    dot = (icons / "face-dot-symbolic.svg").read_text(encoding="utf-8")
+    assert 'r="2.4"' in dot

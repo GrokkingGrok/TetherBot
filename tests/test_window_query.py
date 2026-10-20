@@ -9,11 +9,14 @@ from tetherbot.window_query import (
     ASK_TEXT,
     can_mark_done,
     format_elapsed,
+    format_last_seen,
+    format_next_run,
     format_top_bar,
     format_tracked,
     is_read_only,
     list_filter,
     note_payload,
+    open_count_label,
     parse_start_clock,
     safe_http_url,
     source_line,
@@ -41,6 +44,10 @@ def test_list_filter_matches_the_bridge_shortcuts():
     assert done["include_done_days"] == 7
     assert "status" not in done
     fallback = list_filter(view="nope", query="", tags=[], sort="nope", show_done=False)
+    named = list_filter(
+        view="all", query="", tags=[], sort="due", show_done=False, bots=["notes", "primary"]
+    )
+    assert named["bots"] == ["notes", "primary"]
     assert fallback["view"] == "all"
     assert fallback["sort"] == "due"
 
@@ -71,6 +78,19 @@ def test_done_and_source_rules():
     assert not can_mark_done({**open_item, "status": "done"}, True)
     assert is_read_only({"status": "open", "local": {"acted": {"action_id": "a1"}}})
     assert source_line(open_item) == "primary · daily · 2026-10-17T11:40:00+00:00"
+    named = {**open_item, "display_name": "Primary"}
+    assert source_line(named) == "Primary · daily · 2026-10-17T11:40:00+00:00"
+
+
+def test_bot_list_times_and_counts():
+    now = 1_700_000_000
+    assert format_last_seen(0, now) == "last seen unknown"
+    assert format_last_seen(now - 10, now) == "last seen just now"
+    assert format_last_seen(now - 240, now) == "last seen 4 m ago"
+    assert format_next_run(0, now) == ""
+    assert format_next_run(now + 3600, now) == "next run in 1 h"
+    assert open_count_label(1, "todo") == "1 open todo"
+    assert open_count_label(3, "ask") == "3 open asks"
 
 
 def test_tracked_time_uses_the_clock_format():

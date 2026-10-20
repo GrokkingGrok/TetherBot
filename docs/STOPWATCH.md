@@ -48,7 +48,7 @@ Rules:
 
 ## 4. Popup
 
-The stopwatch block is the first section of the popup, above the bot rows. See the mockup.
+The stopwatch block is the first section of the popup. Todos and asks follow it, then the Bots section. See the mockup.
 
 - **Running:** a "Timer running" label with a solid dot, the elapsed time in large text, the todo title and bot id (or "Timer" when standalone), then Pause, Stop, and Edit start. A timer that is not on a todo also offers Add to a todo.
 - **Paused:** "Paused" with the pause glyph, the frozen time dimmed, then Resume, Stop, and Edit start.

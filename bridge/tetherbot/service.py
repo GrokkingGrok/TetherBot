@@ -18,6 +18,7 @@ from tetherbot.config import ConfigError, save_adapter_enabled
 from tetherbot.dbus_service import INTERFACE
 from tetherbot.model import ENVELOPE_ACTIONS, looks_like_secret, mask_secrets, parse_iso8601
 from tetherbot.queue import QueueError
+from tetherbot.store import resolve_display_name
 from tetherbot.timer import TimerError
 from tetherbot.todos import (
     SORTS,
@@ -54,6 +55,7 @@ _FILTER_KEYS = frozenset(
 )
 _ITEM_OUTBOUND = frozenset({"approve", "veto", "done"})
 _KNOWN_ADAPTERS = ("github-poller", "official", "webhook-sender")
+_WINDOW_TARGETS = frozenset({"bots"})
 _BRIDGE_BOT_STATE = frozenset(
     {"degraded", "offline", "failed_closed", "unconfigured", "paused"}
 )
@@ -207,7 +209,19 @@ class BridgeApi:
         rows.sort(key=lambda item: sort_key(item, sort, now, zone))
         totals = self._tracked()
         return (
-            _dumps([_item_payload(item, now, zone, colors, totals) for item in rows]),
+            _dumps(
+                [
+                    _item_payload(
+                        item,
+                        now,
+                        zone,
+                        colors,
+                        totals,
+                        self._display_name(item.bot),
+                    )
+                    for item in rows
+                ]
+            ),
         )
 
     def _get_item(self, key: str) -> tuple[str]:
@@ -226,6 +240,7 @@ class BridgeApi:
                     zone,
                     self._daemon.store.tag_color_map(),
                     self._tracked(),
+                    self._display_name(item.bot),
                 )
             ),
         )
@@ -248,7 +263,9 @@ class BridgeApi:
         return (_dumps(rows),)
 
     def _open_window(self, item_key: str) -> tuple[bool]:
-        if not isinstance(item_key, str) or (item_key and _bad_item_key(item_key)):
+        if not isinstance(item_key, str) or (
+            item_key and item_key not in _WINDOW_TARGETS and _bad_item_key(item_key)
+        ):
             raise ServiceError(INVALID_ARGS, "item_key is invalid")
         hook = getattr(self._daemon, "launch_window", None)
         if hook is None:
@@ -719,20 +736,35 @@ class BridgeApi:
             if not summary:
                 summary = store.open_summary(name, now)
             slot = ""
+            override = ""
             if config is not None and name in config.bots:
                 slot = config.bots[name].webhook_slot
+                override = config.bots[name].display_name
+            asks, todos = store.open_counts(name, now)
+            published = None if view is None else view.display_name
             rows.append(
                 {
                     "name": name,
-                    "display_name": name,
+                    "display_name": resolve_display_name(name, published, override or None),
                     "state": self._bot_state(view),
                     "summary": summary,
                     "last_seen": _feed_last_seen(view),
                     "next_run": _epoch(None if view is None else view.next_run),
+                    "open_asks": asks,
+                    "open_todos": todos,
                     "routes": {"outbound": bool(slot)},
                 }
             )
         return rows
+
+    def _display_name(self, bot: str) -> str:
+        view = self._daemon.store.feed(bot)
+        published = None if view is None else view.display_name
+        override = ""
+        config = self._daemon.config
+        if config is not None and bot in config.bots:
+            override = config.bots[bot].display_name
+        return resolve_display_name(bot, published, override or None)
 
     def _bot_state(self, view: Any) -> str:
         bridge = self._daemon.state or "ok"
@@ -925,10 +957,13 @@ def _item_payload(
     zone: Any,
     colors: Mapping[str, str],
     totals: Mapping[str, int] | None = None,
+    display_name: str = "",
 ) -> dict[str, Any]:
     payload = item.protocol_dict()
     payload["key"] = item.key
     payload["origin"] = item.origin
+    if display_name:
+        payload["display_name"] = display_name
     payload["chips"] = chips(item, now, zone, colors)
     tracked = 0 if totals is None else int(totals.get(item.key, 0))
     if tracked > 0:

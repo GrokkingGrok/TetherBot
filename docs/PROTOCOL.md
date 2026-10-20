@@ -49,6 +49,8 @@ The constant `tetherbot.SCHEMA_VERSION` is the schema string this tree speaks.
 
 `status.state` is `idle`, `working`, `needs_you`, or `error`.
 
+`bot` is the string id and matches the file name (`feed/primary.json` has `"bot": "primary"`). That string form is what existing files use, and what `tools/feed_write.py` writes, so a file already in the repo needs no migration. Optional `display_name` is a single line of at most 40 characters, the label the desktop shows. A reader may also accept `"bot": {"id": "primary", "display_name": "Primary"}` when `id` matches the file name. Older readers that only understand a string `bot` keep working with files the writer produces, because those files keep the string. An unknown `display_name` is ignored. A secret-shaped name is dropped.
+
 ## Item model
 
 One model covers every kind.

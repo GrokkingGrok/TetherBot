@@ -28,11 +28,14 @@ from tetherbot.window_query import (  # noqa: E402
     SORTS,
     VIEWS,
     can_mark_done,
+    format_last_seen,
+    format_next_run,
     format_top_bar,
     format_tracked,
     is_read_only,
     list_filter,
     note_payload,
+    open_count_label,
     parse_start_clock,
     safe_http_url,
     source_line,
@@ -380,8 +383,12 @@ class TodoWindow(Adw.ApplicationWindow):
         self.client = client
         self._filling = False
         self._view = "all"
+        self._page = "todos"
         self._sort = "due"
         self._query = ""
+        self._bot_query = ""
+        self._bot_filter: set[str] = set()
+        self._known_bots: list[dict[str, Any]] = []
         self._tags_on: set[str] = set()
         self._show_done = False
         self._outbound: dict[str, bool] = {}
@@ -426,15 +433,23 @@ class TodoWindow(Adw.ApplicationWindow):
 
         self.search = Gtk.SearchEntry(placeholder_text="Search titles, notes, and tags")
         self.search.connect("changed", self._on_search)
+        self._page_buttons = self._build_pages()
         self._view_buttons = self._build_views()
         self.tag_box = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, homogeneous=False)
         self.tag_box.set_max_children_per_line(8)
         self._clear = Gtk.Button(label="Clear")
         self._clear.set_sensitive(False)
         self._clear.connect("clicked", self._on_clear_tags)
+        self.bot_box = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, homogeneous=False)
+        self.bot_box.set_max_children_per_line(8)
+        self.bot_box.set_visible(False)
         tag_wrap = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         tag_wrap.append(self.tag_box)
+        tag_wrap.append(self.bot_box)
         tag_wrap.append(self._clear)
+        self.bot_search = Gtk.SearchEntry(placeholder_text="Filter bots by name")
+        self.bot_search.set_visible(False)
+        self.bot_search.connect("changed", self._on_bot_search)
         self.sort_drop = Gtk.DropDown.new_from_strings(list(_SORT_LABELS))
         self.sort_drop.connect("notify::selected", self._on_sort)
         self.show_done = Gtk.Switch(valign=Gtk.Align.CENTER)
@@ -484,6 +499,12 @@ class TodoWindow(Adw.ApplicationWindow):
         self.list.add_css_class("boxed-list")
         self.list.connect("row-selected", self._on_row_selected)
         self.list.connect("row-activated", self._on_row_activated)
+        self._todo_controls = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        self._todo_controls.append(self.search)
+        self._todo_controls.append(self._view_buttons)
+        self._todo_controls.append(tag_wrap)
+        self._todo_controls.append(sort_row)
+        self._todo_controls.append(done_row)
         controls = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         controls.set_margin_start(12)
         controls.set_margin_end(12)
@@ -492,11 +513,9 @@ class TodoWindow(Adw.ApplicationWindow):
         controls.append(self.banner)
         controls.append(self.timer_box)
         controls.append(self.switch_box)
-        controls.append(self.search)
-        controls.append(self._view_buttons)
-        controls.append(tag_wrap)
-        controls.append(sort_row)
-        controls.append(done_row)
+        controls.append(self._page_buttons)
+        controls.append(self._todo_controls)
+        controls.append(self.bot_search)
         scrolled = Gtk.ScrolledWindow(vexpand=True, child=self.list)
         sidebar_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         sidebar_box.append(controls)
@@ -577,6 +596,7 @@ class TodoWindow(Adw.ApplicationWindow):
             tags=sorted(self._tags_on),
             sort=self._sort,
             show_done=self._show_done,
+            bots=sorted(self._bot_filter),
         )
         if hasattr(self.client, "load_list"):
             self.banner.set_title("Loading…")
@@ -618,19 +638,32 @@ class TodoWindow(Adw.ApplicationWindow):
         self.banner.set_revealed(False)
         self._outbound = {}
         self._items = items if isinstance(items, list) else []
+        self._known_bots = [bot for bot in bots if isinstance(bot, dict)]
+        known: set[str] = set()
+        for bot in self._known_bots:
+            name = bot.get("name")
+            if isinstance(name, str) and name:
+                known.add(name)
+        self._bot_filter &= known
         for bot in bots:
             name = bot.get("name")
             routes = bot.get("routes") if isinstance(bot.get("routes"), dict) else {}
             if isinstance(name, str):
                 self._outbound[name] = bool(routes.get("outbound"))
         self._fill_tags(tags if isinstance(tags, list) else [])
-        self._fill_rows(self._items)
+        self._fill_bot_chips()
+        self._show_page_list()
         self._request_timer()
 
     def select_key(self, key: str) -> None:
-        """Raise the window on one item. An empty key shows the list."""
+        """Raise the window. An empty key shows todos. ``bots`` opens the bot list."""
 
         self.present()
+        if key == "bots":
+            self._set_page("bots")
+            return
+        if self._page != "todos":
+            self._set_page("todos")
         if not key:
             if self.split.get_collapsed():
                 self.split.set_show_content(False)
@@ -641,6 +674,7 @@ class TodoWindow(Adw.ApplicationWindow):
         self._query = ""
         self._tags_on.clear()
         self._show_done = False
+        self._bot_filter.clear()
         self.search.set_text("")
         self.sort_drop.set_selected(0)
         self.show_done.set_active(False)
@@ -745,6 +779,9 @@ class TodoWindow(Adw.ApplicationWindow):
         tracked = format_tracked(item.get("time_tracked_s"))
         if tracked:
             chip_row.append(_chip(tracked, "neutral"))
+        bot_label = item.get("display_name")
+        if isinstance(bot_label, str) and bot_label:
+            chip_row.append(_chip(bot_label, "neutral"))
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         box.set_margin_top(6)
         box.set_margin_bottom(6)
@@ -857,7 +894,7 @@ class TodoWindow(Adw.ApplicationWindow):
             return
         if isinstance(started, dict) and started:
             self._timer = started
-        self._fill_rows(self._items)
+        self._show_page_list()
         self._sync_timer_strip()
         self.refresh()
 
@@ -1029,7 +1066,7 @@ class TodoWindow(Adw.ApplicationWindow):
         if isinstance(updated, dict) and updated:
             self._timer = updated
         self._editing_start = False
-        self._fill_rows(self._items)
+        self._show_page_list()
         self._sync_timer_strip()
         self._sync_start_button(self._current)
 
@@ -1062,7 +1099,7 @@ class TodoWindow(Adw.ApplicationWindow):
         if error is not None:
             return
         self._timer = timer if isinstance(timer, dict) else {"state": "idle"}
-        self._fill_rows(self._items)
+        self._show_page_list()
         self._sync_switch()
         self._sync_timer_strip()
         self._sync_start_button(self._current)
@@ -1180,16 +1217,132 @@ class TodoWindow(Adw.ApplicationWindow):
         self._mark_done(key)
 
     def _on_row_selected(self, _box: Gtk.ListBox, row: Gtk.ListBoxRow | None) -> None:
-        if self._filling:
+        if self._filling or self._page == "bots":
             return
         if row is None:
             return
         self._show_item(getattr(row, "item", None))
 
     def _on_row_activated(self, _box: Gtk.ListBox, row: Gtk.ListBoxRow) -> None:
+        if self._page == "bots":
+            bot_id = getattr(row, "bot_id", "")
+            if isinstance(bot_id, str) and bot_id:
+                self._bot_filter = {bot_id}
+                self._set_page("todos")
+                self.refresh()
+            return
         self._show_item(getattr(row, "item", None))
         if self.split.get_collapsed():
             self.split.set_show_content(True)
+
+    def _on_bot_search(self, entry: Gtk.SearchEntry) -> None:
+        self._bot_query = entry.get_text()
+        if self._page == "bots":
+            self._fill_bot_rows()
+
+    def _on_page(self, button: Gtk.ToggleButton, page: str) -> None:
+        if self._filling or not button.get_active():
+            return
+        self._set_page(page)
+
+    def _on_bot_chip(self, button: Gtk.ToggleButton, bot_id: str) -> None:
+        if self._filling:
+            return
+        if button.get_active():
+            self._bot_filter.add(bot_id)
+        else:
+            self._bot_filter.discard(bot_id)
+        self.refresh()
+
+    def _set_page(self, page: str) -> None:
+        self._page = "bots" if page == "bots" else "todos"
+        bots = self._page == "bots"
+        self._todo_controls.set_visible(not bots)
+        self.bot_search.set_visible(bots)
+        self._sync_pages()
+        self._show_page_list()
+
+    def _show_page_list(self) -> None:
+        if self._page == "bots":
+            self._fill_bot_rows()
+        else:
+            self._fill_rows(self._items)
+
+    def _fill_bot_chips(self) -> None:
+        self._filling = True
+        while (child := self.bot_box.get_first_child()) is not None:
+            self.bot_box.remove(child)
+        shown = [bot for bot in self._known_bots if isinstance(bot.get("name"), str)]
+        self.bot_box.set_visible(len(shown) > 1)
+        for bot in shown:
+            ident = str(bot.get("name"))
+            label = bot.get("display_name")
+            text = label if isinstance(label, str) and label else ident
+            button = Gtk.ToggleButton(label=text)
+            button.add_css_class("tether-chip")
+            button.set_active(ident in self._bot_filter)
+            button.connect("toggled", self._on_bot_chip, ident)
+            self.bot_box.append(button)
+        self._filling = False
+
+    def _fill_bot_rows(self) -> None:
+        query = self._bot_query.casefold().strip()
+        now = int(time.time())
+        self._filling = True
+        self.list.remove_all()
+        for bot in self._known_bots:
+            ident = bot.get("name")
+            if not isinstance(ident, str) or not ident:
+                continue
+            label = bot.get("display_name")
+            text = label if isinstance(label, str) and label else ident
+            if query and query not in text.casefold() and query not in ident.casefold():
+                continue
+            row = self._make_bot_row(bot, text, now)
+            self.list.append(row)
+        self._filling = False
+
+    def _make_bot_row(self, bot: dict[str, Any], label: str, now: int) -> Gtk.ListBoxRow:
+        title = Gtk.Label(label=label, xalign=0, hexpand=True)
+        title.set_ellipsize(Pango.EllipsizeMode.END)
+        seen = format_last_seen(bot.get("last_seen"), now)
+        nxt = format_next_run(bot.get("next_run"), now)
+        todos = open_count_label(bot.get("open_todos"), "todo")
+        detail = Gtk.Label(
+            label=" · ".join(part for part in (seen, nxt, todos) if part),
+            xalign=0,
+        )
+        detail.add_css_class("dim-label")
+        detail.set_ellipsize(Pango.EllipsizeMode.END)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        box.set_margin_top(6)
+        box.set_margin_bottom(6)
+        box.set_margin_start(8)
+        box.set_margin_end(8)
+        box.append(title)
+        box.append(detail)
+        row = Gtk.ListBoxRow(child=box)
+        row.bot_id = str(bot.get("name") or "")
+        row.bot_label = label
+        return row
+
+    def _build_pages(self) -> Gtk.Box:
+        box = Gtk.Box(spacing=6)
+        self._page_todos = Gtk.ToggleButton(label="Todos")
+        self._page_bots = Gtk.ToggleButton(label="Bots")
+        self._page_bots.set_group(self._page_todos)
+        self._page_todos.set_active(True)
+        self._page_todos.connect("toggled", self._on_page, "todos")
+        self._page_bots.connect("toggled", self._on_page, "bots")
+        box.append(self._page_todos)
+        box.append(self._page_bots)
+        return box
+
+    def _sync_pages(self) -> None:
+        self._filling = True
+        self._page_todos.set_active(self._page != "bots")
+        self._page_bots.set_active(self._page == "bots")
+        self._filling = False
 
     def _sync_theme(self, manager: Adw.StyleManager, _pspec: Any = None) -> None:
         if manager.get_dark():

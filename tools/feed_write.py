@@ -289,6 +289,8 @@ def validate_feed(doc: object, bot: str) -> None:
         raise FeedWriteError(f"unsupported schema {shown}".rstrip(), EXIT_USAGE)
     if doc.get("bot") != bot:
         raise FeedWriteError("feed bot does not match --bot", EXIT_USAGE)
+    if "display_name" in doc and doc.get("display_name") is not None:
+        _require_display_name(doc.get("display_name"))
     _parse_timestamp(doc.get("updated_at"), "updated_at")
     status = doc.get("status")
     if status is not None:
@@ -311,6 +313,16 @@ def _validate_status(status: object) -> None:
     for field in ("last_run", "next_run"):
         if status.get(field) is not None:
             _parse_timestamp(status.get(field), field)
+
+
+def _require_display_name(value: object) -> str:
+    if not isinstance(value, str) or not value or "\n" in value or "\r" in value:
+        raise FeedWriteError("display name must be a single line", EXIT_USAGE)
+    text = " ".join(value.split())
+    if not 1 <= len(text) <= 40:
+        raise FeedWriteError("display name must be 1 to 40 characters", EXIT_USAGE)
+    _reject_secret(text, "display name")
+    return text
 
 
 def _require_summary(value: object) -> str:
@@ -733,8 +745,13 @@ def set_feed_status(
     moment: datetime,
     next_run: str | None = None,
     last_run: str | None = None,
+    display_name: str | None = None,
 ) -> tuple[bool, dict, str]:
-    """Replace the file status block and bump the file ``updated_at``."""
+    """Replace the file status block and bump the file ``updated_at``.
+
+    ``bot`` stays the string id. ``display_name`` is optional and additive,
+    so an existing feed file needs no migration.
+    """
 
     if state not in _STATES:
         raise FeedWriteError("state must be idle, working, needs_you, or error", EXIT_USAGE)
@@ -749,9 +766,13 @@ def set_feed_status(
         status["last_run"] = normalize_timestamp(last_run, "last_run")
     if next_run is not None:
         status["next_run"] = normalize_timestamp(next_run, "next_run")
+    if display_name is not None:
+        doc["display_name"] = _require_display_name(display_name)
     when = stamp(moment)
     doc["updated_at"] = when
     payload = {"updated_at": when, "status": status}
+    if isinstance(doc.get("display_name"), str):
+        payload["display_name"] = doc["display_name"]
     return True, payload, "Update feed status"
 
 
@@ -997,6 +1018,7 @@ def _build_parser() -> argparse.ArgumentParser:
     status = commands.add_parser("status", help="set the feed status block")
     status.add_argument("--state", required=True, choices=tuple(sorted(_STATES)))
     status.add_argument("--summary", required=True)
+    status.add_argument("--name", help="display name published in this feed file")
     status.add_argument("--next-run", help="ISO 8601 timestamp with an offset")
     status.add_argument("--last-run", help="ISO 8601 timestamp with an offset")
 
@@ -1137,6 +1159,7 @@ def main(
                 moment=when,
                 next_run=args.next_run,
                 last_run=args.last_run,
+                display_name=args.name,
             )
 
         create = args.command in {"add-todo", "add-ask", "status", "tag-color"}

@@ -58,6 +58,7 @@ class SinkConfig:
 @dataclass(frozen=True)
 class BotConfig:
     webhook_slot: str
+    display_name: str = ""
 
 
 @dataclass(frozen=True)
@@ -211,7 +212,12 @@ def _bots(raw: object) -> dict[str, BotConfig]:
         slot = table.get("webhook_slot")
         if not isinstance(slot, str) or _SLOT.fullmatch(slot) is None:
             raise ConfigError(f"bots.{name}.webhook_slot must match [a-z0-9-]{1,64}")
-        parsed[str(name)] = BotConfig(webhook_slot=slot)
+        label = table.get("display_name", "")
+        if label is None:
+            label = ""
+        if not isinstance(label, str) or "\n" in label or "\r" in label or len(label) > 40:
+            raise ConfigError(f"bots.{name}.display_name must be one line, at most 40 characters")
+        parsed[str(name)] = BotConfig(webhook_slot=slot, display_name=label.strip())
     return parsed
 
 

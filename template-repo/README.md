@@ -6,8 +6,12 @@ same file.
 
 This template is an example. The bot id `primary` is a placeholder. Rename
 `feed/primary.json` and `log/feed/primary/` to your own bot id (lowercase
-letters, digits, and hyphens) before the bot writes it. Do not put tokens,
-webhook keys, or passwords in any file here.
+letters, digits, and hyphens) before the bot writes it, or leave `primary`
+in place. Another bot is a second file, `feed/<id>.json`, with `"bot"` set
+to that same id. Copying `feed/primary.json` and changing the id is enough.
+The existing primary file does not need a migration. Do not put tokens,
+webhook keys, or passwords in any file here. Optional `display_name` is the
+label the desktop shows.
 
 The field rules are in `docs/PROTOCOL.md` in the TetherBot repository. The
 schema string is `tetherbot/1`.

@@ -39,3 +39,9 @@ enabled = false
 
 # [bots.primary]
 # webhook_slot = "primary-actions"
+# display_name = "Primary"   # optional; wins over display_name in the feed
+#
+# A second bot is another table and its own feed file. The slug stays the id.
+# [bots.notes]
+# webhook_slot = "notes-actions"
+# display_name = "Notes"

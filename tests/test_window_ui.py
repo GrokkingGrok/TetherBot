@@ -566,6 +566,91 @@ def _has_label(widget, text: str) -> bool:
     return False
 
 
+def test_bots_page_filters_by_name_and_a_row_filters_todos():
+    gi = pytest.importorskip("gi")
+    try:
+        gi.require_version("Gtk", "4.0")
+        gi.require_version("Adw", "1")
+        from gi.repository import GLib
+    except ValueError as exc:
+        pytest.skip(str(exc))
+    if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
+        pytest.skip("GTK window test needs a display")
+
+    try:
+        from tetherbot.window import WindowApp
+
+        fake = _Fake()
+        fake.items[0]["display_name"] = "Primary"
+        fake.bots = lambda: [
+            {
+                "name": "primary",
+                "display_name": "Primary",
+                "last_seen": 1_700_000_000,
+                "next_run": 0,
+                "open_todos": 1,
+                "open_asks": 0,
+                "state": "idle",
+                "routes": {"outbound": True},
+            },
+            {
+                "name": "notes",
+                "display_name": "Notes",
+                "last_seen": 1_700_000_000,
+                "next_run": 0,
+                "open_todos": 2,
+                "open_asks": 0,
+                "state": "idle",
+                "routes": {"outbound": False},
+            },
+        ]
+        app = WindowApp(client=fake)
+        holder: dict = {}
+
+        def finish():
+            try:
+                window = app.window
+                assert window is not None
+                assert window._page_todos.get_active()
+                window.select_key("bots")
+                assert window._page == "bots"
+                assert window.bot_search.get_visible()
+                assert not window._todo_controls.get_visible()
+                assert _bot_labels(window) == ["Primary", "Notes"]
+                window.bot_search.set_text("note")
+                assert _bot_labels(window) == ["Notes"]
+                row = window.list.get_row_at_index(0)
+                window._on_row_activated(None, row)
+                assert window._page == "todos"
+                assert fake.specs[-1]["bots"] == ["notes"]
+                assert _has_label(window.list, "Primary")
+                holder["ok"] = True
+            except Exception as exc:
+                holder["error"] = exc
+            app.quit()
+            return False
+
+        app.connect("activate", lambda _app: GLib.idle_add(finish))
+        GLib.timeout_add(8000, app.quit)
+        app.run(["tetherbot-window"])
+    finally:
+        reset_tetherbot_logger()
+    if "error" in holder:
+        raise holder["error"]
+    assert holder.get("ok") is True
+
+
+def _bot_labels(window) -> list[str]:
+    labels = []
+    index = 0
+    while True:
+        row = window.list.get_row_at_index(index)
+        if row is None:
+            return labels
+        labels.append(getattr(row, "bot_label", ""))
+        index += 1
+
+
 def _find_play(widget, tooltip: str):
     if hasattr(widget, "get_tooltip_text") and widget.get_tooltip_text() == tooltip:
         return widget

@@ -27,6 +27,7 @@ def list_filter(
     tags: list[str] | tuple[str, ...],
     sort: str,
     show_done: bool,
+    bots: list[str] | tuple[str, ...] = (),
 ) -> dict[str, Any]:
     """The GetItems object for the current window controls."""
 
@@ -39,6 +40,9 @@ def list_filter(
         "tags": list(tags),
         "sort": chosen_sort,
     }
+    chosen_bots = [bot for bot in bots if isinstance(bot, str) and bot]
+    if chosen_bots:
+        spec["bots"] = chosen_bots
     if show_done:
         spec["include_done_days"] = DONE_DAYS
     else:
@@ -68,7 +72,10 @@ def source_line(item: Mapping[str, Any]) -> str:
     """Bot, routine, and updated time, with the empty parts left out."""
 
     source = item.get("source") if isinstance(item.get("source"), Mapping) else {}
-    bot = source.get("bot") if isinstance(source, Mapping) else ""
+    label = item.get("display_name")
+    bot = label if isinstance(label, str) and label else ""
+    if not bot:
+        bot = source.get("bot") if isinstance(source, Mapping) else ""
     if not isinstance(bot, str) or not bot:
         key = item.get("key")
         bot = key.split("/", 1)[0] if isinstance(key, str) else ""
@@ -99,6 +106,57 @@ def can_mark_done(item: Mapping[str, Any], outbound: bool) -> bool:
         return False
     actions = item.get("actions")
     return isinstance(actions, list) and "done" in actions
+
+
+def format_last_seen(unix: object, now_unix: int) -> str:
+    """Relative last-seen text. ``0`` means the feed has no timestamp."""
+
+    seen = _unix(unix)
+    if not seen:
+        return "last seen unknown"
+    seconds = max(0, int(now_unix) - seen)
+    if seconds < 45:
+        return "last seen just now"
+    minutes = seconds // 60
+    if minutes < 60:
+        return f"last seen {minutes} m ago"
+    hours = minutes // 60
+    if hours < 24:
+        return f"last seen {hours} h ago"
+    return f"last seen {hours // 24} d ago"
+
+
+def format_next_run(unix: object, now_unix: int) -> str:
+    """Relative next-run text. ``0`` means the feed did not set one."""
+
+    when = _unix(unix)
+    if not when:
+        return ""
+    seconds = when - int(now_unix)
+    if seconds < 60:
+        return "next run due"
+    minutes = seconds // 60
+    if minutes < 60:
+        return f"next run in {minutes} m"
+    hours = minutes // 60
+    if hours < 24:
+        return f"next run in {hours} h"
+    return f"next run in {hours // 24} d"
+
+
+def open_count_label(count: object, noun: str) -> str:
+    """``1 open todo`` or ``3 open asks``. A missing count is empty."""
+
+    if isinstance(count, bool) or not isinstance(count, int) or count < 0:
+        return ""
+    word = noun if count == 1 else f"{noun}s"
+    return f"{count} open {word}"
+
+
+def _unix(value: object) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        return 0
+    return value if value > 0 else 0
 
 
 def format_elapsed(seconds: object) -> str:

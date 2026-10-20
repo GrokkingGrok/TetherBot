@@ -168,6 +168,12 @@ def test_safe_http_url_rejects_other_schemes():
     assert safe_http_url("notes") is None
 
 
+def test_undo_window_uses_the_configured_length():
+    holds = note_done({}, "a", {"key": "a", "title": "A"}, 0, "", 1_000, 10_000)
+    assert holds["a"]["until"] == 11_000
+    assert undo_fraction(11_000, 6_000, 10_000) == 0.5
+
+
 def test_cleared_rows_share_one_window_and_leave_together():
     holds = note_done({}, "a", {"key": "a", "title": "A"}, 0, "b", 0)
     holds = note_done(holds, "b", {"key": "b", "title": "B"}, 1, "c", 3_000)

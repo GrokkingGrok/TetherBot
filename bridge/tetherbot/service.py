@@ -31,6 +31,7 @@ from tetherbot.todos import (
     sort_key,
     tag_color,
 )
+from tetherbot.ui_settings import notice_bot, resolve_ui_settings
 from tetherbot.version_gate import check_schema
 
 NOT_FOUND = f"{INTERFACE}.Error.NotFound"
@@ -75,6 +76,8 @@ METHOD_OUT: dict[str, str | None] = {
     "SetAdapterEnabled": None,
     "RequestSecretEntry": "(b)",
     "ForgetSecret": None,
+    "GetSetup": "(s)",
+    "ReloadSettings": None,
     "GetQueue": "(s)",
     "RetryParked": None,
     "DropQueued": None,
@@ -180,8 +183,11 @@ class BridgeApi:
         now = self._daemon.now()
         zone = _chip_zone(now)
         colors = self._daemon.store.tag_color_map()
+        hidden = self._hidden_bots()
         rows = []
         for item in self._daemon.store.items():
+            if item.bot in hidden:
+                continue
             recent = done_days is not None and _recently_done(item, now, done_days)
             if item.status != "open" and not recent:
                 continue
@@ -225,7 +231,7 @@ class BridgeApi:
 
     def _get_item(self, key: str) -> tuple[str]:
         item = self._daemon.store.get(key)
-        if item is None:
+        if item is None or item.bot in self._hidden_bots():
             raise ServiceError(NOT_FOUND, "item not found")
         now = self._daemon.now()
         zone = _chip_zone(now)
@@ -245,7 +251,10 @@ class BridgeApi:
     def _get_tags(self) -> tuple[str]:
         now = self._daemon.now()
         counts: dict[str, int] = {}
+        hidden = self._hidden_bots()
         for item in self._daemon.store.items():
+            if item.bot in hidden:
+                continue
             if item.status != "open" or item.acted or item.resolved:
                 continue
             if _snoozed(item.snoozed_until, now):
@@ -604,13 +613,91 @@ class BridgeApi:
         self._emit_properties("QueueLength", "Counts")
 
     def emit_notification(self, item_json: str, reason: str) -> None:
+        bot = notice_bot(item_json)
+        if bot and bot in self._ui().muted_bots:
+            return
         self._emit("NotificationRequested", mask_secrets(item_json), reason)
 
     def _request_secret_entry(self, slot: str) -> tuple[bool]:
-        """The key dialog is a later milestone. False means it did not open."""
+        """Open the bridge key dialog. The secret does not cross D-Bus."""
 
         _reject_slot(slot)
-        return (False,)
+        launcher = getattr(self._daemon, "launch_secret_dialog", None)
+        if launcher is None:
+            return (False,)
+        try:
+            opened = bool(launcher(slot))
+        except Exception:
+            opened = False
+        return (opened,)
+
+    def _get_setup(self) -> tuple[str]:
+        """Slots and bots for the prefs window. Stored is a boolean only."""
+
+        config = self._daemon.config
+        groups: dict[str, list[str]] = {}
+        if config is not None:
+            for name in _ordered_bot_names(set(config.bots)):
+                slot = config.bots[name].webhook_slot
+                if slot:
+                    groups.setdefault(slot, []).append(name)
+        slots = [
+            {
+                "slot": slot,
+                "kind": "webhook",
+                "stored": self._slot_stored("webhook", slot),
+                "bots": bots,
+            }
+            for slot, bots in groups.items()
+        ]
+        slots.append(
+            {
+                "slot": "github-token",
+                "kind": "github-token",
+                "stored": self._slot_stored("github-token", "github-token"),
+                "bots": [],
+            }
+        )
+        bots = [
+            {"name": row["name"], "display_name": row["display_name"]}
+            for row in self._bots(include_hidden=True)
+        ]
+        keyring = "missing"
+        secrets = getattr(self._daemon, "secrets", None)
+        if secrets is not None:
+            try:
+                keyring = str(secrets.status())
+            except Exception:
+                keyring = "missing"
+        return (_dumps({"bots": bots, "keyring": keyring, "slots": slots}),)
+
+    def _reload_settings(self) -> None:
+        """Tell clients to read bots and counts again after a settings change."""
+
+        self.note_bots()
+        self._emit_properties("Counts")
+        return None
+
+    def _ui(self):
+        return resolve_ui_settings(self._daemon)
+
+    def _hidden_bots(self) -> frozenset[str]:
+        return self._ui().hidden_bots
+
+    def _slot_stored(self, kind: str, slot: str) -> bool:
+        """True when the slot has a secret. The value stays in the bridge."""
+
+        secrets = getattr(self._daemon, "secrets", None)
+        if secrets is None:
+            return False
+        try:
+            if secrets.status() != "available":
+                return False
+            if kind == "github-token":
+                return secrets.get_github_token(slot) is not None
+            return secrets.get_webhook(slot) is not None
+        except Exception:
+            return False
 
     def _forget_secret(self, slot: str) -> None:
         from tetherbot.secrets import SecretError, SecretLocked, SecretUnavailable, SecretValueError
@@ -724,7 +811,8 @@ class BridgeApi:
                 return action
         raise ServiceError(NOT_FOUND, "action is not in the queue")
 
-    def _bots(self) -> list[dict[str, Any]]:
+    def _bots(self, *, include_hidden: bool = False) -> list[dict[str, Any]]:
+        hidden = set() if include_hidden else self._hidden_bots()
         names: set[str] = set()
         config = self._daemon.config
         if config is not None:
@@ -735,6 +823,8 @@ class BridgeApi:
         now = self._daemon.now()
         rows = []
         for name in _ordered_bot_names(names):
+            if name in hidden:
+                continue
             view = store.feed(name)
             summary = "" if view is None or not view.summary else view.summary
             if not summary:

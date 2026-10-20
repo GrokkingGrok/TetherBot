@@ -64,6 +64,10 @@
     <method name="ForgetSecret">
       <arg name="slot" type="s" direction="in"/>
     </method>
+    <method name="GetSetup">
+      <arg name="setup_json" type="s" direction="out"/>
+    </method>
+    <method name="ReloadSettings"/>
     <method name="GetQueue">
       <arg name="queue_json" type="s" direction="out"/>
     </method>

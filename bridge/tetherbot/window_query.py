@@ -270,10 +270,16 @@ def note_done(
     index: int,
     after: str,
     now_ms: int,
+    window_ms: int = UNDO_MS,
 ) -> dict[str, dict[str, Any]]:
     """Remember one cleared row and restart the shared window for every unsent row."""
 
-    until = int(now_ms) + UNDO_MS
+    span = (
+        window_ms
+        if isinstance(window_ms, int) and not isinstance(window_ms, bool) and window_ms > 0
+        else UNDO_MS
+    )
+    until = int(now_ms) + span
     updated: dict[str, dict[str, Any]] = {}
     rows = holds.values() if isinstance(holds, Mapping) else holds
     for hold in rows:
@@ -325,7 +331,11 @@ def undo_fraction(until_ms: object, now_ms: object, window_ms: int = UNDO_MS) ->
 
     until = _millis(until_ms)
     now = _millis(now_ms)
-    span = window_ms if isinstance(window_ms, int) and window_ms > 0 else UNDO_MS
+    span = (
+        window_ms
+        if isinstance(window_ms, int) and not isinstance(window_ms, bool) and window_ms > 0
+        else UNDO_MS
+    )
     remain = until - now
     if remain <= 0:
         return 0.0
@@ -340,6 +350,7 @@ def merge_undo_items(
     now_ms: int,
     *,
     pin_expired: bool = False,
+    window_ms: int = UNDO_MS,
 ) -> list[dict[str, Any]]:
     """Keep each cleared row at the index it had when it was cleared.
 
@@ -372,12 +383,12 @@ def merge_undo_items(
     ordered = sorted(active.values(), key=lambda hold: _millis(hold.get("index")))
     waiting: list[dict[str, Any]] = []
     for hold in ordered:
-        if not _insert_hold(base, hold, now_ms):
+        if not _insert_hold(base, hold, now_ms, window_ms):
             waiting.append(hold)
     for hold in waiting:
-        if _insert_hold(base, hold, now_ms):
+        if _insert_hold(base, hold, now_ms, window_ms):
             continue
-        item = _undo_item(hold, now_ms)
+        item = _undo_item(hold, now_ms, window_ms)
         index = _millis(hold.get("index"))
         if index < 0:
             index = 0
@@ -387,19 +398,24 @@ def merge_undo_items(
     return base
 
 
-def _undo_item(hold: dict[str, Any], now_ms: int) -> dict[str, Any]:
+def _undo_item(hold: dict[str, Any], now_ms: int, window_ms: int = UNDO_MS) -> dict[str, Any]:
     item = dict(hold["item"])
     until = _millis(hold.get("until"))
     live = until > now_ms and not hold.get("sent")
     item["_undo"] = {
         "until": until,
-        "fraction": undo_fraction(until, now_ms) if live else 0.0,
+        "fraction": undo_fraction(until, now_ms, window_ms) if live else 0.0,
         "live": live,
     }
     return item
 
 
-def _insert_hold(base: list[dict[str, Any]], hold: dict[str, Any], now_ms: int) -> bool:
+def _insert_hold(
+    base: list[dict[str, Any]],
+    hold: dict[str, Any],
+    now_ms: int,
+    window_ms: int = UNDO_MS,
+) -> bool:
     """Place the row just before the neighbor it had when it was cleared."""
 
     after = hold.get("after")
@@ -407,7 +423,7 @@ def _insert_hold(base: list[dict[str, Any]], hold: dict[str, Any], now_ms: int) 
         return False
     for index, item in enumerate(base):
         if item.get("key") == after:
-            base.insert(index, _undo_item(hold, now_ms))
+            base.insert(index, _undo_item(hold, now_ms, window_ms))
             return True
     return False
 

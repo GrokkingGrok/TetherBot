@@ -2,7 +2,7 @@
 
 Keep your GNOME desktop tethered to your AI bots.
 
-**Status: pre-alpha.** Config, the item store, the action queue, the bridge process, the session bus service, secret-service storage, `tetherbotctl`, `webhook-sender`, and `github-poller` are in place. `scripts/install.sh` installs the app and the launchers, and the user unit starts `%h/.local/bin/tetherbot`. The sender posts only when that adapter is enabled. `tetherbotctl webhook test` can also send one ping. The poller reads a `file://` repository and an `https://github.com` repository through `git-credential-tetherbot`. `ssh-deploy-key` does not run git yet. The extension shows an indicator, a bots/asks/todos popup, and notifications, and it talks only over the session bus. The key dialog, `repo setup`, money and watch, and the prefs page are still stubs. Desktop checks are in [docs/MANUAL-CHECKS.md](docs/MANUAL-CHECKS.md).
+**Status: pre-alpha.** Config, the item store, the action queue, the bridge process, the session bus service, secret-service storage, `tetherbotctl`, `webhook-sender`, and `github-poller` are in place. `scripts/install.sh` installs the app and the launchers, and the user unit starts `%h/.local/bin/tetherbot`. The sender posts only when that adapter is enabled. `tetherbotctl webhook test` can also send one ping. The poller reads a `file://` repository and an `https://github.com` repository through `git-credential-tetherbot`. `ssh-deploy-key` does not run git yet. The extension shows an indicator, a bots/asks/todos popup, and notifications, and it talks only over the session bus. Settings hold the poll interval, the undo length, per-bot notifications, hidden bots, and a key handoff. The key dialog is owned by the bridge. Money and watch is later. Desktop checks are in [docs/MANUAL-CHECKS.md](docs/MANUAL-CHECKS.md).
 
 **Unofficial, not affiliated with xAI.**
 
@@ -64,6 +64,8 @@ The human checklist is [docs/SETUP.md](docs/SETUP.md). The copy-paste checks are
 | [docs/SETUP.md](docs/SETUP.md) | Human setup checklist |
 | [docs/MANUAL-CHECKS.md](docs/MANUAL-CHECKS.md) | M1–M8 and M10–M14 on one desktop |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | v0.1, v0.2, and v1.0 checklists, plus open questions |
+| [docs/privacy.md](docs/privacy.md) | What stays on the machine, and what the bridge sends |
+| [docs/BRIDGE.md](docs/BRIDGE.md) | How bots reach the desktop today, and what a native channel would replace |
 | [docs/BOT-WRITER.md](docs/BOT-WRITER.md) | Bot-side writer for `feed/<bot>.json` |
 | [docs/prompts/](docs/prompts/) | Copy-paste setup prompts |
 | `bridge/tetherbot/` | Python package |

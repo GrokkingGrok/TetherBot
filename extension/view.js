@@ -28,6 +28,7 @@ export const PROXY_METHODS = [
     'OpenChatRemote',
     'SyncNowRemote',
     'RequestSecretEntryRemote',
+    'ReloadSettingsRemote',
     'MarkSeenRemote',
     'OpenWindowRemote',
     'UndoRemote',

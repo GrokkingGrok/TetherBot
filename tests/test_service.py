@@ -270,6 +270,88 @@ def test_enabling_a_missing_section_appends_it(tmp_path: Path):
     assert daemon.reason == "not started: official"
 
 
+def test_settings_hide_bots_and_keys_stay_off_the_bus(tmp_path: Path):
+    from tetherbot.secrets import MemoryBackend, SecretStore
+    from tetherbot.ui_settings import UiSettings
+
+    secrets = SecretStore(MemoryBackend())
+    secrets.put_webhook("primary-actions", "https://hooks.example/hook", "super-secret-key")
+    config = "\n".join(
+        [
+            'schema = "tetherbot/1"',
+            "[bridge]",
+            'mode = "full"',
+            "[bots.primary]",
+            'webhook_slot = "primary-actions"',
+            "[bots.notes]",
+            'webhook_slot = "notes-actions"',
+        ]
+    )
+    (tmp_path / "config.toml").write_text(config, encoding="utf-8")
+    daemon = BridgeDaemon(
+        config_path=tmp_path / "config.toml",
+        state_dir=tmp_path / "state",
+        log_stream=StringIO(),
+        clock=lambda: NOW,
+        secrets=secrets,
+    )
+    daemon.start()
+    assert daemon.store is not None and daemon.api is not None
+    daemon.store.replace_origin(
+        "feed",
+        [
+            make_item(),
+            make_item(
+                id="notes-01",
+                bot="notes",
+                kind="todo",
+                actions=["done"],
+                source={"bot": "notes"},
+            ),
+        ],
+        now=NOW,
+    )
+    api = daemon.api
+    raw = api.call("GetSetup", ())[0]
+    assert "super-secret-key" not in raw
+    assert "https://hooks.example/hook" not in raw
+    setup = json.loads(raw)
+    primary = next(slot for slot in setup["slots"] if slot["slot"] == "primary-actions")
+    notes = next(slot for slot in setup["slots"] if slot["slot"] == "notes-actions")
+    token = next(slot for slot in setup["slots"] if slot["slot"] == "github-token")
+    assert primary["stored"] is True
+    assert primary["kind"] == "webhook"
+    assert notes["stored"] is False
+    assert token["stored"] is False
+    assert "key" not in primary
+    assert "url" not in primary
+
+    daemon.ui_settings = UiSettings(hidden_bots=frozenset({"notes"}))
+    items = json.loads(api.call("GetItems", ("{}",))[0])
+    assert [row["key"] for row in items] == ["primary/sample-01"]
+    bots = [row["name"] for row in json.loads(api.properties()["Bots"])]
+    assert bots == ["primary"]
+    with pytest.raises(ServiceError, match="item not found"):
+        api.call("GetItem", ("notes/notes-01",))
+    api.call("ReloadSettings", ())
+    assert [row["name"] for row in json.loads(api.properties()["Bots"])] == ["primary"]
+
+    seen: list = []
+    api.subscribe(lambda name, args: seen.append((name, args)))
+    daemon.ui_settings = UiSettings(muted_bots=frozenset({"primary"}))
+    api.emit_notification('{"source":{"bot":"primary"},"title":"Hello"}', "new")
+    api.emit_notification('{"bot":"notes","title":"Still here"}', "delivery_failed")
+    notices = [item for item in seen if item[0] == "NotificationRequested"]
+    assert len(notices) == 1
+    assert "notes" in notices[0][1][0]
+    assert "Hello" not in notices[0][1][0]
+
+    opened: list[str] = []
+    daemon.launch_secret_dialog = lambda slot: opened.append(slot) or True
+    assert api.call("RequestSecretEntry", ("primary-actions",)) == (True,)
+    assert opened == ["primary-actions"]
+
+
 def test_missing_config_cannot_enable_an_adapter(tmp_path: Path):
     daemon, _seen = _api(tmp_path)
     assert daemon.api is not None

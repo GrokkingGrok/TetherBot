@@ -216,6 +216,7 @@ def test_extension_install_copies_the_uuid(tmp_path: Path):
     )
     assert (dest / "metadata.json").is_file()
     assert (dest / "extension.js").is_file()
+    assert (dest / "schemas" / "org.gnome.shell.extensions.tetherbot.gschema.xml").is_file()
     assert (dest / "icons" / "face-symbolic.svg").is_file()
     assert (dest / "icons" / "face-slash-symbolic.svg").is_file()
     assert not (dest / "test_view.js").exists()

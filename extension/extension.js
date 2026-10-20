@@ -22,6 +22,7 @@ import {
     OBJECT_PATH,
     PROXY_SIGNALS,
     ACTIVATE_RETRY_MS,
+    UNDO_MS,
     dueUndoKeys,
     nextUndoDelay,
     shareUndoWindow,
@@ -132,6 +133,19 @@ export default class TetherBotExtension extends Extension {
             this._Proxy = null;
         }
 
+        this._settings = null;
+        this._settingsId = 0;
+        this._undoSpan = 0;
+        try {
+            this._settings = this.getSettings();
+            this._settingsId = this._settings.connect('changed', () => {
+                this._reloadBridgeSettings();
+            });
+        } catch (error) {
+            this._settings = null;
+            this._settingsId = 0;
+        }
+
         this._nameWatch = Gio.bus_watch_name(
             Gio.BusType.SESSION,
             BUS_NAME,
@@ -192,6 +206,11 @@ export default class TetherBotExtension extends Extension {
             GLib.source_remove(this._activateSource);
             this._activateSource = 0;
         }
+        if (this._settings && this._settingsId)
+            this._settings.disconnect(this._settingsId);
+        this._settings = null;
+        this._settingsId = 0;
+        this._undoSpan = 0;
         this._undoHolds = [];
         this._hiddenDone = new Set();
         this._bots = [];
@@ -367,6 +386,7 @@ export default class TetherBotExtension extends Extension {
                 if (!this._enabled || error || proxy !== this._proxy)
                     return;
                 this._bindProxy();
+                this._reloadBridgeSettings();
                 this._refresh();
             },
             null,
@@ -1323,6 +1343,25 @@ export default class TetherBotExtension extends Extension {
         return button;
     }
 
+    _undoWindowMs() {
+        const settings = this._settings;
+        if (!settings || typeof settings.get_int !== 'function')
+            return UNDO_MS;
+        const seconds = settings.get_int('undo-seconds');
+        if (!Number.isFinite(seconds) || seconds < 2 || seconds > 30)
+            return UNDO_MS;
+        return seconds * 1000;
+    }
+
+    _reloadBridgeSettings() {
+        if (!this._proxy || !this._proxy.ReloadSettingsRemote)
+            return;
+        this._proxy.ReloadSettingsRemote(() => {
+            if (this._enabled)
+                this._refresh();
+        });
+    }
+
     _markDone(row) {
         if (!row || !row.key)
             return;
@@ -1330,7 +1369,8 @@ export default class TetherBotExtension extends Extension {
         const after = typeof row.after === 'string' ? row.after : '';
         const holds = (this._undoHolds || []).filter(hold => hold.key !== row.key);
         holds.push({key: row.key, row, until: 0, index, after, sent: false});
-        this._undoHolds = shareUndoWindow(holds, Date.now());
+        this._undoSpan = this._undoWindowMs();
+        this._undoHolds = shareUndoWindow(holds, Date.now(), this._undoSpan);
         this._armUndoTimer();
         this._render();
     }
@@ -1428,7 +1468,7 @@ export default class TetherBotExtension extends Extension {
     _paintUndoBars() {
         const now = Date.now();
         for (const entry of this._undoBars || []) {
-            const fraction = undoFraction(entry.until, now);
+            const fraction = undoFraction(entry.until, now, this._undoSpan || this._undoWindowMs());
             const parent = entry.bar.get_parent();
             const width = parent ? parent.get_width() : 0;
             entry.bar.width = width > 0 ? Math.max(0, Math.round(width * fraction)) : 0;

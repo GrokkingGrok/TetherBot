@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist gettext-domain="tetherbot">
+  <schema id="org.gnome.shell.extensions.tetherbot" path="/org/gnome/shell/extensions/tetherbot/">
+    <key name="poll-seconds" type="i">
+      <default>120</default>
+      <range min="60" max="900"/>
+      <summary>Seconds between feed checks</summary>
+      <description>How often the bridge checks the private feed repository. The minimum is 60 and the maximum is 900. The default is 120.</description>
+    </key>
+    <key name="undo-seconds" type="i">
+      <default>5</default>
+      <range min="2" max="30"/>
+      <summary>Undo window in seconds</summary>
+      <description>How long Done can be undone in the popup and the window. The default is 5. The minimum is 2 and the maximum is 30.</description>
+    </key>
+    <key name="muted-bots" type="as">
+      <default>[]</default>
+      <summary>Bots with notifications off</summary>
+      <description>Bot ids that do not raise a notification. An empty list means every bot can notify.</description>
+    </key>
+    <key name="hidden-bots" type="as">
+      <default>[]</default>
+      <summary>Bots hidden from the popup and the window</summary>
+      <description>Bot ids left out of the popup and the window. Their items and rows are not shown.</description>
+    </key>
+  </schema>
+</schemalist>

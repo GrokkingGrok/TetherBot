@@ -7,7 +7,7 @@ followed. Retry timing matches SPEC section 7.2. The invalid-payload wording
 for HTTP 400 is still **TBD, verify**, so every 400 uses the rate-cap table.
 
 A 401 or 403 stops that bot's route, parks its actions, and asks for the key
-again. Until the key dialog exists, ``tetherbotctl secret set`` retries those
+again. The key dialog and ``tetherbotctl secret set`` both retry those
 parked actions when the bridge is on the bus. A poll burst is recorded after
 HTTP 200. This module does not start github-poller; a running poller
 consumes those times.

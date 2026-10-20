@@ -2,7 +2,7 @@
 
 Run these on one Fedora 44 desktop with GNOME Shell 50 on Wayland, after you can log in as a normal user. The project is unofficial and not affiliated with xAI.
 
-**Out of scope here:** M9 (webhook-only popup copy), M15 and M16 (a legacy todo sink outside this repository), and M17 (the full uninstall acceptance check). Uninstall is still documented in [SETUP.md](SETUP.md) and is the reset for M1. M18–M24 are the rich-todo checks later in this file. M25 checks that a new login starts the bridge. M26 checks that a todo click opens the window quickly. M27–M42 check the stopwatch. M43–M47 check more than one bot, display names, the compact Bots section, and the popup order. M48–M54 check an optional webhook slot, Sync now, the timer chip, toolbar colors, summary contrast, the bot-row dot and summary, and local dates. M55–M57 check the timer chip on the left, the top-bar width, and a window that updates while it stays open. Do not treat M9, M15, M16, or M17 as part of the v0.1 runbook.
+**Out of scope here:** M9 (webhook-only popup copy), M15 and M16 (a legacy todo sink outside this repository), and M17 (the full uninstall acceptance check). Uninstall is still documented in [SETUP.md](SETUP.md) and is the reset for M1. M18–M24 are the rich-todo checks later in this file. M25 checks that a new login starts the bridge. M26 checks that a todo click opens the window quickly. M27–M42 check the stopwatch. M43–M47 check more than one bot, display names, the compact Bots section, and the popup order. M48–M54 check an optional webhook slot, Sync now, the timer chip, toolbar colors, summary contrast, the bot-row dot and summary, and local dates. M55–M57 check the timer chip on the left, the top-bar width, and a window that updates while it stays open. M58–M64 check the panel icon, Undo, bot order, and a shared webhook slot. Do not treat M9, M15, M16, or M17 as part of the v0.1 runbook.
 
 Examples use the bot id `primary`. Yours can be any lowercase id of letters, digits, and hyphens. Use the same id in the bot's feed file, in `config.toml`, and in the commands below.
 
@@ -10,7 +10,7 @@ Nothing in these steps belongs in a chat, in `config.toml`, or in this repositor
 
 ## Suggested order
 
-M1, M2, then the extension install in M14 (log out and back in once), then M3. Do M10 before M4 if the popup has no ask yet. Then M4, M10a, M5, M11, M6, M7, M8, M12, M13. After a rich todo is in the feed, M18 through M24. M25 is the next login after the unit is installed. M26 is a todo click after that. M27 through M42 need a running timer. M43 through M47 need this version installed and a log out, then a second feed file. M48 through M54 need that same login. M55 through M57 need the next install and a log out.
+M1, M2, then the extension install in M14 (log out and back in once), then M3. Do M10 before M4 if the popup has no ask yet. Then M4, M10a, M5, M11, M6, M7, M8, M12, M13. After a rich todo is in the feed, M18 through M24. M25 is the next login after the unit is installed. M26 is a todo click after that. M27 through M42 need a running timer. M43 through M47 need this version installed and a log out, then a second feed file. M48 through M54 need that same login. M55 through M57 need the next install and a log out. M58 through M64 need the install after that, and a log out so the panel icon reloads.
 
 You can stop after any check. Later checks say what they need.
 
@@ -1042,6 +1042,86 @@ journalctl --user -b /usr/bin/gnome-shell --no-pager | tail -n 80
 - The Bots tab shows the new name, the status dot, and the summary. Todo rows show the new name on their chip.
 
 **Reset.** None.
+
+## M58. The panel icon follows the shell
+
+**Preconditions.** M14. The panel icons are larger than the shell default, the way a 4K display is set up. Log out and back in after installing this version.
+
+**Look for.**
+
+- The TetherBot icon is the same height as the other status icons.
+- With an open todo, the red ring grows with the icon. With an ask waiting, the dot grows with it.
+- The only number in the top bar is still the timer.
+
+**Reset.** None.
+
+## M59. The icon reads as a face
+
+**Preconditions.** M58.
+
+**Look for.**
+
+- The icon has two eyes and a small smile. It does not read as a piece of fruit.
+- The ring and the dot still sit in the corner and stay readable.
+
+**Reset.** None.
+
+## M60. Each Done keeps five seconds, in place
+
+**Preconditions.** M22. At least three open todos are on screen in the popup.
+
+**Look for.**
+
+- Done on a middle row. The row stays in that spot and the button becomes Undo. A bar on Undo starts full and shrinks.
+- About four seconds later, Done on another row. That Undo bar starts full. The first row does not vanish early. Each one lasts about five seconds from its own click.
+- The same bar appears on Undo after Stop, in the popup.
+
+**Reset.** Undo both, or let them expire.
+
+## M61. An expiring row does not jump under the pointer
+
+**Preconditions.** M60. The pointer is over the todo list in the popup, and over the list in the window.
+
+**Look for.**
+
+- Let an Undo expire while the pointer stays on the list. That row keeps its place until the pointer leaves. The row under it does not slide up into the click.
+- Move the pointer off the list. The expired row leaves.
+- In the window, Done on a middle row. The row stays there with an Undo bar. A second Done, a few seconds later, gets its own full bar. Expiring while the pointer is over the list does not shift the other rows.
+
+**Reset.** None.
+
+## M62. The primary bot stays first
+
+**Preconditions.** M46. More than one bot is configured, including `primary`.
+
+**Look for.**
+
+- In the window Bots tab, `primary` is the first row. The other bots stay in alphabetical order under it.
+- The popup's attention rows, when several need attention, use that same order.
+
+**Reset.** None.
+
+## M63. Several bots can share one webhook slot
+
+**Preconditions.** M4. Two bots in `config.toml` both set `webhook_slot` to the same name, for example `primary-actions`. The secret is stored once, for that slot.
+
+**Look for.**
+
+- Done on a todo for each bot sends. The bridge status stays ok.
+- `tetherbotctl status` does not print a missing-secret line for either bot.
+
+**Reset.** None.
+
+## M64. A missing secret stays on that bot
+
+**Preconditions.** M4. Two bots. `primary` has `webhook_slot = "primary-actions"` and that secret is stored. The other bot has its own slot, and that slot has no stored secret.
+
+**Look for.**
+
+- Done on the other bot still sends, and its row does not say the secret is missing. A bot with no stored secret uses the primary bot's slot.
+- Remove the primary secret as well, and store a secret only for a third bot's own slot. The bot with no secret shows `webhook secret is not stored` on its row. Done on that bot waits. Done on the bot that has its own secret still sends. The bridge status stays ok.
+
+**Reset.** Store the primary secret again.
 
 ## When you are finished
 

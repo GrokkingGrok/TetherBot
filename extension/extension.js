@@ -23,6 +23,8 @@ import {
     PROXY_SIGNALS,
     ACTIVATE_RETRY_MS,
     UNDO_MS,
+    nextUndoDelay,
+    undoFraction,
     elapsedSeconds,
     formatElapsed,
     indicatorView,
@@ -62,6 +64,10 @@ export default class TetherBotExtension extends Extension {
         this._searched = null;
         this._undoHolds = [];
         this._undoSources = [];
+        this._undoSource = 0;
+        this._undoPaintSource = 0;
+        this._undoBars = [];
+        this._todoPointer = false;
         this._Proxy = null;
         this._seenBridge = false;
         this._activationFailed = false;
@@ -91,7 +97,6 @@ export default class TetherBotExtension extends Extension {
         });
         this._icon = new St.Icon({
             style_class: 'system-status-icon tetherbot-indicator tetherbot-dimmed',
-            icon_size: 16,
         });
         this._pause = new St.BoxLayout({
             style_class: 'tetherbot-pause',
@@ -156,6 +161,16 @@ export default class TetherBotExtension extends Extension {
         for (const id of this._undoSources || [])
             GLib.source_remove(id);
         this._undoSources = [];
+        if (this._undoSource) {
+            GLib.source_remove(this._undoSource);
+            this._undoSource = 0;
+        }
+        if (this._undoPaintSource) {
+            GLib.source_remove(this._undoPaintSource);
+            this._undoPaintSource = 0;
+        }
+        this._undoBars = [];
+        this._todoPointer = false;
         if (this._tickSource) {
             GLib.source_remove(this._tickSource);
             this._tickSource = 0;
@@ -220,7 +235,12 @@ export default class TetherBotExtension extends Extension {
         this._indicator.menu.connect('open-state-changed', (_menu, open) => {
             if (open)
                 this._requestBridge();
+            else {
+                this._todoPointer = false;
+                this._releasePinnedUndos();
+            }
         });
+        this._watchTodoPointer();
     }
 
     _onNameAppeared() {
@@ -483,6 +503,7 @@ export default class TetherBotExtension extends Extension {
     _render() {
         if (!this._indicator)
             return;
+        this._undoBars = [];
         const nowMs = Date.now();
         this._assigning = keepAssigning(this._assigning, this._timer);
         const view = this._paintIndicator(nowMs);
@@ -509,6 +530,7 @@ export default class TetherBotExtension extends Extension {
             queueLength: this._queueLength,
             nowMs,
             undoHolds: this._undoHolds,
+            pinExpired: this._todoPointer,
             activationFailed: this._activationFailed,
             timer: this._timer,
             assigning: this._assigning,
@@ -526,6 +548,7 @@ export default class TetherBotExtension extends Extension {
             this._askSection.removeAll();
             this._todoSection.removeAll();
             this._footer.visible = false;
+            this._finishUndoChrome();
             return;
         }
         this._fillBots(model.bots, model.botSummary);
@@ -534,6 +557,7 @@ export default class TetherBotExtension extends Extension {
         const reason = model.footer.reason ? `: ${model.footer.reason}` : '';
         this._footer.label.text = `${model.footer.state}${reason} · Queued ${model.footer.queueLength}`;
         this._footer.visible = true;
+        this._finishUndoChrome();
     }
 
     _paintIndicator(nowMs) {
@@ -692,6 +716,22 @@ export default class TetherBotExtension extends Extension {
 
     _todoRow(row) {
         const item = new PopupMenu.PopupBaseMenuItem({reactive: Boolean(row.pick)});
+        item.track_hover = true;
+        item.connect('enter-event', () => {
+            this._todoPointer = true;
+            return Clutter.EVENT_PROPAGATE;
+        });
+        item.connect('leave-event', () => {
+            GLib.idle_add(() => {
+                if (!this._enabled)
+                    return GLib.SOURCE_REMOVE;
+                this._todoPointer = this._pointerOverTodos();
+                if (!this._todoPointer)
+                    this._releasePinnedUndos();
+                return GLib.SOURCE_REMOVE;
+            });
+            return Clutter.EVENT_PROPAGATE;
+        });
         if (row.pick)
             item.add_style_class_name('tetherbot-pick-row');
         const box = new St.BoxLayout({
@@ -740,7 +780,7 @@ export default class TetherBotExtension extends Extension {
             top.add_child(this._playButton(row));
         }
         if (row.undo) {
-            top.add_child(this._actionButton('Undo', () => this._undo(row.key), false));
+            top.add_child(this._undoButton(row.undoUntil, () => this._undo(row.key)));
         } else if (row.canSendDone) {
             top.add_child(this._actionButton('Done', () => this._markDone(row), false));
         }
@@ -828,7 +868,7 @@ export default class TetherBotExtension extends Extension {
         } else if (block.kind === 'stopped') {
             box.add_child(new St.Label({text: block.title || 'Stopped'}));
             if (block.undo) {
-                box.add_child(this._actionButton('Undo', () => this._undoStop(), false));
+                box.add_child(this._undoButton(block.undo.untilMs, () => this._undoStop()));
             }
             if (block.assigning) {
                 box.add_child(new St.Label({
@@ -909,11 +949,11 @@ export default class TetherBotExtension extends Extension {
             if (block.kind === 'switch')
                 row.add_child(this._timerActions(block.actions || []));
             else if (block.action) {
-                row.add_child(this._actionButton(
-                    block.action,
-                    () => this._timerAction(block.action),
-                    false,
-                ));
+                const press = () => this._timerAction(block.action);
+                if (block.kind === 'undo')
+                    row.add_child(this._undoButton(block.untilMs, press));
+                else
+                    row.add_child(this._actionButton(block.action, press, false));
             }
             box.add_child(row);
             if (block.kind === 'assign' && block.assigning) {
@@ -1206,6 +1246,37 @@ export default class TetherBotExtension extends Extension {
         });
     }
 
+    _undoButton(until, callback) {
+        const button = new St.Button({
+            style_class: 'button tetherbot-undo',
+            can_focus: true,
+            y_align: Clutter.ActorAlign.CENTER,
+            accessible_name: 'Undo',
+        });
+        const bin = new St.Widget({
+            layout_manager: new Clutter.BinLayout(),
+            x_expand: true,
+            y_expand: true,
+        });
+        const bar = new St.Widget({
+            style_class: 'tetherbot-undo-bar',
+            x_align: Clutter.ActorAlign.START,
+            y_expand: true,
+        });
+        const label = new St.Label({
+            text: 'Undo',
+            x_align: Clutter.ActorAlign.CENTER,
+            y_align: Clutter.ActorAlign.CENTER,
+            x_expand: true,
+        });
+        bin.add_child(bar);
+        bin.add_child(label);
+        button.set_child(bin);
+        button.connect('clicked', () => callback());
+        this._undoBars.push({bar, until: Number(until) || 0});
+        return button;
+    }
+
     _actionButton(label, callback, closeMenu = true) {
         const button = new St.Button({
             label,
@@ -1224,18 +1295,121 @@ export default class TetherBotExtension extends Extension {
         if (!row || !row.key)
             return;
         const until = Date.now() + UNDO_MS;
+        const index = Number.isFinite(row.index) ? row.index : 0;
+        const after = typeof row.after === 'string' ? row.after : '';
         this._undoHolds = (this._undoHolds || []).filter(hold => hold.key !== row.key);
-        this._undoHolds.push({key: row.key, row, until});
-        const source = GLib.timeout_add(GLib.PRIORITY_DEFAULT, UNDO_MS, () => {
-            const now = Date.now();
-            this._undoHolds = (this._undoHolds || []).filter(hold => hold.until > now);
-            if (this._enabled)
-                this._render();
-            return GLib.SOURCE_REMOVE;
-        });
-        this._undoSources.push(source);
+        this._undoHolds.push({key: row.key, row, until, index, after});
+        this._armUndoTimer();
         this._perform('done', row.key);
         this._render();
+    }
+
+    _armUndoTimer() {
+        if (this._undoSource) {
+            GLib.source_remove(this._undoSource);
+            this._undoSource = 0;
+        }
+        const delay = nextUndoDelay(this._undoHolds, Date.now());
+        if (!delay)
+            return;
+        const wait = Math.max(1, Math.ceil(delay));
+        this._undoSource = GLib.timeout_add(GLib.PRIORITY_DEFAULT, wait, () => {
+            this._undoSource = 0;
+            if (!this._enabled)
+                return GLib.SOURCE_REMOVE;
+            if (this._pointerOverTodos()) {
+                this._todoPointer = true;
+                return GLib.SOURCE_REMOVE;
+            }
+            this._releasePinnedUndos();
+            return GLib.SOURCE_REMOVE;
+        });
+    }
+
+    _releasePinnedUndos() {
+        const now = Date.now();
+        const before = (this._undoHolds || []).length;
+        this._undoHolds = (this._undoHolds || []).filter(hold => hold.until > now);
+        if (this._undoHolds.length !== before && this._enabled)
+            this._render();
+        this._armUndoTimer();
+    }
+
+    _watchTodoPointer() {
+        const box = this._todoSection && (this._todoSection.box || this._todoSection.actor);
+        if (!box || typeof box.connect !== 'function')
+            return;
+        box.reactive = true;
+        box.track_hover = true;
+    }
+
+    _pointerOverTodos() {
+        const box = this._todoSection && (this._todoSection.box || this._todoSection.actor);
+        if (!box)
+            return false;
+        if (box.hover)
+            return true;
+        if (typeof box.get_first_child !== 'function')
+            return false;
+        let child = box.get_first_child();
+        while (child) {
+            if (child.hover)
+                return true;
+            child = child.get_next_sibling ? child.get_next_sibling() : null;
+        }
+        return false;
+    }
+
+    _finishUndoChrome() {
+        this._paintUndoBars();
+        this._armUndoPaint();
+    }
+
+    _paintUndoBars() {
+        const now = Date.now();
+        for (const entry of this._undoBars || []) {
+            const fraction = undoFraction(entry.until, now);
+            const parent = entry.bar.get_parent();
+            const width = parent ? parent.get_width() : 0;
+            entry.bar.width = width > 0 ? Math.max(0, Math.round(width * fraction)) : 0;
+            entry.bar.visible = fraction > 0;
+        }
+    }
+
+    _armUndoPaint() {
+        const now = Date.now();
+        const holds = this._undoHolds || [];
+        const timerUntil = this._timer && this._timer.undo ? Number(this._timer.undo.until) * 1000 : 0;
+        const active = holds.length > 0 || timerUntil > now;
+        if (!active) {
+            if (this._undoPaintSource) {
+                GLib.source_remove(this._undoPaintSource);
+                this._undoPaintSource = 0;
+            }
+            return;
+        }
+        if (this._undoPaintSource)
+            return;
+        this._undoPaintSource = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 100, () => {
+            if (!this._enabled) {
+                this._undoPaintSource = 0;
+                return GLib.SOURCE_REMOVE;
+            }
+            this._todoPointer = this._pointerOverTodos();
+            this._paintUndoBars();
+            const clock = Date.now();
+            const due = (this._undoHolds || []).some(hold => !(hold.until > clock));
+            if (due && !this._todoPointer)
+                this._releasePinnedUndos();
+            const stillHeld = (this._undoHolds || []).length > 0;
+            const undo = this._timer && this._timer.undo;
+            const timerLive = Boolean(undo && Number(undo.until) * 1000 > Date.now());
+            if (!stillHeld && !timerLive) {
+                this._undoPaintSource = 0;
+                return GLib.SOURCE_REMOVE;
+            }
+            return GLib.SOURCE_CONTINUE;
+        });
     }
 
     _undo(key) {

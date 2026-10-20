@@ -26,6 +26,7 @@ from tetherbot.markdown import Run, render  # noqa: E402
 from tetherbot.window_launch import APP_ID  # noqa: E402
 from tetherbot.window_query import (  # noqa: E402
     SORTS,
+    UNDO_MS,
     VIEWS,
     bot_detail_line,
     can_mark_done,
@@ -33,12 +34,14 @@ from tetherbot.window_query import (  # noqa: E402
     format_tracked,
     is_read_only,
     list_filter,
+    merge_undo_items,
     note_payload,
     parse_start_clock,
     properties_need_reload,
     safe_http_url,
     source_line,
     timer_item_key,
+    undo_fraction,
 )
 
 BUS_NAME = "io.github.grokkinggrok.TetherBot1"
@@ -102,6 +105,20 @@ _CSS = """
 .tether-dark .tether-dot-failed_closed,
 .tether-dark .tether-dot-unconfigured,
 .tether-dark .tether-dot-error { color: #ff8b8b; }
+.tether-undo { min-width: 4.5em; }
+progressbar.tether-undo-bar { min-height: 24px; }
+progressbar.tether-undo-bar > trough {
+  min-height: 24px;
+  border: none;
+  border-radius: 6px;
+  background-color: transparent;
+}
+progressbar.tether-undo-bar > trough > progress {
+  min-height: 24px;
+  border: none;
+  border-radius: 6px;
+  background-color: alpha(#1c71d8, 0.35);
+}
 """
 
 _DOT_STATES = frozenset(
@@ -443,8 +460,15 @@ class TodoWindow(Adw.ApplicationWindow):
         self._editing_start = False
         self._timer_generation = 0
         self._link_tags: dict[str, Gtk.TextTag] = {}
+        self._undo_holds: dict[str, dict[str, Any]] = {}
+        self._undo_bars: list[tuple[Gtk.ProgressBar, int]] = []
+        self._undo_source = 0
+        self._undo_paint = 0
+        self._list_hovered = False
+        self._detail_until = 0
         self.open_uri = _open_uri
         self._build()
+        self.connect("close-request", self._on_window_close)
         keys = Gtk.EventControllerKey()
         keys.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
         keys.connect("key-pressed", self._on_key)
@@ -541,6 +565,10 @@ class TodoWindow(Adw.ApplicationWindow):
         self.list.add_css_class("boxed-list")
         self.list.connect("row-selected", self._on_row_selected)
         self.list.connect("row-activated", self._on_row_activated)
+        hover = Gtk.EventControllerMotion()
+        hover.connect("enter", lambda *_args: self._set_list_hover(True))
+        hover.connect("leave", lambda *_args: self._set_list_hover(False))
+        self.list.add_controller(hover)
         self._todo_controls = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         self._todo_controls.append(self.search)
         self._todo_controls.append(self._view_buttons)
@@ -594,6 +622,9 @@ class TodoWindow(Adw.ApplicationWindow):
         self.done_button = Gtk.Button(label="Done")
         self.done_button.add_css_class("suggested-action")
         self.done_button.connect("clicked", lambda _button: self._done_current())
+        self.undo_button, self._detail_bar = _undo_button()
+        self.undo_button.set_visible(False)
+        self.undo_button.connect("clicked", lambda _button: self._undo_current())
         self.start_button = Gtk.Button(label="Start timer")
         self.start_button.connect("clicked", lambda _button: self._start_current())
         self.attach_button = Gtk.Button(label="Attach timer")
@@ -605,6 +636,7 @@ class TodoWindow(Adw.ApplicationWindow):
         self.ask_button.connect("clicked", lambda _button: self._ask_current())
         buttons = Gtk.Box(spacing=8)
         buttons.append(self.done_button)
+        buttons.append(self.undo_button)
         buttons.append(self.start_button)
         buttons.append(self.attach_button)
         buttons.append(self.copy_button)
@@ -770,10 +802,17 @@ class TodoWindow(Adw.ApplicationWindow):
         if not selected:
             current = self.list.get_selected_row()
             selected = getattr(current, "item_key", "") if current is not None else ""
+        shown = merge_undo_items(
+            items,
+            self._undo_holds,
+            _now_ms(),
+            pin_expired=self._list_hovered,
+        )
+        self._undo_bars = [(self._detail_bar, self._detail_until)]
         self._filling = True
         self.list.remove_all()
         self._rows.clear()
-        for item in items:
+        for item in shown:
             key = item.get("key")
             if not isinstance(key, str):
                 continue
@@ -788,7 +827,8 @@ class TodoWindow(Adw.ApplicationWindow):
 
     def _make_row(self, item: dict[str, Any]) -> Gtk.ListBoxRow:
         key = str(item.get("key") or "")
-        read_only = is_read_only(item)
+        undo = item.get("_undo") if isinstance(item.get("_undo"), dict) else None
+        read_only = is_read_only(item) and undo is None
         outbound = self._outbound.get(key.split("/", 1)[0], False)
         check = Gtk.CheckButton()
         check.set_tooltip_text("Done")
@@ -806,11 +846,18 @@ class TodoWindow(Adw.ApplicationWindow):
         title.set_ellipsize(Pango.EllipsizeMode.END)
         title.set_max_width_chars(48)
         top = Gtk.Box(spacing=8)
-        top.append(check)
+        if undo is None:
+            top.append(check)
+        else:
+            until = int(undo.get("until") or 0)
+            button, bar = _undo_button()
+            bar.set_fraction(undo_fraction(until, _now_ms()))
+            button.connect("clicked", lambda _button, item_key=key: self._undo(item_key))
+            self._undo_bars.append((bar, until))
+            top.append(button)
         if priority_label.get_label():
             top.append(priority_label)
         top.append(title)
-        self._append_timer_control(top, item, key, read_only)
         chip_row = Gtk.Box(spacing=6)
         due = chips.get("due")
         if isinstance(due, dict) and due.get("label"):
@@ -831,6 +878,8 @@ class TodoWindow(Adw.ApplicationWindow):
         box.set_margin_start(8)
         box.set_margin_end(8)
         box.append(top)
+        if undo is None:
+            self._append_timer_control(top, item, key, read_only)
         if chip_row.get_first_child() is not None:
             chip_row.set_margin_start(28)
             box.append(chip_row)
@@ -850,6 +899,8 @@ class TodoWindow(Adw.ApplicationWindow):
             self.buffer.set_text("")
             self.source.set_label("")
             self.done_button.set_sensitive(False)
+            self.done_button.set_visible(True)
+            self.undo_button.set_visible(False)
             self.copy_button.set_sensitive(False)
             self.ask_button.set_sensitive(False)
             self._sync_start_button(None)
@@ -872,6 +923,22 @@ class TodoWindow(Adw.ApplicationWindow):
         self.copy_button.set_sensitive(True)
         self.ask_button.set_sensitive("/" in key)
         self._sync_start_button(item)
+        self._sync_detail_undo(key)
+
+    def _sync_detail_undo(self, key: str) -> None:
+        hold = self._undo_holds.get(key)
+        now = _now_ms()
+        visible = hold is not None and (int(hold["until"]) > now or self._list_hovered)
+        self.undo_button.set_visible(visible)
+        self.done_button.set_visible(not visible)
+        if not visible or hold is None:
+            self._detail_until = 0
+            self._detail_bar.set_fraction(0)
+            return
+        self._detail_until = int(hold["until"])
+        self._detail_bar.set_fraction(undo_fraction(self._detail_until, now))
+        if self._undo_bars:
+            self._undo_bars[0] = (self._detail_bar, self._detail_until)
 
     def _append_timer_control(
         self,
@@ -1159,16 +1226,56 @@ class TodoWindow(Adw.ApplicationWindow):
             self._mark_done(key)
 
     def _mark_done(self, key: str) -> None:
+        index = 0
+        snapshot: dict[str, Any] | None = None
+        for item in self._items:
+            if item.get("key") == key:
+                snapshot = dict(item)
+                break
+        shown = merge_undo_items(
+            self._items,
+            self._undo_holds,
+            _now_ms(),
+            pin_expired=self._list_hovered,
+        )
+        found = False
+        for position, item in enumerate(shown):
+            if item.get("key") == key:
+                index = position
+                found = True
+                break
         try:
             self.client.mark_done(key)
         except BridgeError as exc:
             self._toast(str(exc))
             self.refresh()
             return
-        self._toast_undo(key)
+        if snapshot is None:
+            snapshot = {"key": key, "title": key, "status": "open", "kind": "todo"}
+        shown_after = ""
+        if found and index + 1 < len(shown):
+            neighbor = shown[index + 1].get("key")
+            if isinstance(neighbor, str):
+                shown_after = neighbor
+        self._undo_holds[key] = {
+            "key": key,
+            "index": index,
+            "after": shown_after,
+            "until": _now_ms() + UNDO_MS,
+            "item": snapshot,
+        }
+        self._arm_undo()
         self.refresh()
 
+    def _undo_current(self) -> None:
+        item = self._current
+        key = item.get("key") if isinstance(item, dict) else ""
+        if isinstance(key, str) and key:
+            self._undo(key)
+
     def _undo(self, key: str) -> None:
+        self._undo_holds.pop(key, None)
+        self._arm_undo()
         try:
             result = self.client.undo(key)
         except BridgeError as exc:
@@ -1207,12 +1314,90 @@ class TodoWindow(Adw.ApplicationWindow):
     def _toast(self, message: str) -> None:
         self.toasts.add_toast(Adw.Toast.new(message))
 
-    def _toast_undo(self, key: str) -> None:
-        toast = Adw.Toast.new("Marked done")
-        toast.set_button_label("Undo")
-        toast.set_timeout(5)
-        toast.connect("button-clicked", lambda _toast: self._undo(key))
-        self.toasts.add_toast(toast)
+    def _on_window_close(self, _window: Gtk.Window) -> bool:
+        self.drop_undo_timers()
+        return False
+
+    def drop_undo_timers(self) -> None:
+        """Stop undo ticks. Safe to call more than once."""
+
+        source = self._undo_source
+        paint = self._undo_paint
+        self._undo_source = 0
+        self._undo_paint = 0
+        if source:
+            GLib.source_remove(source)
+        if paint:
+            GLib.source_remove(paint)
+
+    def _set_list_hover(self, hovered: bool) -> None:
+        self._list_hovered = hovered
+        if not hovered:
+            self._drop_expired_undos()
+
+    def _arm_undo(self) -> None:
+        if self._undo_source:
+            GLib.source_remove(self._undo_source)
+            self._undo_source = 0
+        now = _now_ms()
+        soonest = 0
+        for hold in self._undo_holds.values():
+            remain = int(hold["until"]) - now
+            if remain <= 0:
+                continue
+            if soonest == 0 or remain < soonest:
+                soonest = remain
+        if soonest > 0:
+            self._undo_source = GLib.timeout_add(max(1, soonest), self._on_undo_due)
+        self._arm_undo_paint()
+
+    def _on_undo_due(self) -> bool:
+        self._undo_source = 0
+        self._drop_expired_undos()
+        return GLib.SOURCE_REMOVE
+
+    def _drop_expired_undos(self) -> None:
+        now = _now_ms()
+        if self._list_hovered:
+            self._paint_undo_bars()
+            return
+        before = set(self._undo_holds)
+        self._undo_holds = {
+            key: hold for key, hold in self._undo_holds.items() if int(hold["until"]) > now
+        }
+        if set(self._undo_holds) != before and self._page != "bots":
+            self._fill_rows(self._items)
+        self._sync_open_undo()
+        self._arm_undo()
+
+    def _arm_undo_paint(self) -> None:
+        if self._undo_holds and not self._undo_paint:
+            self._undo_paint = GLib.timeout_add(100, self._on_undo_paint)
+
+    def _on_undo_paint(self) -> bool:
+        if not self._undo_holds:
+            self._undo_paint = 0
+            return GLib.SOURCE_REMOVE
+        self._paint_undo_bars()
+        now = _now_ms()
+        expired = any(int(hold["until"]) <= now for hold in self._undo_holds.values())
+        if expired and not self._list_hovered:
+            self._drop_expired_undos()
+        if not self._undo_holds:
+            self._undo_paint = 0
+            return GLib.SOURCE_REMOVE
+        return GLib.SOURCE_CONTINUE
+
+    def _paint_undo_bars(self) -> None:
+        now = _now_ms()
+        for bar, until in self._undo_bars:
+            bar.set_fraction(undo_fraction(until, now))
+
+    def _sync_open_undo(self) -> None:
+        item = self._current
+        key = item.get("key") if isinstance(item, dict) else ""
+        if isinstance(key, str):
+            self._sync_detail_undo(key)
 
     def _on_search(self, entry: Gtk.SearchEntry) -> None:
         if self._filling:
@@ -1509,9 +1694,10 @@ class WindowApp(Adw.Application):
         self.window.refresh()
         self._release_linger()
 
-    def _on_close(self, _window: TodoWindow) -> bool:
+    def _on_close(self, window: TodoWindow) -> bool:
         """Keep the process up briefly so the next open is not a cold start."""
 
+        window.drop_undo_timers()
         self.hold()
         self.window = None
         if self._linger:
@@ -1674,6 +1860,24 @@ def _href_at(view: Gtk.TextView, links: dict[str, Gtk.TextTag], x: float, y: flo
         if href and href in links:
             return href
     return ""
+
+
+def _now_ms() -> int:
+    return int(time.time() * 1000)
+
+
+def _undo_button() -> tuple[Gtk.Button, Gtk.ProgressBar]:
+    """An Undo button with a bar that shrinks as the window runs out."""
+
+    bar = Gtk.ProgressBar()
+    bar.add_css_class("tether-undo-bar")
+    bar.set_fraction(1)
+    overlay = Gtk.Overlay()
+    overlay.set_child(bar)
+    overlay.add_overlay(Gtk.Label(label="Undo"))
+    button = Gtk.Button(child=overlay)
+    button.add_css_class("tether-undo")
+    return button, bar
 
 
 def _chip(label: str, tone: str) -> Gtk.Label:

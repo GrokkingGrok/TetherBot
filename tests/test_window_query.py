@@ -16,6 +16,7 @@ from tetherbot.window_query import (
     format_tracked,
     is_read_only,
     list_filter,
+    merge_undo_items,
     note_payload,
     open_count_label,
     parse_start_clock,
@@ -23,6 +24,7 @@ from tetherbot.window_query import (
     safe_http_url,
     source_line,
     timer_item_key,
+    undo_fraction,
 )
 
 
@@ -162,3 +164,52 @@ def test_safe_http_url_rejects_other_schemes():
     assert safe_http_url("file:///etc/passwd") is None
     assert safe_http_url("https://example.test/a b") is None
     assert safe_http_url("notes") is None
+
+
+def test_a_cleared_row_stays_put_and_each_undo_keeps_its_window():
+    items = [
+        {"key": "a", "title": "A"},
+        {"key": "c", "title": "C"},
+    ]
+    holds = {
+        "b": {
+            "key": "b",
+            "index": 1,
+            "until": 5_000,
+            "item": {"key": "b", "title": "B"},
+        }
+    }
+    shown = merge_undo_items(items, holds, 0)
+    assert [row["key"] for row in shown] == ["a", "b", "c"]
+    assert shown[1]["_undo"]["fraction"] == 1
+    later = merge_undo_items(
+        [{"key": "c", "title": "C"}],
+        {
+            "a": {
+                "key": "a",
+                "index": 0,
+                "after": "b",
+                "until": 1_000,
+                "item": {"key": "a", "title": "A"},
+            },
+            "b": {
+                "key": "b",
+                "index": 1,
+                "after": "c",
+                "until": 5_000,
+                "item": {"key": "b", "title": "B"},
+            },
+        },
+        1_000,
+    )
+    assert [row["key"] for row in later] == ["b", "c"]
+    assert later[0]["_undo"]["fraction"] == 0.8
+    pinned = merge_undo_items(
+        [{"key": "c", "title": "C"}],
+        {"a": {"key": "a", "index": 0, "until": 0, "item": {"key": "a", "title": "A"}}},
+        0,
+        pin_expired=True,
+    )
+    assert [row["key"] for row in pinned] == ["a", "c"]
+    assert pinned[0]["_undo"]["fraction"] == 0
+    assert undo_fraction(5_000, 4_000) == 0.2

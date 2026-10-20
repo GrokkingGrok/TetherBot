@@ -76,7 +76,7 @@ def test_properties_and_filtered_items(tmp_path: Path):
     assert props["Counts"]["todos"] == 1
     assert props["Counts"]["queued"] == 0
     bots = json.loads(props["Bots"])
-    assert [row["name"] for row in bots] == ["other", "primary"]
+    assert [row["name"] for row in bots] == ["primary", "other"]
     items = json.loads(api.call("GetItems", ('{"kinds":["ask"]}',))[0])
     assert [row["key"] for row in items] == ["primary/sample-01"]
     assert items[0]["local"]["seen"] is False

@@ -82,6 +82,29 @@ class BridgeConfig:
     path: Path | None = None
 
 
+def action_slots(config: BridgeConfig | None, bot: str) -> list[str]:
+    """Slots to try when sending for ``bot``, own slot first.
+
+    Several bots may name the same slot and then share that secret. When
+    this bot's slot has no stored secret, the caller tries the primary
+    bot's slot next. An omitted slot means no outbound route, so the list
+    is empty and there is no fallback.
+    """
+
+    if config is None:
+        return []
+    bot_config = config.bots.get(bot)
+    if bot_config is None or not bot_config.webhook_slot:
+        return []
+    slots = [bot_config.webhook_slot]
+    if bot == "primary":
+        return slots
+    primary = config.bots.get("primary")
+    if primary is None or not primary.webhook_slot or primary.webhook_slot in slots:
+        return slots
+    return [*slots, primary.webhook_slot]
+
+
 def load_config(path: Path) -> BridgeConfig:
     try:
         text = path.read_text(encoding="utf-8")

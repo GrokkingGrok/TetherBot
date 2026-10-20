@@ -74,6 +74,15 @@ def test_disable_drops_the_proxy_and_handlers():
     assert "tetherbot-time" in css
     assert "min-width: 4.8em" not in css
     assert "topBarWidthSample" in text
+    icon = text.split("this._icon = new St.Icon({", 1)[1].split("});", 1)[0]
+    assert "icon_size" not in icon
+    assert "icon-size" not in css
+    assert "tetherbot-undo" in css
+    assert "undoFraction" in text
+    face = (EXTENSION / "icons" / "tetherbot-base-symbolic.svg").read_text(encoding="utf-8")
+    assert face.count("<circle ") == 2
+    assert "Q8 11.5" in face
+    assert "M8 4V1.6" not in face
     fill = text.split("    _fillTimer(block) {", 1)[1].split("\n    _", 1)[0]
     assert fill.index("chipLabel(block.bot") < fill.index("block.subject")
     window = (ROOT / "bridge" / "tetherbot" / "window.py").read_text(encoding="utf-8")

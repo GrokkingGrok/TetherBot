@@ -78,7 +78,7 @@ One model covers every kind.
 | `source` | `{bot, routine?}` | Required. `bot` matches the feed file's `bot` |
 | `links` | array of `{label, url}` | Optional, `https` only, maximum 3 |
 
-Inside the bridge and on D-Bus, the global key is `<bot>/<id>`, for example `primary/primary-20261017-01`. The prefix is the bot id. It matches `[bots.<id>]` in `config.toml` and the file `feed/<id>.json`. It is not a display name, and it is not the webhook slot. The slot (`webhook_slot`, for example `primary-actions`) only names the secret in the desktop secret service. The bridge routes an action by the bot id, then looks up that bot's slot.
+Inside the bridge and on D-Bus, the global key is `<bot>/<id>`, for example `primary/primary-20261017-01`. The prefix is the bot id. It matches `[bots.<id>]` in `config.toml` and the file `feed/<id>.json`. It is not a display name, and it is not the webhook slot. The slot (`webhook_slot`, for example `primary-actions`) only names the secret in the desktop secret service. Several bots may use one slot. The bridge routes an action by the bot id, then looks up that bot's slot, and if that slot has no stored secret it tries the primary bot's slot.
 
 The bridge adds `origin` (`feed`, `legacy-inbox`, `fake`, and so on) and `local` (`{snoozed_until, seen, done_locally}`). `local` may also include optional `acted` (`{action, action_id, at}`) and `resolved` (`done` or `dropped`) after approve, veto, or done. Older readers ignore fields they do not know.
 

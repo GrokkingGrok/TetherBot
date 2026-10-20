@@ -14,7 +14,7 @@ from datetime import datetime
 from typing import Any
 
 from tetherbot import SCHEMA_VERSION, __version__
-from tetherbot.config import ConfigError, save_adapter_enabled
+from tetherbot.config import ConfigError, action_slots, save_adapter_enabled
 from tetherbot.dbus_service import INTERFACE
 from tetherbot.model import ENVELOPE_ACTIONS, looks_like_secret, mask_secrets, parse_iso8601
 from tetherbot.queue import QueueError
@@ -734,7 +734,7 @@ class BridgeApi:
             names.add(item.key.split("/", 1)[0])
         now = self._daemon.now()
         rows = []
-        for name in sorted(names):
+        for name in _ordered_bot_names(names):
             view = store.feed(name)
             summary = "" if view is None or not view.summary else view.summary
             if not summary:
@@ -752,6 +752,11 @@ class BridgeApi:
             if slot_error and state not in _BRIDGE_BOT_STATE:
                 state = "error"
                 summary = "webhook slot was rejected"
+            elif state not in _BRIDGE_BOT_STATE:
+                gap = self._secret_gap(name)
+                if gap:
+                    state = "error"
+                    summary = gap
             rows.append(
                 {
                     "name": name,
@@ -766,6 +771,27 @@ class BridgeApi:
                 }
             )
         return rows
+
+    def _secret_gap(self, name: str) -> str:
+        """A missing key for this bot only. A locked keyring is not this gap."""
+
+        from tetherbot.secrets import SecretError, SecretLocked, SecretUnavailable
+
+        slots = action_slots(self._daemon.config, name)
+        if not slots:
+            return ""
+        secrets = getattr(self._daemon, "secrets", None)
+        if secrets is None:
+            return ""
+        try:
+            if secrets.status() != "available":
+                return ""
+            for slot in slots:
+                if secrets.get_webhook(slot) is not None:
+                    return ""
+        except (SecretLocked, SecretUnavailable, SecretError):
+            return ""
+        return "webhook secret is not stored"
 
     def _display_name(self, bot: str) -> str:
         view = self._daemon.store.feed(bot)
@@ -811,6 +837,15 @@ class BridgeApi:
         payload = tuple(args)
         for listener in tuple(self._listeners):
             listener(name, payload)
+
+
+def _ordered_bot_names(names: set[str]) -> list[str]:
+    """Pin ``primary`` first. The other slugs stay alphabetical."""
+
+    rest = sorted(name for name in names if name != "primary")
+    if "primary" in names:
+        return ["primary", *rest]
+    return rest
 
 
 def _chip_zone(now: datetime):

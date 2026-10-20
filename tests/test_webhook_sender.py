@@ -274,6 +274,19 @@ def test_missing_secret_waits_without_posting(tmp_path: Path):
     assert WEBHOOK_URL not in log.getvalue()
 
 
+def test_a_bot_with_no_slot_does_not_block_the_bridge(tmp_path: Path):
+    script = Script([200])
+    daemon, _clock, _seen, _log = _boot(tmp_path, script, bare_bot="notes")
+    _enqueue(daemon, "a-notes", NOW - timedelta(seconds=30), bot="notes")
+    _enqueue(daemon, "a-pri1", NOW - timedelta(seconds=30))
+    daemon.tick_webhook()
+    assert [call[0] for call in script.calls] == [WEBHOOK_URL]
+    parked = {row.action_id: row.state for row in daemon.queue.snapshot()}
+    assert parked["a-notes"] == "pending"
+    assert "a-pri1" not in parked
+    assert daemon.state == "ok"
+
+
 def test_other_bot_is_not_parked_for_a_rejected_key(tmp_path: Path):
     script = Script([403, 200])
     daemon, _clock, _seen, _log = _boot(tmp_path, script, extra_bot=True)
@@ -384,12 +397,15 @@ def _boot(
     daily_cap: int | None = None,
     store_secret: bool = True,
     extra_bot: bool = False,
+    bare_bot: str = "",
 ):
     clock = Clock()
     log = StringIO()
     text = _CONFIG
     if extra_bot:
         text += '[bots.zeta]\nwebhook_slot = "zeta-actions"\n'
+    if bare_bot:
+        text += f'[bots.{bare_bot}]\ndisplay_name = "Notes"\n'
     if daily_cap is not None:
         text += f"\n[queue]\ndaily_cap = {daily_cap}\n"
     (tmp_path / "config.toml").write_text(text, encoding="utf-8")

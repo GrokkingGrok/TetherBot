@@ -25,6 +25,7 @@ from tetherbot.todos import (
     VIEWS,
     ParsedQuery,
     chips,
+    display_zone,
     matches,
     parse_query,
     sort_key,
@@ -177,9 +178,7 @@ class BridgeApi:
         done_days = _done_days(spec.get("include_done_days"))
         sort = _sort_filter(spec.get("sort"))
         now = self._daemon.now()
-        zone = now.tzinfo
-        if zone is None:
-            raise ServiceError(FAILED, "clock must be timezone-aware")
+        zone = _chip_zone(now)
         colors = self._daemon.store.tag_color_map()
         rows = []
         for item in self._daemon.store.items():
@@ -229,9 +228,7 @@ class BridgeApi:
         if item is None:
             raise ServiceError(NOT_FOUND, "item not found")
         now = self._daemon.now()
-        zone = now.tzinfo
-        if zone is None:
-            raise ServiceError(FAILED, "clock must be timezone-aware")
+        zone = _chip_zone(now)
         return (
             _dumps(
                 _item_payload(
@@ -518,6 +515,13 @@ class BridgeApi:
         if previous is not None and (now - previous).total_seconds() < SYNC_LIMIT_SECONDS:
             return None
         self._last_sync_request = now
+        poller = getattr(self._daemon, "poller", None)
+        tick = getattr(poller, "tick", None)
+        if tick is None:
+            return None
+        tick(force=True)
+        self._last_sync = int(now.timestamp())
+        self._emit_properties("LastSync")
         return None
 
     def _open_chat(self, bot: str) -> tuple[bool]:
@@ -737,16 +741,22 @@ class BridgeApi:
                 summary = store.open_summary(name, now)
             slot = ""
             override = ""
+            slot_error = ""
             if config is not None and name in config.bots:
                 slot = config.bots[name].webhook_slot
                 override = config.bots[name].display_name
+                slot_error = config.bots[name].slot_error
             asks, todos = store.open_counts(name, now)
             published = None if view is None else view.display_name
+            state = self._bot_state(view)
+            if slot_error and state not in _BRIDGE_BOT_STATE:
+                state = "error"
+                summary = "webhook slot was rejected"
             rows.append(
                 {
                     "name": name,
                     "display_name": resolve_display_name(name, published, override or None),
-                    "state": self._bot_state(view),
+                    "state": state,
                     "summary": summary,
                     "last_seen": _feed_last_seen(view),
                     "next_run": _epoch(None if view is None else view.next_run),
@@ -801,6 +811,14 @@ class BridgeApi:
         payload = tuple(args)
         for listener in tuple(self._listeners):
             listener(name, payload)
+
+
+def _chip_zone(now: datetime):
+    """Chip dates follow the desktop zone. The bridge clock stays UTC."""
+
+    if now.tzinfo is None:
+        raise ServiceError(FAILED, "clock must be timezone-aware")
+    return display_zone()
 
 
 def _camel_to_snake(name: str) -> str:

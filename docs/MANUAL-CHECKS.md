@@ -2,7 +2,7 @@
 
 Run these on one Fedora 44 desktop with GNOME Shell 50 on Wayland, after you can log in as a normal user. The project is unofficial and not affiliated with xAI.
 
-**Out of scope here:** M9 (webhook-only popup copy), M15 and M16 (a legacy todo sink outside this repository), and M17 (the full uninstall acceptance check). Uninstall is still documented in [SETUP.md](SETUP.md) and is the reset for M1. M18–M24 are the rich-todo checks later in this file. M25 checks that a new login starts the bridge. M26 checks that a todo click opens the window quickly. M27–M42 check the stopwatch. M43–M47 check more than one bot, display names, the compact Bots section, and the popup order. Do not treat M9, M15, M16, or M17 as part of the v0.1 runbook.
+**Out of scope here:** M9 (webhook-only popup copy), M15 and M16 (a legacy todo sink outside this repository), and M17 (the full uninstall acceptance check). Uninstall is still documented in [SETUP.md](SETUP.md) and is the reset for M1. M18–M24 are the rich-todo checks later in this file. M25 checks that a new login starts the bridge. M26 checks that a todo click opens the window quickly. M27–M42 check the stopwatch. M43–M47 check more than one bot, display names, the compact Bots section, and the popup order. M48–M54 check an optional webhook slot, Sync now, the timer chip, toolbar colors, summary contrast, the bot-row dot and summary, and local dates. Do not treat M9, M15, M16, or M17 as part of the v0.1 runbook.
 
 Examples use the bot id `primary`. Yours can be any lowercase id of letters, digits, and hyphens. Use the same id in the bot's feed file, in `config.toml`, and in the commands below.
 
@@ -10,7 +10,7 @@ Nothing in these steps belongs in a chat, in `config.toml`, or in this repositor
 
 ## Suggested order
 
-M1, M2, then the extension install in M14 (log out and back in once), then M3. Do M10 before M4 if the popup has no ask yet. Then M4, M10a, M5, M11, M6, M7, M8, M12, M13. After a rich todo is in the feed, M18 through M24. M25 is the next login after the unit is installed. M26 is a todo click after that. M27 through M42 need a running timer. M43 through M47 need this version installed and a log out, then a second feed file.
+M1, M2, then the extension install in M14 (log out and back in once), then M3. Do M10 before M4 if the popup has no ask yet. Then M4, M10a, M5, M11, M6, M7, M8, M12, M13. After a rich todo is in the feed, M18 through M24. M25 is the next login after the unit is installed. M26 is a todo click after that. M27 through M42 need a running timer. M43 through M47 need this version installed and a log out, then a second feed file. M48 through M54 need that same login.
 
 You can stop after any check. Later checks say what they need.
 
@@ -930,6 +930,84 @@ journalctl --user -b /usr/bin/gnome-shell --no-pager | tail -n 80
 - Add to a todo and Attach timer still attach. A stopped timer that is not on a todo survives opening the window and offers Dismiss.
 
 **Reset.** Dismiss or assign the timer when you are done.
+
+## M48. A bot with no webhook slot stays up
+
+**Preconditions.** M14. At least two bots are in `config.toml`. One of them has no `webhook_slot`.
+
+**Look for.**
+
+- `tetherbotctl status` stays `ok` (or the state it had before that bot was added). It does not say `failed_closed` because a slot is missing.
+- That bot still appears, under its display name. Its Done and Approve buttons are hidden.
+- A slot value that is not a short lowercase name is ignored for that bot only. The other bots still load, and the bridge stays up.
+
+**Reset.** None.
+
+## M49. Sync now fetches immediately
+
+**Preconditions.** M10. The repo adapter is running.
+
+**Look for.**
+
+- Add a todo in the feed, then click Sync now before the regular poll. The menu item says Syncing…, then Updated, and the new todo shows without waiting for the next interval.
+- A second click within about 30 seconds does not start another fetch.
+
+**Reset.** None.
+
+## M50. The timer names its bot with a chip
+
+**Preconditions.** M40. A timer is running on a todo.
+
+**Look for.**
+
+- Under the clock, the todo title and the bot name sit on one line. The bot name is a chip, the same shape as the bot chip on a todo row.
+- The title, the chip, and the buttons have space between them.
+
+**Reset.** None.
+
+## M51. The toolbar number is only the timer
+
+**Preconditions.** M14. Log out and back in after installing this version.
+
+**Look for.**
+
+- The top bar shows no count of todos, asks, or bots. The only number is the timer, such as `25m` or `1:05`, and it is absent when no timer is showing.
+- With an open todo and no ask, the icon carries the ring and no digit.
+- When a bot needs attention, or an ask is open, the icon carries the dot instead. The tooltip describes that in words and does not give a count.
+
+**Reset.** None.
+
+## M52. The bot summary stays readable
+
+**Preconditions.** M45. The compact summary is the attention line, and the row is highlighted.
+
+**Look for.**
+
+- The summary text is easy to read on the highlighted row. The letters are light on a darker red, not dark red on gray.
+
+**Reset.** None.
+
+## M53. Each bot row shows its state
+
+**Preconditions.** M46. One bot is `needs_you`, `error`, or stale.
+
+**Look for.**
+
+- On the window Bots tab, that bot's row has a colored dot and the same status summary as its popup row.
+- The list still scrolls when there are more bots than fit.
+
+**Reset.** None.
+
+## M54. Dates use local time
+
+**Preconditions.** M18. Open a todo whose `created` and `updated_at` fall on the previous local calendar day when read as UTC.
+
+**Look for.**
+
+- The Created chip uses the local calendar day.
+- The detail footer names the bot, the routine, and a short local time, such as `Oct 19, 9:40 PM`. It does not show a raw `T` timestamp.
+
+**Reset.** None.
 
 ## When you are finished
 

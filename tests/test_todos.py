@@ -1,11 +1,13 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 """Schema additions, search shortcuts, and tag colors."""
 
+from datetime import UTC, timedelta, timezone
+
 import pytest
 
 from tests.helpers import NOW, make_item
 from tetherbot.model import Item
-from tetherbot.todos import due_label, due_tone, parse_query, tag_color
+from tetherbot.todos import created_label, due_label, due_tone, parse_query, tag_color
 
 ZONE = NOW.tzinfo
 assert ZONE is not None
@@ -77,3 +79,10 @@ def test_due_tones_use_end_of_day_for_a_date():
     assert due_tone("2026-10-21", NOW, ZONE) == "neutral"
     assert due_label("2026-10-20 10:00", ZONE) == "Due Tue 10/20 10:00"
     assert due_label("2026-10-20", ZONE) == "Due 10/20"
+
+
+def test_created_label_uses_the_given_zone():
+    pacific = timezone(timedelta(hours=-7))
+    stamp = "2026-10-20T04:40:50+00:00"
+    assert created_label(stamp, pacific) == "Created Oct 19"
+    assert created_label(stamp, UTC) == "Created Oct 20"

@@ -313,7 +313,7 @@ def _webhook_test(bot: str, context: CtlContext) -> int:
         raise CtlError("config.toml is missing")
     config = load_config(context.config_path)
     bot_config = config.bots.get(bot)
-    if bot_config is None:
+    if bot_config is None or not bot_config.webhook_slot:
         raise CtlError("bot has no webhook slot")
     secret = context.secrets.get_webhook(bot_config.webhook_slot)
     if secret is None:

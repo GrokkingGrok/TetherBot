@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import date, datetime, time, timedelta, tzinfo
+from datetime import UTC, date, datetime, time, timedelta, tzinfo
 
 PALETTE = (
     "red",
@@ -25,6 +25,31 @@ PALETTE_NAMES = frozenset(PALETTE)
 VIEWS = frozenset({"all", "mine", "bots", "waiting", "today"})
 SORTS = frozenset({"due", "priority", "created", "updated"})
 _WEEKDAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+_MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+
+
+def display_zone() -> tzinfo:
+    """The desktop's local zone. Chip dates follow this, not the bridge clock."""
+
+    zone = datetime.now().astimezone().tzinfo
+    return zone if zone is not None else UTC
+
+
+def format_local_stamp(value: str, zone: tzinfo) -> str:
+    """``Oct 19, 9:40 PM``. An unusable timestamp is an empty string."""
+
+    try:
+        moment = datetime.fromisoformat(value)
+    except ValueError:
+        return ""
+    if moment.tzinfo is None:
+        return ""
+    local = moment.astimezone(zone)
+    hour24 = local.hour
+    suffix = "AM" if hour24 < 12 else "PM"
+    hour = hour24 % 12 or 12
+    month = _MONTHS[local.month - 1]
+    return f"{month} {local.day}, {hour}:{local.minute:02d} {suffix}"
 
 
 @dataclass(frozen=True)
@@ -131,7 +156,7 @@ def created_label(created: str, zone: tzinfo) -> str:
     if moment.tzinfo is None:
         return ""
     day = moment.astimezone(zone).date()
-    return f"Created {day.month}/{day.day}"
+    return f"Created {_MONTHS[day.month - 1]} {day.day}"
 
 
 def priority_tone(priority: int | None) -> str:

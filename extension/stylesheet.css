@@ -49,6 +49,12 @@
     font-weight: bold;
     font-feature-settings: "tnum";
     font-variant-numeric: tabular-nums;
+    margin-top: 2px;
+    margin-bottom: 4px;
+}
+
+.tetherbot-timer-subject {
+    spacing: 8px;
 }
 
 .tetherbot-play {
@@ -92,9 +98,17 @@
     font-size: 0.85em;
 }
 
-.tetherbot-bot-alert {
-    color: #e01b24;
+.popup-menu-item.tetherbot-bot-alert {
+    color: #ffb4ab;
     font-weight: bold;
+}
+
+.popup-menu-item.tetherbot-bot-alert:hover,
+.popup-menu-item.tetherbot-bot-alert:focus,
+.popup-menu-item.tetherbot-bot-alert:active,
+.popup-menu-item.tetherbot-bot-alert:selected {
+    color: #ffffff;
+    background-color: rgba(165, 29, 45, 0.72);
 }
 
 .tetherbot-dot {

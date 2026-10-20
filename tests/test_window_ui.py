@@ -555,6 +555,18 @@ def _find_button(widget, label: str):
     return None
 
 
+def _label_contains(widget, text: str) -> bool:
+    label = widget.get_label() if hasattr(widget, "get_label") else None
+    if isinstance(label, str) and text in label:
+        return True
+    child = widget.get_first_child() if hasattr(widget, "get_first_child") else None
+    while child is not None:
+        if _label_contains(child, text):
+            return True
+        child = child.get_next_sibling()
+    return False
+
+
 def _has_label(widget, text: str) -> bool:
     if hasattr(widget, "get_label") and widget.get_label() == text:
         return True
@@ -600,7 +612,8 @@ def test_bots_page_filters_by_name_and_a_row_filters_todos():
                 "next_run": 0,
                 "open_todos": 2,
                 "open_asks": 0,
-                "state": "idle",
+                "state": "needs_you",
+                "summary": "Needs a look",
                 "routes": {"outbound": False},
             },
         ]
@@ -614,6 +627,8 @@ def test_bots_page_filters_by_name_and_a_row_filters_todos():
                 assert window._page_todos.get_active()
                 window.select_key("bots")
                 assert window._page == "bots"
+                assert _label_contains(window.list, "Needs a look")
+                assert _has_label(window.list, "●")
                 assert window.bot_search.get_visible()
                 assert not window._todo_controls.get_visible()
                 assert _bot_labels(window) == ["Primary", "Notes"]

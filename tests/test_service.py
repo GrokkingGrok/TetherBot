@@ -170,6 +170,69 @@ def test_sync_is_rate_limited_and_open_chat_does_not_launch(tmp_path: Path):
     assert daemon.api.call("OpenChat", ("primary",)) == (False,)
 
 
+def test_sync_now_forces_one_poll(tmp_path: Path):
+    daemon, seen = _api(tmp_path)
+    assert daemon.api is not None
+    calls: list[bool] = []
+
+    def tick(*, force: bool = False) -> None:
+        calls.append(force)
+
+    daemon.poller = type("Poller", (), {"tick": staticmethod(tick)})()
+    daemon.api.call("SyncNow", ())
+    daemon.api.call("SyncNow", ())
+    assert calls == [True]
+    assert daemon.api.properties()["LastSync"] == int(NOW.timestamp())
+    assert ("PropertiesChanged", (("LastSync",),)) in seen
+
+
+def test_a_bot_without_a_slot_does_not_fail_the_bridge(tmp_path: Path):
+    daemon, _seen = _api(
+        tmp_path,
+        "\n".join(
+            [
+                'schema = "tetherbot/1"',
+                "[bridge]",
+                'mode = "full"',
+                "[adapters.webhook-sender]",
+                "enabled = true",
+                "[bots.primary]",
+                'webhook_slot = "primary-actions"',
+                "[bots.notes]",
+                'display_name = "Notes"',
+                "[bots.other]",
+                'webhook_slot = "NOT A SLOT"',
+            ]
+        ),
+    )
+    assert daemon.state == "ok"
+    assert daemon.api is not None
+    bots = {row["name"]: row for row in json.loads(daemon.api.properties()["Bots"])}
+    assert bots["notes"]["routes"]["outbound"] is False
+    assert bots["notes"]["display_name"] == "Notes"
+    assert bots["primary"]["routes"]["outbound"] is True
+    assert bots["other"]["routes"]["outbound"] is False
+    assert bots["other"]["state"] == "error"
+    assert bots["other"]["summary"] == "webhook slot was rejected"
+    assert "NOT A SLOT" not in json.dumps(bots)
+
+
+def test_created_chip_uses_the_desktop_zone(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    from datetime import timedelta, timezone
+
+    pacific = timezone(timedelta(hours=-7))
+    monkeypatch.setattr("tetherbot.service.display_zone", lambda: pacific)
+    daemon, _seen = _api(tmp_path)
+    assert daemon.store is not None and daemon.api is not None
+    daemon.store.replace_origin(
+        "feed",
+        [make_item(kind="todo", actions=["done"], created="2026-10-20T04:40:50+00:00")],
+        now=NOW,
+    )
+    rows = json.loads(daemon.api.call("GetItems", ('{"kinds":["todo"]}',))[0])
+    assert rows[0]["chips"]["created"]["label"] == "Created Oct 19"
+
+
 def test_set_adapter_enabled_rewrites_config_and_state(tmp_path: Path):
     config = (
         'schema = "tetherbot/1"\n\n'

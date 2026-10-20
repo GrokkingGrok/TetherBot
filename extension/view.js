@@ -56,6 +56,33 @@ export const PROXY_SIGNALS = [
 export const TODO_LIMIT = 8;
 export const UNDO_MS = 5000;
 
+// Panel face, in a 16-unit box. The shell paints it with the status-icon
+// color. Eyes are filled marks inside an outline, large enough to survive
+// the smallest panel size. Badge colors stay their own colors.
+export const FACE = {
+    size: 16,
+    outline: {x: 1.35, y: 1.35, w: 13.3, h: 13.3, radius: 4.1, width: 1.7},
+    eyes: [
+        {cx: 5.5, cy: 6.55, r: 1.55},
+        {cx: 10.5, cy: 6.55, r: 1.55},
+    ],
+    smile: {x1: 5.05, y1: 9.65, cx: 8, cy: 12.15, x2: 10.95, y2: 9.65, width: 1.45},
+};
+
+export const BADGE = {
+    dot: {cx: 12.4, cy: 12.55, r: 2.4, cut: 3.55, color: [53 / 255, 132 / 255, 228 / 255, 1]},
+    ring: {cx: 12.4, cy: 12.55, r: 2.45, width: 1.6, cut: 3.75, color: [237 / 255, 51 / 255, 59 / 255, 1]},
+    slash: {x1: 1.5, y1: 1.5, x2: 14.5, y2: 14.5, width: 1.9, color: [237 / 255, 51 / 255, 59 / 255, 1]},
+    triangle: {
+        cx: 12.3,
+        cy: 12.4,
+        cut: 3.9,
+        points: [[12.3, 9.2], [15.15, 14.25], [9.45, 14.25]],
+        color: [229 / 255, 165 / 255, 10 / 255, 1],
+        bang: {x: 12.3, y1: 10.7, y2: 12.25, dotY: 13.45, r: 0.52, width: 1.1},
+    },
+};
+
 export function undoFraction(untilMs, nowMs, windowMs = UNDO_MS) {
     const until = Number(untilMs);
     const now = Number(nowMs);
@@ -74,13 +101,34 @@ export function nextUndoDelay(holds, nowMs) {
     let soonest = 0;
     const now = Number(nowMs);
     for (const hold of holds || []) {
-        if (!hold || !(hold.until > now))
+        if (!hold || hold.sent || !(hold.until > now))
             continue;
         const remain = hold.until - now;
         if (!soonest || remain < soonest)
             soonest = remain;
     }
     return soonest;
+}
+
+export function shareUndoWindow(holds, nowMs, windowMs = UNDO_MS) {
+    const until = Number(nowMs) + Number(windowMs);
+    return (holds || []).map(hold => {
+        if (!hold || hold.sent)
+            return hold;
+        return {...hold, until};
+    });
+}
+
+export function dueUndoKeys(holds, nowMs) {
+    const now = Number(nowMs);
+    const keys = [];
+    for (const hold of holds || []) {
+        if (!hold || hold.sent || typeof hold.key !== 'string' || !hold.key)
+            continue;
+        if (!(Number(hold.until) > now))
+            keys.push(hold.key);
+    }
+    return keys;
 }
 
 const CHIP_TONES = new Set([
@@ -647,6 +695,7 @@ export function menuModel({
     nowMs,
     undoHolds = [],
     pinExpired = false,
+    hiddenKeys = [],
     activationFailed = true,
     timer = null,
     assigning = false,
@@ -725,7 +774,7 @@ export function menuModel({
             });
         }
     }
-    const presented = presentTodos(todos, undoHolds, nowMs, pinExpired);
+    const presented = presentTodos(todos, undoHolds, nowMs, pinExpired, hiddenKeys);
     return {
         banner,
         bots: compact.rows,
@@ -828,24 +877,28 @@ export function chipRow(item) {
     };
 }
 
-export function presentTodos(todos, holds, nowMs, pinExpired = false) {
+export function presentTodos(todos, holds, nowMs, pinExpired = false, hiddenKeys = []) {
+    const hidden = new Set(hiddenKeys || []);
     const pending = new Map();
     for (const hold of holds || []) {
         if (!hold || typeof hold.key !== 'string' || !hold.row)
             continue;
-        if (!(hold.until > nowMs) && !pinExpired)
+        const live = !hold.sent && hold.until > nowMs;
+        if (!live && !pinExpired)
             continue;
         pending.set(hold.key, hold);
     }
     const merged = [];
     const seen = new Set();
     for (const row of todos || []) {
+        if (hidden.has(row.key) && !pending.has(row.key))
+            continue;
         const hold = pending.get(row.key);
         if (hold) {
             merged.push(undoRow(row, hold, nowMs));
             seen.add(row.key);
         } else {
-            merged.push({...row, undo: false, undoUntil: 0, undoFraction: 0});
+            merged.push({...row, undo: false, layoutHold: false, undoUntil: 0, undoFraction: 0});
         }
     }
     const missing = [];
@@ -895,12 +948,14 @@ function insertHold(merged, hold, nowMs) {
 
 function undoRow(row, hold, nowMs) {
     const until = Number(hold.until) || 0;
+    const live = !hold.sent && until > nowMs;
     return {
         ...row,
-        undo: true,
+        undo: live,
+        layoutHold: !live,
         canSendDone: false,
-        undoUntil: until,
-        undoFraction: undoFraction(until, nowMs),
+        undoUntil: live ? until : 0,
+        undoFraction: live ? undoFraction(until, nowMs) : 0,
     };
 }
 

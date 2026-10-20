@@ -26,6 +26,7 @@ import {
     elapsedSeconds,
     formatElapsed,
     indicatorView,
+    topBarWidthSample,
     botLabels,
     keepAssigning,
     menuModel,
@@ -83,7 +84,11 @@ export default class TetherBotExtension extends Extension {
         this._timeEntry = null;
 
         this._indicator = new PanelMenu.Button(0.0, 'TetherBot', false);
-        const box = new St.BoxLayout({style_class: 'panel-status-menu-box'});
+        this._indicator.add_style_class_name('tetherbot-panel');
+        const box = new St.BoxLayout({
+            style_class: 'panel-status-menu-box',
+            x_expand: false,
+        });
         this._icon = new St.Icon({
             style_class: 'system-status-icon tetherbot-indicator tetherbot-dimmed',
             icon_size: 16,
@@ -99,6 +104,7 @@ export default class TetherBotExtension extends Extension {
             text: '',
             style_class: 'tetherbot-time',
             visible: false,
+            x_expand: false,
             y_align: Clutter.ActorAlign.CENTER,
         });
         box.add_child(this._icon);
@@ -551,6 +557,8 @@ export default class TetherBotExtension extends Extension {
             timeClass.push('tetherbot-time-paused');
         this._time.style_class = timeClass.join(' ');
         this._time.text = view.text;
+        const sample = topBarWidthSample(view.text);
+        this._time.style = sample ? `min-width: ${sample.length}ch;` : '';
         this._time.visible = Boolean(view.text);
         this._pause.visible = view.showPause;
         if (this._indicator.accessible_name !== view.accessibleName)
@@ -792,18 +800,23 @@ export default class TetherBotExtension extends Extension {
             box.add_child(time);
             const subject = new St.BoxLayout({
                 style_class: 'tetherbot-timer-subject',
+                x_align: Clutter.ActorAlign.START,
                 x_expand: true,
             });
+            if (block.bot) {
+                const chip = chipLabel(block.bot, 'neutral');
+                chip.y_align = Clutter.ActorAlign.CENTER;
+                subject.add_child(chip);
+            }
             const title = new St.Label({
                 text: block.subject || '',
                 y_align: Clutter.ActorAlign.CENTER,
+                x_align: Clutter.ActorAlign.START,
                 x_expand: true,
             });
             if (title.clutter_text)
                 title.clutter_text.ellipsize = Pango.EllipsizeMode.END;
             subject.add_child(title);
-            if (block.bot)
-                subject.add_child(chipLabel(block.bot, 'neutral'));
             box.add_child(subject);
             if (block.assigning) {
                 box.add_child(new St.Label({

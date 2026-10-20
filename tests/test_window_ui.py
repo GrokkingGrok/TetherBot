@@ -655,6 +655,91 @@ def test_bots_page_filters_by_name_and_a_row_filters_todos():
     assert holder.get("ok") is True
 
 
+def test_an_open_window_picks_up_a_renamed_bot():
+    gi = pytest.importorskip("gi")
+    try:
+        gi.require_version("Gtk", "4.0")
+        gi.require_version("Adw", "1")
+        from gi.repository import GLib
+    except ValueError as exc:
+        pytest.skip(str(exc))
+    if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
+        pytest.skip("GTK window test needs a display")
+
+    try:
+        from tetherbot.window import BridgeClient, WindowApp
+
+        fake = _Fake()
+        fake.items[0]["display_name"] = "Primary"
+        fake.bot_rows = [
+            {
+                "name": "primary",
+                "display_name": "Primary",
+                "state": "idle",
+                "summary": "Quiet",
+                "last_seen": 1_700_000_000,
+                "next_run": 0,
+                "open_todos": 1,
+                "routes": {"outbound": True},
+            }
+        ]
+        fake.bots = lambda: list(fake.bot_rows)
+        app = WindowApp(client=fake)
+        holder: dict = {}
+
+        def finish():
+            try:
+                window = app.window
+                assert window is not None
+                assert _has_label(window.list, "Primary")
+                fake.items[0]["display_name"] = "Desk"
+                fake.bot_rows[0]["display_name"] = "Desk"
+                fake.bot_rows[0]["state"] = "needs_you"
+                fake.bot_rows[0]["summary"] = "Needs a look"
+                fake.listener()
+                assert _has_label(window.list, "Desk")
+                assert not _has_label(window.list, "Primary")
+                window.select_key("bots")
+                assert _bot_labels(window) == ["Desk"]
+                assert _label_contains(window.list, "Needs a look")
+                assert _has_label(window.list, "●")
+                client = BridgeClient()
+                seen: list[str] = []
+
+                def _reload() -> bool:
+                    seen.append("reload")
+                    return GLib.SOURCE_REMOVE
+
+                client.set_listener(_reload)
+                client.note_properties(["LastSync"])
+                client.note_properties(["QueueLength", "Counts"])
+                client.note_properties(["Bots"])
+
+                def check() -> bool:
+                    try:
+                        assert seen == ["reload"]
+                        holder["ok"] = True
+                    except Exception as exc:
+                        holder["error"] = exc
+                    app.quit()
+                    return GLib.SOURCE_REMOVE
+
+                GLib.idle_add(check)
+            except Exception as exc:
+                holder["error"] = exc
+                app.quit()
+            return GLib.SOURCE_REMOVE
+
+        app.connect("activate", lambda _app: GLib.idle_add(finish))
+        GLib.timeout_add(8000, app.quit)
+        app.run(["tetherbot-window"])
+    finally:
+        reset_tetherbot_logger()
+    if "error" in holder:
+        raise holder["error"]
+    assert holder.get("ok") is True
+
+
 def _bot_labels(window) -> list[str]:
     labels = []
     index = 0

@@ -16,6 +16,7 @@ import {
     formatElapsed,
     formatLastSeen,
     formatTopBar,
+    topBarWidthSample,
     formatTracked,
     keepAssigning,
     parseStartClock,
@@ -150,6 +151,15 @@ export function runViewChecks() {
     assert(formatTopBar(12 * 3600 + 40 * 60) === '12:40', 'twelve forty');
     assert(formatTopBar(42 * 60 + 10) === '42m', 'top bar drops seconds');
     assert(formatTopBar(-1) === '--:--', 'top bar dashes');
+    assert(topBarWidthSample('5m') === '8m', 'one minute digit shares a width');
+    assert(topBarWidthSample('41m') === '88m', 'two minute digits share a width');
+    assert(topBarWidthSample('1:29') === '8:88', 'hour clock sample');
+    assert(topBarWidthSample('1:05') === topBarWidthSample('1:29'), 'same clock width');
+    assert(topBarWidthSample('12:40') === '88:88', 'two hour digits');
+    assert(topBarWidthSample('5m').length < topBarWidthSample('41m').length, '5m is narrower');
+    assert(topBarWidthSample('41m').length < topBarWidthSample('1:29').length, 'minutes are narrower than a clock');
+    assert(topBarWidthSample('') === '', 'no timer has no width');
+    assert(topBarWidthSample('--:--') === '88:88', 'warning width');
     const clockNow = new Date(2026, 9, 19, 12, 0, 0).getTime();
     assert(parseStartClock('11:00', clockNow) ===
         Math.floor(new Date(2026, 9, 19, 11, 0, 0).getTime() / 1000), 'start earlier today');

@@ -19,6 +19,7 @@ from tetherbot.window_query import (
     note_payload,
     open_count_label,
     parse_start_clock,
+    properties_need_reload,
     safe_http_url,
     source_line,
     timer_item_key,
@@ -83,6 +84,16 @@ def test_done_and_source_rules():
     named = {**open_item, "display_name": "Primary"}
     assert source_line(named, pacific) == "Primary · daily · Oct 17, 4:40 AM"
     assert "2026-10-17T" not in source_line(open_item, pacific)
+
+
+def test_only_a_bots_property_reloads_the_window():
+    assert properties_need_reload(["Bots"])
+    assert properties_need_reload("Bots")
+    assert properties_need_reload(["QueueLength", "Bots"])
+    assert not properties_need_reload(["LastSync"])
+    assert not properties_need_reload(["QueueLength", "Counts"])
+    assert not properties_need_reload(None)
+    assert not properties_need_reload({"Bots": "{}"})
 
 
 def test_bot_detail_line_includes_the_summary():

@@ -41,6 +41,7 @@ Rules:
 
 - Only the top priority badge shows. A timer and a badge show together, for example `1:42` with the accent dot.
 - The text slot is only the timer, or `--:--` on a clock warning. It never shows a count of asks, todos, or bots.
+- The panel button is as wide as the icon plus the current timer text. `5m` is narrower than `41m`, and `41m` is narrower than `1:29`. Digits in one shape (`1:05` and `1:29`) keep the same width. There is no reserved width for a longer shape.
 - Broken hides the time. The bridge owns the timer, so the extension does not show a number it cannot confirm. The popup says the saved time is safe.
 - Top-bar time has no seconds. Under an hour it is `0m`, `5m`, `41m` (no leading zero). From one hour it is `h:mm`, for example `1:05` and `12:40`. The popup clock may still show seconds. Use tabular figures so the button does not jitter (St support for `font-feature-settings: "tnum"` is **TBD, verify**).
 - The badge has a cutout ring in the bar color so it reads against the icon at 16 px.
@@ -51,7 +52,7 @@ Rules:
 
 The stopwatch block is the first section of the popup. Todos and asks follow it, then the Bots section. See the mockup.
 
-- **Running:** a "Timer running" label with a solid dot, the elapsed time in large text, the todo title and bot id (or "Timer" when standalone), then Pause, Stop, and Edit start. A timer that is not on a todo also offers Add to a todo.
+- **Running:** a "Timer running" label with a solid dot, the elapsed time in large text, then the bot name as a chip and the todo title after it on the same line, left aligned (or "Timer" when standalone), then Pause, Stop, and Edit start. A timer that is not on a todo also offers Add to a todo.
 - **Paused:** "Paused" with the pause glyph, the frozen time dimmed, then Resume, Stop, and Edit start.
 - **Edit start:** one row with `-5m`, `-15m`, `-30m`, a small `HH:MM` field, Set, and a close control. The new start cannot be in the future, cannot be before the 24 hour limit, and is stored as one span so the elapsed time cannot go negative.
 - **Idle:** "No timer running" and a Start timer button for a standalone timer.

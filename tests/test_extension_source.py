@@ -72,6 +72,13 @@ def test_disable_drops_the_proxy_and_handlers():
     css = (EXTENSION / "stylesheet.css").read_text(encoding="utf-8")
     assert "font-variant-numeric" in css
     assert "tetherbot-time" in css
+    assert "min-width: 4.8em" not in css
+    assert "topBarWidthSample" in text
+    fill = text.split("    _fillTimer(block) {", 1)[1].split("\n    _", 1)[0]
+    assert fill.index("chipLabel(block.bot") < fill.index("block.subject")
+    window = (ROOT / "bridge" / "tetherbot" / "window.py").read_text(encoding="utf-8")
+    assert "g-properties-changed" in window
+    assert "properties_need_reload" in window
     icons = EXTENSION / "icons"
     for name in ("base", "dot", "ring", "slash", "triangle"):
         assert (icons / f"tetherbot-{name}-symbolic.svg").is_file()

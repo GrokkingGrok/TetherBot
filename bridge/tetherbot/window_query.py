@@ -19,6 +19,22 @@ VIEWS = ("all", "mine", "bots", "waiting", "today")
 SORTS = ("due", "priority", "created", "updated")
 DONE_DAYS = 7
 ASK_TEXT = "About this item"
+_WINDOW_LIVE = frozenset({"Bots"})
+
+
+def properties_need_reload(names: object) -> bool:
+    """True when ``PropertiesChanged`` should reload the open window.
+
+    ``Bots`` carries display names, status dots, and summaries. Item text
+    still arrives on ``ItemsChanged``. Other properties, such as ``LastSync``,
+    do not rebuild the list.
+    """
+
+    if isinstance(names, str):
+        return names in _WINDOW_LIVE
+    if not isinstance(names, (list, tuple, set, frozenset)):
+        return False
+    return any(isinstance(name, str) and name in _WINDOW_LIVE for name in names)
 
 
 def list_filter(

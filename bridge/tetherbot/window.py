@@ -35,6 +35,7 @@ from tetherbot.window_query import (  # noqa: E402
     list_filter,
     note_payload,
     parse_start_clock,
+    properties_need_reload,
     safe_http_url,
     source_line,
     timer_item_key,
@@ -252,6 +253,7 @@ class BridgeClient:
             return
         self._proxy = proxy
         self._proxy.connect("g-signal", self._on_signal)
+        self._proxy.connect("g-properties-changed", self._on_properties)
         self._load_items()
 
     def _load_items(self) -> None:
@@ -399,6 +401,16 @@ class BridgeClient:
 
     def _on_signal(self, _proxy: Gio.DBusProxy, _sender: str, signal: str, _params: Any) -> None:
         if signal in {"ItemsChanged", "TimerChanged"} and self._listener is not None:
+            GLib.idle_add(self._listener)
+
+    def _on_properties(self, _proxy: Any, changed: Any, invalidated: Any) -> None:
+        names = [*_variant_names(changed), *_variant_names(invalidated)]
+        self.note_properties(names)
+
+    def note_properties(self, names: object) -> None:
+        """Reload when ``Bots`` changed. Safe to call from a test."""
+
+        if properties_need_reload(names) and self._listener is not None:
             GLib.idle_add(self._listener)
 
 
@@ -629,8 +641,9 @@ class TodoWindow(Adw.ApplicationWindow):
             bots=sorted(self._bot_filter),
         )
         if hasattr(self.client, "load_list"):
-            self.banner.set_title("Loading…")
-            self.banner.set_revealed(True)
+            if not self._items and not self._known_bots:
+                self.banner.set_title("Loading…")
+                self.banner.set_revealed(True)
             self.client.load_list(spec, self._on_list)
             return GLib.SOURCE_REMOVE
         try:
@@ -1563,6 +1576,25 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
     return app.run(args)
+
+
+def _variant_names(value: Any) -> list[str]:
+    """Keys or strings from a PropertiesChanged variant."""
+
+    if value is None:
+        return []
+    if isinstance(value, dict):
+        return [key for key in value if isinstance(key, str)]
+    if isinstance(value, (list, tuple)):
+        return [item for item in value if isinstance(item, str)]
+    unpack = getattr(value, "unpack", None)
+    if not callable(unpack):
+        return []
+    try:
+        data = unpack()
+    except Exception:
+        return []
+    return _variant_names(data)
 
 
 def _open_uri(href: str) -> None:

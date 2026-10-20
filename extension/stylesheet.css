@@ -10,10 +10,14 @@
     opacity: 0.45;
 }
 
+.panel-button.tetherbot-panel {
+    padding-left: 2px;
+    padding-right: 2px;
+}
+
 .tetherbot-time {
     font-weight: bold;
-    margin-left: 6px;
-    min-width: 4.8em;
+    margin-left: 4px;
     font-feature-settings: "tnum";
     font-variant-numeric: tabular-nums;
 }

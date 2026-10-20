@@ -48,7 +48,8 @@ TetherBot is pre-alpha. Check items off as they land. Design detail is in [SPEC.
 - [ ] Manual checks M18–M36 and M42 for the rich todo view, login start, window open, and the remaining stopwatch checks. Login start and non-blocking window open are on main (#22, #23). The steps are in [MANUAL-CHECKS.md](MANUAL-CHECKS.md). M18–M36 and M42 have not been run on the desktop yet.
 - [x] Manual checks M43–M46 passed on the desktop: a second feed file, display names, the compact Bots section, popup order Timer then Todos then Asks then Bots, and the window Bots tab (summary click, name filter, and the list of bots).
 - [ ] Manual check M47 for the timer after the new popup. The steps are in [MANUAL-CHECKS.md](MANUAL-CHECKS.md). It has not been run on the desktop yet.
-- [ ] Manual checks M48–M54 for an optional webhook slot, Sync now, the timer chip, toolbar colors with no counts, summary contrast, the bot-row dot and summary, and local dates. The steps are in [MANUAL-CHECKS.md](MANUAL-CHECKS.md). They have not been run on the desktop yet.
+- [x] Manual checks M48–M54 passed on the desktop: a bot without a webhook slot, Sync now, the timer chip, the toolbar with no counts and the todo ring, the readable summary, the window bot status dot, and local-time dates.
+- [ ] Manual checks M55–M57 for the timer chip on the left, a top bar that hugs the timer text, and a window that updates bot names while it stays open. The steps are in [MANUAL-CHECKS.md](MANUAL-CHECKS.md). They have not been run on the desktop yet.
 
 ## v0.2 — early adopters
 

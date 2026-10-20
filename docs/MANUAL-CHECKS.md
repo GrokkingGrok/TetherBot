@@ -2,7 +2,7 @@
 
 Run these on one Fedora 44 desktop with GNOME Shell 50 on Wayland, after you can log in as a normal user. The project is unofficial and not affiliated with xAI.
 
-**Out of scope here:** M9 (webhook-only popup copy), M15 and M16 (a legacy todo sink outside this repository), and M17 (the full uninstall acceptance check). Uninstall is still documented in [SETUP.md](SETUP.md) and is the reset for M1. M18–M24 are the rich-todo checks later in this file. M25 checks that a new login starts the bridge. M26 checks that a todo click opens the window quickly. M27–M42 check the stopwatch. M43–M47 check more than one bot, display names, the compact Bots section, and the popup order. M48–M54 check an optional webhook slot, Sync now, the timer chip, toolbar colors, summary contrast, the bot-row dot and summary, and local dates. Do not treat M9, M15, M16, or M17 as part of the v0.1 runbook.
+**Out of scope here:** M9 (webhook-only popup copy), M15 and M16 (a legacy todo sink outside this repository), and M17 (the full uninstall acceptance check). Uninstall is still documented in [SETUP.md](SETUP.md) and is the reset for M1. M18–M24 are the rich-todo checks later in this file. M25 checks that a new login starts the bridge. M26 checks that a todo click opens the window quickly. M27–M42 check the stopwatch. M43–M47 check more than one bot, display names, the compact Bots section, and the popup order. M48–M54 check an optional webhook slot, Sync now, the timer chip, toolbar colors, summary contrast, the bot-row dot and summary, and local dates. M55–M57 check the timer chip on the left, the top-bar width, and a window that updates while it stays open. Do not treat M9, M15, M16, or M17 as part of the v0.1 runbook.
 
 Examples use the bot id `primary`. Yours can be any lowercase id of letters, digits, and hyphens. Use the same id in the bot's feed file, in `config.toml`, and in the commands below.
 
@@ -10,7 +10,7 @@ Nothing in these steps belongs in a chat, in `config.toml`, or in this repositor
 
 ## Suggested order
 
-M1, M2, then the extension install in M14 (log out and back in once), then M3. Do M10 before M4 if the popup has no ask yet. Then M4, M10a, M5, M11, M6, M7, M8, M12, M13. After a rich todo is in the feed, M18 through M24. M25 is the next login after the unit is installed. M26 is a todo click after that. M27 through M42 need a running timer. M43 through M47 need this version installed and a log out, then a second feed file. M48 through M54 need that same login.
+M1, M2, then the extension install in M14 (log out and back in once), then M3. Do M10 before M4 if the popup has no ask yet. Then M4, M10a, M5, M11, M6, M7, M8, M12, M13. After a rich todo is in the feed, M18 through M24. M25 is the next login after the unit is installed. M26 is a todo click after that. M27 through M42 need a running timer. M43 through M47 need this version installed and a log out, then a second feed file. M48 through M54 need that same login. M55 through M57 need the next install and a log out.
 
 You can stop after any check. Later checks say what they need.
 
@@ -1006,6 +1006,40 @@ journalctl --user -b /usr/bin/gnome-shell --no-pager | tail -n 80
 
 - The Created chip uses the local calendar day.
 - The detail footer names the bot, the routine, and a short local time, such as `Oct 19, 9:40 PM`. It does not show a raw `T` timestamp.
+
+**Reset.** None.
+
+## M55. The timer chip sits on the left
+
+**Preconditions.** M50. A timer is running on a todo that has a bot name.
+
+**Look for.**
+
+- Under the clock, the bot chip is first, at the left, and the todo title follows it on the same line.
+- A long title stays on that line. The chip does not jump to the far edge.
+
+**Reset.** None.
+
+## M56. The top bar hugs the timer
+
+**Preconditions.** M51. Log out and back in after installing this version.
+
+**Look for.**
+
+- The panel button is only as wide as the icon plus the timer text. There is no empty stretch after `1:29` or `5m`.
+- `5m` is narrower than `41m`, and `41m` is narrower than `1:05`.
+- While the timer runs inside one shape, the button does not jitter as the digits change.
+
+**Reset.** None.
+
+## M57. An open window follows a renamed bot
+
+**Preconditions.** M46. The TetherBot window is already open.
+
+**Look for.**
+
+- Change a bot's display name in the feed and sync. The popup and the open window both show the new name. Closing the window is not required.
+- The Bots tab shows the new name, the status dot, and the summary. Todo rows show the new name on their chip.
 
 **Reset.** None.
 

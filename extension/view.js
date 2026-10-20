@@ -130,6 +130,20 @@ export function formatTopBar(seconds) {
     return `${minutes}m`;
 }
 
+export function topBarWidthSample(text) {
+    if (typeof text !== 'string' || !text)
+        return '';
+    const minutes = /^(\d+)m$/.exec(text);
+    if (minutes)
+        return `${'8'.repeat(minutes[1].length)}m`;
+    const clock = /^(\d+):(\d{2})$/.exec(text);
+    if (clock)
+        return `${'8'.repeat(clock[1].length)}:88`;
+    if (text === '--:--')
+        return '88:88';
+    return text;
+}
+
 export function formatTracked(seconds) {
     const whole = Math.floor(Number(seconds) || 0);
     if (whole <= 0)

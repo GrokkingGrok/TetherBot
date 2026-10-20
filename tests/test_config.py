@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from tetherbot.config import ConfigError, load_config
+from tetherbot.config import ConfigError, action_slots, load_config
 
 EXAMPLE = Path(__file__).resolve().parents[1] / "data" / "config.example.toml"
 
@@ -136,6 +136,32 @@ def test_optional_bot_display_name(tmp_path: Path):
     )
     with pytest.raises(ConfigError, match="display_name"):
         load_config(path)
+
+
+def test_bots_can_share_a_slot_and_fall_back_to_primary(tmp_path: Path):
+    path = tmp_path / "config.toml"
+    path.write_text(
+        "\n".join(
+            [
+                'schema = "tetherbot/1"',
+                "[bots.primary]",
+                'webhook_slot = "primary-actions"',
+                "[bots.notes]",
+                'webhook_slot = "primary-actions"',
+                "[bots.other]",
+                'webhook_slot = "other-actions"',
+                "[bots.quiet]",
+                'display_name = "Quiet"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+    config = load_config(path)
+    assert action_slots(config, "primary") == ["primary-actions"]
+    assert action_slots(config, "notes") == ["primary-actions"]
+    assert action_slots(config, "other") == ["other-actions", "primary-actions"]
+    assert action_slots(config, "quiet") == []
+    assert action_slots(config, "missing") == []
 
 
 def test_missing_webhook_slot_loads_and_a_bad_slot_stays_on_that_bot(tmp_path: Path):

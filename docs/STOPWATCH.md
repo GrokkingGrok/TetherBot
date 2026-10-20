@@ -2,7 +2,7 @@
 
 Status: approved. The Decisions section at the end is binding.
 
-The top-bar icon is the robot glyph from the design mockups, shipped as symbolic SVGs (base, dot, ring, slash, and triangle). Mock todo titles in this file are generic examples.
+The top-bar icon is a simple face, two eyes and a small smile, shipped as symbolic SVGs (base, dot, ring, slash, and triangle). It follows the shell's panel icon size. The ring and the dot are drawn in the SVG, so they scale with the icon. Mock todo titles in this file are generic examples.
 
 Goal: track time on one task at a time from the top bar, and make the top-bar button say one thing at a glance. Losing tracked time is the worst failure, so recovery comes first.
 
@@ -44,7 +44,7 @@ Rules:
 - The panel button is as wide as the icon plus the current timer text. `5m` is narrower than `41m`, and `41m` is narrower than `1:29`. Digits in one shape (`1:05` and `1:29`) keep the same width. There is no reserved width for a longer shape.
 - Broken hides the time. The bridge owns the timer, so the extension does not show a number it cannot confirm. The popup says the saved time is safe.
 - Top-bar time has no seconds. Under an hour it is `0m`, `5m`, `41m` (no leading zero). From one hour it is `h:mm`, for example `1:05` and `12:40`. The popup clock may still show seconds. Use tabular figures so the button does not jitter (St support for `font-feature-settings: "tnum"` is **TBD, verify**).
-- The badge has a cutout ring in the bar color so it reads against the icon at 16 px.
+- The badge has a cutout in the bar color so it reads against the icon. The icon is not locked to 16 px. It uses the shell's panel icon size, and the badge scales with it.
 - The old count badge and the amber attention color on the icon go away. Amber stays for the bot row dot in the popup and for the clock warning.
 - No blinking, pulsing, or animation in any state.
 

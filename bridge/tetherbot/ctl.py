@@ -23,7 +23,7 @@ from typing import TextIO
 from urllib.parse import urlsplit
 
 from tetherbot.adapters.webhook_sender import ping_body
-from tetherbot.config import ConfigError, load_config, save_adapter_enabled
+from tetherbot.config import ConfigError, action_slots, load_config, save_adapter_enabled
 from tetherbot.daemon import default_config_path
 from tetherbot.dbus_service import BUS_NAME, INTERFACE, OBJECT_PATH
 from tetherbot.secrets import SecretError, SecretStore, open_secret_store
@@ -312,10 +312,14 @@ def _webhook_test(bot: str, context: CtlContext) -> int:
     if not context.config_path.is_file():
         raise CtlError("config.toml is missing")
     config = load_config(context.config_path)
-    bot_config = config.bots.get(bot)
-    if bot_config is None or not bot_config.webhook_slot:
+    slots = action_slots(config, bot)
+    if not slots:
         raise CtlError("bot has no webhook slot")
-    secret = context.secrets.get_webhook(bot_config.webhook_slot)
+    secret = None
+    for slot in slots:
+        secret = context.secrets.get_webhook(slot)
+        if secret is not None:
+            break
     if secret is None:
         raise CtlError("webhook secret is not stored")
     code = context.post(secret.url, secret.key)

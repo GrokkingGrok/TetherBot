@@ -260,6 +260,101 @@ def timer_item_key(timer: object) -> str:
     return key if isinstance(key, str) else ""
 
 
+UNDO_MS = 5000
+
+
+def undo_fraction(until_ms: object, now_ms: object, window_ms: int = UNDO_MS) -> float:
+    """How much of an undo window is left, from 1 down to 0."""
+
+    until = _millis(until_ms)
+    now = _millis(now_ms)
+    span = window_ms if isinstance(window_ms, int) and window_ms > 0 else UNDO_MS
+    remain = until - now
+    if remain <= 0:
+        return 0.0
+    if remain >= span:
+        return 1.0
+    return remain / span
+
+
+def merge_undo_items(
+    items: list[dict[str, Any]],
+    holds: list[dict[str, Any]] | Mapping[str, Any],
+    now_ms: int,
+    *,
+    pin_expired: bool = False,
+) -> list[dict[str, Any]]:
+    """Keep each cleared row at the index it had when it was cleared.
+
+    An expired row stays only while the pointer is still over the list, so
+    the rows under the cursor do not jump.
+    """
+
+    rows = list(holds.values()) if isinstance(holds, Mapping) else list(holds)
+    active: dict[str, dict[str, Any]] = {}
+    for hold in rows:
+        if not isinstance(hold, dict):
+            continue
+        key = hold.get("key")
+        item = hold.get("item")
+        if not isinstance(key, str) or not key or not isinstance(item, dict):
+            continue
+        until = _millis(hold.get("until"))
+        if until <= now_ms and not pin_expired:
+            continue
+        active[key] = hold
+    base: list[dict[str, Any]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        key = item.get("key")
+        if isinstance(key, str) and key in active:
+            continue
+        base.append(dict(item))
+    ordered = sorted(active.values(), key=lambda hold: _millis(hold.get("index")))
+    waiting: list[dict[str, Any]] = []
+    for hold in ordered:
+        if not _insert_hold(base, hold, now_ms):
+            waiting.append(hold)
+    for hold in waiting:
+        if _insert_hold(base, hold, now_ms):
+            continue
+        item = _undo_item(hold, now_ms)
+        index = _millis(hold.get("index"))
+        if index < 0:
+            index = 0
+        if index > len(base):
+            index = len(base)
+        base.insert(index, item)
+    return base
+
+
+def _undo_item(hold: dict[str, Any], now_ms: int) -> dict[str, Any]:
+    item = dict(hold["item"])
+    until = _millis(hold.get("until"))
+    item["_undo"] = {"until": until, "fraction": undo_fraction(until, now_ms)}
+    return item
+
+
+def _insert_hold(base: list[dict[str, Any]], hold: dict[str, Any], now_ms: int) -> bool:
+    """Place the row just before the neighbor it had when it was cleared."""
+
+    after = hold.get("after")
+    if not isinstance(after, str) or not after:
+        return False
+    for index, item in enumerate(base):
+        if item.get("key") == after:
+            base.insert(index, _undo_item(hold, now_ms))
+            return True
+    return False
+
+
+def _millis(value: object) -> int:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return 0
+    return int(value)
+
+
 def safe_http_url(href: str) -> str | None:
     """Return ``href`` when it is an http or https URL with no whitespace."""
 

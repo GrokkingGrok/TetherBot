@@ -56,6 +56,33 @@ export const PROXY_SIGNALS = [
 export const TODO_LIMIT = 8;
 export const UNDO_MS = 5000;
 
+export function undoFraction(untilMs, nowMs, windowMs = UNDO_MS) {
+    const until = Number(untilMs);
+    const now = Number(nowMs);
+    const span = Number(windowMs);
+    if (!Number.isFinite(until) || !Number.isFinite(now) || !Number.isFinite(span) || span <= 0)
+        return 0;
+    const remain = until - now;
+    if (remain <= 0)
+        return 0;
+    if (remain >= span)
+        return 1;
+    return remain / span;
+}
+
+export function nextUndoDelay(holds, nowMs) {
+    let soonest = 0;
+    const now = Number(nowMs);
+    for (const hold of holds || []) {
+        if (!hold || !(hold.until > now))
+            continue;
+        const remain = hold.until - now;
+        if (!soonest || remain < soonest)
+            soonest = remain;
+    }
+    return soonest;
+}
+
 const CHIP_TONES = new Set([
     'red', 'orange', 'amber', 'yellow', 'green', 'teal',
     'blue', 'purple', 'pink', 'gray', 'neutral',
@@ -388,7 +415,12 @@ function liveUndo(timer, nowSec) {
     const title = undo.item_title
         ? `Recorded ${recorded} on ${undo.item_title}`
         : `Stopped ${recorded}`;
-    return {action: 'Undo', timerId: undo.timer_id || '', title};
+    return {
+        action: 'Undo',
+        timerId: undo.timer_id || '',
+        title,
+        untilMs: Number(undo.until) * 1000,
+    };
 }
 
 export function keepAssigning(assigning, timer) {
@@ -464,6 +496,7 @@ export function timerModel({
             title: undo.title,
             action: 'Undo',
             timerId: undo.timerId,
+            untilMs: undo.untilMs,
         };
     }
     if (timerActive(timer)) {
@@ -613,6 +646,7 @@ export function menuModel({
     queueLength,
     nowMs,
     undoHolds = [],
+    pinExpired = false,
     activationFailed = true,
     timer = null,
     assigning = false,
@@ -691,7 +725,7 @@ export function menuModel({
             });
         }
     }
-    const presented = presentTodos(todos, undoHolds, nowMs);
+    const presented = presentTodos(todos, undoHolds, nowMs, pinExpired);
     return {
         banner,
         bots: compact.rows,
@@ -794,36 +828,79 @@ export function chipRow(item) {
     };
 }
 
-export function presentTodos(todos, holds, nowMs) {
+export function presentTodos(todos, holds, nowMs, pinExpired = false) {
     const pending = new Map();
     for (const hold of holds || []) {
-        if (!hold || typeof hold.key !== 'string' || !(hold.until > nowMs) || !hold.row)
+        if (!hold || typeof hold.key !== 'string' || !hold.row)
             continue;
-        pending.set(hold.key, hold.row);
+        if (!(hold.until > nowMs) && !pinExpired)
+            continue;
+        pending.set(hold.key, hold);
     }
     const merged = [];
     const seen = new Set();
     for (const row of todos || []) {
-        if (pending.has(row.key)) {
-            merged.push({...row, undo: true, canSendDone: false});
+        const hold = pending.get(row.key);
+        if (hold) {
+            merged.push(undoRow(row, hold, nowMs));
             seen.add(row.key);
         } else {
-            merged.push({...row, undo: false});
+            merged.push({...row, undo: false, undoUntil: 0, undoFraction: 0});
         }
     }
-    for (const [key, row] of pending) {
-        if (seen.has(key))
-            continue;
-        merged.unshift({...row, undo: true, canSendDone: false});
+    const missing = [];
+    for (const [key, hold] of pending) {
+        if (!seen.has(key))
+            missing.push(hold);
     }
-    const undoRows = merged.filter(row => row.undo);
-    const openRows = merged.filter(row => !row.undo);
-    const room = Math.max(0, TODO_LIMIT - undoRows.length);
-    const shown = undoRows.concat(openRows.slice(0, room));
+    placeHolds(merged, missing, nowMs);
+    merged.forEach((row, index) => {
+        row.index = index;
+        const next = merged[index + 1];
+        row.after = next && next.key ? next.key : '';
+    });
+    const shown = merged.slice(0, TODO_LIMIT);
     const more = merged.length > shown.length;
     return {
         todos: shown,
         moreLabel: more ? `Open TetherBot to see all ${merged.length}` : '',
+    };
+}
+
+function placeHolds(merged, holds, nowMs) {
+    const ordered = holds.slice().sort((a, b) => (Number(a.index) || 0) - (Number(b.index) || 0));
+    const waiting = [];
+    for (const hold of ordered) {
+        if (!insertHold(merged, hold, nowMs))
+            waiting.push(hold);
+    }
+    for (const hold of waiting) {
+        if (!insertHold(merged, hold, nowMs)) {
+            const at = Math.max(0, Math.min(Number(hold.index) || 0, merged.length));
+            merged.splice(at, 0, undoRow(hold.row, hold, nowMs));
+        }
+    }
+}
+
+function insertHold(merged, hold, nowMs) {
+    const after = typeof hold.after === 'string' ? hold.after : '';
+    if (!after)
+        return false;
+    const at = merged.findIndex(item => item.key === after);
+    if (at < 0)
+        return false;
+    merged.splice(at, 0, undoRow(hold.row, hold, nowMs));
+    return true;
+}
+
+function undoRow(row, hold, nowMs) {
+    const until = Number(hold.until) || 0;
+    return {
+        ...row,
+        undo: true,
+        canSendDone: false,
+        undoUntil: until,
+        undoFraction: undoFraction(until, nowMs),
     };
 }
 

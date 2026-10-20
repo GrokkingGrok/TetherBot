@@ -39,6 +39,7 @@ def _boot(tmp_path: Path) -> tuple[BridgeDaemon, list]:
     )
     daemon.start()
     assert daemon.api is not None and daemon.store is not None
+    daemon.secrets.put_webhook("primary-actions", "https://example.test/hook", "hook-key")
     seen: list = []
     daemon.api.subscribe(lambda name, args: seen.append((name, args)))
     return daemon, seen

@@ -28,6 +28,7 @@ import {
     timerModel,
     compactBotSection,
     menuModel,
+    nextUndoDelay,
     notificationModel,
     openWindowCall,
     performCall,
@@ -37,6 +38,8 @@ import {
     startServiceCall,
     todoFilter,
     undoCall,
+    undoFraction,
+    presentTodos,
     mergeTodoSearch,
 } from './view.js';
 
@@ -427,6 +430,48 @@ export function runViewChecks() {
     assert(undone.todos[0].undo === true, 'undo flag');
     assert(undone.todos[0].canSendDone === false, 'undo replaces done');
     assert(undone.todos[0].title === 'Send the note', 'undo title');
+    assert(undone.todos[0].undoFraction > 0, 'undo bar starts full');
+
+    const stayed = presentTodos(
+        [
+            {key: 'a', title: 'A'},
+            {key: 'c', title: 'C'},
+        ],
+        [{
+            key: 'b',
+            until: NOW + 5000,
+            index: 1,
+            row: {key: 'b', title: 'B'},
+        }],
+        NOW,
+    );
+    assert(stayed.todos.map(row => row.key).join(',') === 'a,b,c', 'undo stays where it was');
+    assert(stayed.todos[1].undoFraction === 1, 'a new undo has the full window');
+
+    const later = presentTodos(
+        [{key: 'c', title: 'C'}],
+        [
+            {key: 'a', until: NOW + 1000, index: 0, after: 'b', row: {key: 'a', title: 'A'}},
+            {key: 'b', until: NOW + 5000, index: 1, after: 'c', row: {key: 'b', title: 'B'}},
+        ],
+        NOW + 1000,
+    );
+    assert(later.todos.map(row => row.key).join(',') === 'b,c', 'an older undo expires alone');
+    assert(later.todos[0].undoFraction > 0.7, 'the newer undo keeps its own time');
+    assert(nextUndoDelay([
+        {until: NOW + 1000},
+        {until: NOW + 5000},
+    ], NOW) === 1000, 'the next expiry is the soonest hold');
+    assert(undoFraction(NOW + 5000, NOW + 4000) === 0.2, 'the bar matches the time left');
+
+    const pinned = presentTodos(
+        [{key: 'c', title: 'C'}],
+        [{key: 'a', until: NOW, index: 0, row: {key: 'a', title: 'A'}}],
+        NOW,
+        true,
+    );
+    assert(pinned.todos.map(row => row.key).join(',') === 'a,c', 'hover keeps the expired row');
+    assert(pinned.todos[0].undoFraction === 0, 'an expired bar is empty');
 
     const filtered = JSON.parse(todoFilter(' @home due:today '));
     assert(filtered.kinds.join(',') === 'todo', 'search stays on todos');

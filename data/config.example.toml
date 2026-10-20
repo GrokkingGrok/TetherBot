@@ -42,6 +42,8 @@ enabled = false
 # display_name = "Primary"   # optional; wins over display_name in the feed
 #
 # A second bot is another table and its own feed file. The slug stays the id.
+# Several bots may use the same webhook_slot and then share that secret.
+# If a bot's own slot has no stored secret, actions try the primary bot's slot.
 # [bots.notes]
-# webhook_slot = "notes-actions"
+# webhook_slot = "primary-actions"
 # display_name = "Notes"

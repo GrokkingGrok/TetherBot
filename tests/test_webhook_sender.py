@@ -268,7 +268,11 @@ def test_missing_secret_waits_without_posting(tmp_path: Path):
     daemon.tick_webhook()
     assert script.calls == []
     assert daemon.queue.snapshot()[0].state == "pending"
-    assert daemon.reason == "webhook secret is not stored"
+    assert daemon.state == "ok"
+    assert daemon.reason == ""
+    bots = {row["name"]: row for row in json.loads(daemon.api.properties()["Bots"])}
+    assert bots["primary"]["summary"] == "webhook secret is not stored"
+    assert bots["primary"]["state"] == "error"
     notices = [item for item in seen if item[0] == "NotificationRequested"]
     assert len(notices) == 1
     assert WEBHOOK_URL not in log.getvalue()
@@ -285,6 +289,65 @@ def test_a_bot_with_no_slot_does_not_block_the_bridge(tmp_path: Path):
     assert parked["a-notes"] == "pending"
     assert "a-pri1" not in parked
     assert daemon.state == "ok"
+
+
+def test_two_bots_can_share_one_webhook_slot(tmp_path: Path):
+    script = Script([200, 200])
+    daemon, _clock, _seen, log = _boot(tmp_path, script, notes_slot="primary-actions")
+    _enqueue(daemon, "a-notes", NOW - timedelta(seconds=30), bot="notes")
+    _enqueue(daemon, "a-pri1", NOW - timedelta(seconds=30))
+    daemon.tick_webhook()
+    daemon.tick_webhook()
+    assert [call[0] for call in script.calls] == [WEBHOOK_URL, WEBHOOK_URL]
+    assert [call[1] for call in script.calls] == [WEBHOOK_KEY, WEBHOOK_KEY]
+    assert daemon.state == "ok"
+    assert daemon.reason == ""
+    assert daemon.queue.snapshot() == ()
+    assert WEBHOOK_URL not in log.getvalue()
+    assert WEBHOOK_KEY not in log.getvalue()
+
+
+def test_a_missing_secret_holds_only_that_bot(tmp_path: Path):
+    script = Script([200])
+    daemon, _clock, seen, log = _boot(
+        tmp_path,
+        script,
+        store_secret=False,
+        extra_bot=True,
+        notes_slot="notes-actions",
+    )
+    daemon.secrets.put_webhook("zeta-actions", "https://example.test/hook/zeta", "zeta-hook-key")
+    _enqueue(daemon, "a-notes", NOW - timedelta(seconds=30), bot="notes")
+    _enqueue(daemon, "a-zeta1", NOW - timedelta(seconds=30), bot="zeta")
+    daemon.tick_webhook()
+    assert [call[0] for call in script.calls] == ["https://example.test/hook/zeta"]
+    parked = {row.action_id: row.state for row in daemon.queue.snapshot()}
+    assert parked == {"a-notes": "pending"}
+    assert daemon.state == "ok"
+    assert daemon.reason == ""
+    bots = {row["name"]: row for row in json.loads(daemon.api.properties()["Bots"])}
+    assert bots["notes"]["summary"] == "webhook secret is not stored"
+    assert bots["notes"]["state"] == "error"
+    assert bots["zeta"]["summary"] != "webhook secret is not stored"
+    assert bots["primary"]["state"] == "error"
+    notices = [item for item in seen if item[0] == "NotificationRequested"]
+    assert len(notices) == 1
+    assert WEBHOOK_URL not in log.getvalue()
+    assert "zeta-hook-key" not in log.getvalue()
+
+
+def test_a_bot_without_a_stored_secret_uses_the_primary_slot(tmp_path: Path):
+    script = Script([200])
+    daemon, _clock, _seen, log = _boot(tmp_path, script, notes_slot="notes-actions")
+    _enqueue(daemon, "a-notes", NOW - timedelta(seconds=30), bot="notes")
+    daemon.tick_webhook()
+    assert script.calls[0][0] == WEBHOOK_URL
+    assert script.calls[0][1] == WEBHOOK_KEY
+    assert daemon.state == "ok"
+    assert daemon.queue.snapshot() == ()
+    bots = {row["name"]: row for row in json.loads(daemon.api.properties()["Bots"])}
+    assert bots["notes"]["summary"] != "webhook secret is not stored"
+    assert WEBHOOK_KEY not in log.getvalue()
 
 
 def test_other_bot_is_not_parked_for_a_rejected_key(tmp_path: Path):
@@ -398,6 +461,7 @@ def _boot(
     store_secret: bool = True,
     extra_bot: bool = False,
     bare_bot: str = "",
+    notes_slot: str = "",
 ):
     clock = Clock()
     log = StringIO()
@@ -406,6 +470,8 @@ def _boot(
         text += '[bots.zeta]\nwebhook_slot = "zeta-actions"\n'
     if bare_bot:
         text += f'[bots.{bare_bot}]\ndisplay_name = "Notes"\n'
+    if notes_slot:
+        text += f'[bots.notes]\nwebhook_slot = "{notes_slot}"\n'
     if daily_cap is not None:
         text += f"\n[queue]\ndaily_cap = {daily_cap}\n"
     (tmp_path / "config.toml").write_text(text, encoding="utf-8")

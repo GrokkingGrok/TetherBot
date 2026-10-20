@@ -31,6 +31,7 @@ from urllib.parse import urlsplit
 
 from tetherbot import SCHEMA_VERSION, __version__
 from tetherbot.adapters.base import AdapterStatus, PollResult, SendResult
+from tetherbot.config import action_slots
 from tetherbot.model import mask_secrets, parse_iso8601
 from tetherbot.secrets import SecretError, SecretLocked, SecretUnavailable
 
@@ -190,6 +191,9 @@ class WebhookSender:
             if bot_config is not None and not bot_config.webhook_slot:
                 held.add(bot)
                 continue
+            if self._missing_secret(ctx, bot):
+                held.add(bot)
+                continue
             moment = _hold(rows)
             if moment is not None and now < moment:
                 held.add(bot)
@@ -212,7 +216,7 @@ class WebhookSender:
             self._hold_for_keyring()
             return None
         try:
-            secret = ctx.secrets.get_webhook(bot_config.webhook_slot)
+            secret = self._stored_secret(ctx, bot)
         except SecretLocked:
             self._hold_for_keyring()
             return None
@@ -223,16 +227,59 @@ class WebhookSender:
             self._set_overlay("degraded", "webhook secret is unreadable")
             return None
         if secret is None:
-            self._set_overlay("degraded", "webhook secret is not stored")
-            self._notify_once(
-                bot,
-                "missing-secret",
-                "Re-paste key",
-                "Bot details, Routines, the routine, Webhook, key",
-                bot_config.webhook_slot,
-            )
+            self._note_missing_secret(ctx, bot, bot_config.webhook_slot)
             return None
+        self._notified.discard((bot, "missing-secret"))
         return secret
+
+    def _missing_secret(self, ctx: Any, bot: str) -> bool:
+        """Hold this bot when its slot and the primary fallback have no key.
+
+        A locked keyring and an unreadable secret stay on the bridge-wide
+        path in ``_lookup``. An empty slot is already skipped by the caller.
+        """
+
+        if not action_slots(ctx.config, bot):
+            return False
+        try:
+            status = ctx.secrets.status()
+        except Exception:
+            return False
+        if status != "available":
+            return False
+        try:
+            secret = self._stored_secret(ctx, bot)
+        except (SecretLocked, SecretUnavailable, SecretError):
+            return False
+        if secret is not None:
+            return False
+        slot = ""
+        config = ctx.config
+        if config is not None and bot in config.bots:
+            slot = config.bots[bot].webhook_slot
+        self._note_missing_secret(ctx, bot, slot)
+        return True
+
+    def _stored_secret(self, ctx: Any, bot: str) -> Any:
+        """First stored secret for this bot, falling back to the primary slot."""
+
+        for slot in action_slots(ctx.config, bot):
+            secret = ctx.secrets.get_webhook(slot)
+            if secret is not None:
+                return secret
+        return None
+
+    def _note_missing_secret(self, ctx: Any, bot: str, slot: str) -> None:
+        self._notify_once(
+            bot,
+            "missing-secret",
+            "Re-paste key",
+            "Bot details, Routines, the routine, Webhook, key",
+            slot,
+        )
+        api = getattr(ctx, "api", None)
+        if api is not None and hasattr(api, "note_bots"):
+            api.note_bots()
 
     def _background(
         self,

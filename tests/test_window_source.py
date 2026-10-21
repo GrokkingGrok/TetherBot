@@ -53,6 +53,10 @@ def test_window_sources_do_not_touch_the_network_or_secrets():
     assert "KEY_Escape" in window
     assert "AssignTimer" in window
     assert "DismissTimer" in window
+    assert "GetItemTime" in window
+    assert "SetTrackedTotal" in window
+    assert "DeleteTimeRecord" in window
+    assert "Delete this time record?" in window
     assert "AdjustTimerStart" in window
     assert "merge_undo_items" in window
     assert "tether-undo" in window

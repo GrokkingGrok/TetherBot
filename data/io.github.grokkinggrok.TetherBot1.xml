@@ -133,6 +133,20 @@
     <method name="DismissTimer">
       <arg name="timer_json" type="s" direction="out"/>
     </method>
+    <method name="GetItemTime">
+      <arg name="item_key" type="s" direction="in"/>
+      <arg name="time_json" type="s" direction="out"/>
+    </method>
+    <method name="SetTrackedTotal">
+      <arg name="item_key" type="s" direction="in"/>
+      <arg name="total_s" type="x" direction="in"/>
+      <arg name="time_json" type="s" direction="out"/>
+    </method>
+    <method name="DeleteTimeRecord">
+      <arg name="item_key" type="s" direction="in"/>
+      <arg name="record_id" type="s" direction="in"/>
+      <arg name="time_json" type="s" direction="out"/>
+    </method>
 
     <signal name="ItemsChanged">
       <arg name="added" type="as"/>

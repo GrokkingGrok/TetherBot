@@ -236,6 +236,27 @@ class _TimerFake(_Fake):
         self.timer = {"state": "idle", "item_title": previous}
         return dict(self.timer)
 
+    def get_item_time(self, key):
+        item = next(row for row in self.items if row["key"] == key)
+        total = int(item.get("time_tracked_s") or 0)
+        records = []
+        if total:
+            records.append({"id": "rec-1", "seconds": total, "at": 0, "kind": "session"})
+        return {"item_key": key, "total_s": total, "records": records}
+
+    def set_tracked_total(self, key, total_s):
+        for item in self.items:
+            if item["key"] == key:
+                item["time_tracked_s"] = total_s
+        return self.get_item_time(key)
+
+    def delete_time_record(self, key, record_id):
+        self.deleted = [key, record_id]
+        for item in self.items:
+            if item["key"] == key:
+                item["time_tracked_s"] = 0
+        return {"item_key": key, "total_s": 0, "records": []}
+
 
 def test_window_starts_a_timer_and_asks_before_switching():
     gi = pytest.importorskip("gi")
@@ -273,6 +294,24 @@ def _exercise_timer(app, fake, holder, glib) -> None:
             assert window.start_button.get_label() == "Start timer"
             assert _has_label(window.detail_chips, "1:42 tracked")
             assert _has_label(window.list, "1:42 tracked")
+            assert window.time_box.get_visible()
+            assert window.time_entry.get_text() == "1:42:00"
+            assert _has_label(window.time_records, "1:42:00")
+            window.time_entry.set_text("1:00:00")
+            window.time_set.emit("clicked")
+            assert fake.items[0]["time_tracked_s"] == 3600
+            assert window.time_entry.get_text() == "1:00:00"
+            trash = _find_play(window.time_records, "Delete time record")
+            assert trash is not None
+            trash.emit("clicked")
+            dialog = window._time_dialog
+            assert dialog is not None
+            assert dialog.get_heading() == "Delete this time record?"
+            dialog.emit("response", "cancel")
+            assert not getattr(fake, "deleted", None)
+            dialog.emit("response", "delete")
+            assert fake.deleted == ["primary/one", "rec-1"]
+            assert window.time_entry.get_text() == "0:00:00"
             play = _find_play(window.list, "Start timer: Pack the bag")
             assert play is not None
             play.emit("clicked")

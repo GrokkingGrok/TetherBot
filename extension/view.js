@@ -654,6 +654,13 @@ const ATTENTION_STATES = new Set([
     'paused',
 ]);
 
+const SUMMARY_ERROR_STATES = new Set([
+    'error',
+    'failed_closed',
+    'unconfigured',
+    'offline',
+]);
+
 export function botLabels(bots) {
     const labels = new Map();
     for (const bot of bots || []) {
@@ -675,6 +682,15 @@ export function botNeedsAttention(row) {
     return number(row.openAsks) > 0;
 }
 
+export function summaryTone(rows) {
+    const attention = (Array.isArray(rows) ? rows : []).filter(botNeedsAttention);
+    if (attention.some(row => SUMMARY_ERROR_STATES.has(row && row.state)))
+        return 'error';
+    if (attention.length > 0)
+        return 'warn';
+    return 'ok';
+}
+
 export function compactBotSection(rows) {
     const list = Array.isArray(rows) ? rows : [];
     if (list.length <= 1)
@@ -682,14 +698,11 @@ export function compactBotSection(rows) {
     const attention = list.filter(botNeedsAttention);
     const count = attention.length;
     let text = `${list.length} bots · all ok`;
-    let tone = 'ok';
-    if (count === 1) {
+    const tone = summaryTone(list);
+    if (count === 1)
         text = `${list.length} bots · ${attention[0].name} needs attention`;
-        tone = 'attention';
-    } else if (count > 1) {
+    else if (count > 1)
         text = `${list.length} bots · ${count} need attention`;
-        tone = 'attention';
-    }
     return {
         summary: {text, tone, open: 'bots'},
         rows: attention,

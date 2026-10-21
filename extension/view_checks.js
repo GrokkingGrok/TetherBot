@@ -29,6 +29,7 @@ import {
     parseSetTime,
     timerModel,
     compactBotSection,
+    summaryTone,
     menuModel,
     dueUndoKeys,
     menuClosePlan,
@@ -275,7 +276,7 @@ export function runViewChecks() {
     assert(menu.bots[0].nextRun === 'next run in 1 h', 'next run');
     assert(menu.bots.length === 1, 'a healthy second bot stays off the popup');
     assert(menu.botSummary.text === '2 bots · primary needs attention', 'summary names the bot');
-    assert(menu.botSummary.tone === 'attention', 'summary turns red');
+    assert(menu.botSummary.tone === 'warn', 'needs attention is amber');
     assert(menu.asks[0].botLabel === 'primary', 'ask names its bot');
     const notesOnly = menuModel({
         running: true,
@@ -302,6 +303,21 @@ export function runViewChecks() {
     ]);
     assert(pending.rows.length === 1, 'an open ask keeps that bot row');
     assert(pending.summary.text === '2 bots · Primary needs attention', 'one problem names the bot');
+    assert(pending.summary.tone === 'warn', 'an open ask is a warning');
+    const broken = compactBotSection([
+        {name: 'Primary', bot: 'primary', state: 'error', openAsks: 0},
+        {name: 'Notes', bot: 'notes', state: 'idle', openAsks: 0},
+    ]);
+    assert(broken.summary.tone === 'error', 'a bot error stays red');
+    const bridgeDown = compactBotSection([
+        {name: 'Primary', bot: 'primary', state: 'failed_closed', openAsks: 0},
+        {name: 'Notes', bot: 'notes', state: 'needs_you', openAsks: 0},
+    ]);
+    assert(bridgeDown.summary.tone === 'error', 'a bridge failure stays red');
+    assert(summaryTone([
+        {name: 'Primary', state: 'needs_you', openAsks: 0},
+        {name: 'Notes', state: 'idle', openAsks: 0},
+    ]) === 'warn', 'needs_you is amber');
     assert(menu.footer.queueLength === 2, 'queue length');
     assert(!JSON.stringify(menu).includes('12.00'), 'watch amount stays out of this menu');
 

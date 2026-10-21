@@ -10,9 +10,11 @@ from tetherbot.window_query import (
     bot_detail_line,
     can_mark_done,
     due_undo_keys,
+    format_duration,
     format_elapsed,
     format_last_seen,
     format_next_run,
+    format_time_record,
     format_top_bar,
     format_tracked,
     is_read_only,
@@ -22,6 +24,7 @@ from tetherbot.window_query import (
     note_payload,
     open_count_label,
     parse_start_clock,
+    parse_tracked_total,
     properties_need_reload,
     safe_http_url,
     source_line,
@@ -139,6 +142,15 @@ def test_tracked_time_uses_the_clock_format():
     assert format_tracked(90) == "1:30 tracked"
     assert format_tracked(3600 + 42 * 60) == "1:42 tracked"
     assert format_tracked(0) == ""
+    assert format_duration(3600 + 42 * 60) == "1:42:00"
+    assert format_duration(-30) == "-0:00:30"
+    assert format_time_record({"seconds": 90, "kind": "session"}) == "0:01:30"
+    assert format_time_record({"seconds": -30, "kind": "adjustment"}) == "-0:00:30 adjustment"
+    assert parse_tracked_total("1:42:05") == 3600 + 42 * 60 + 5
+    assert parse_tracked_total("1:05") == 3600 + 5 * 60
+    assert parse_tracked_total("25m") == 25 * 60
+    assert parse_tracked_total("  ") is None
+    assert parse_tracked_total("nope") is None
     assert timer_item_key({"state": "running", "item_key": "primary/one"}) == "primary/one"
     assert timer_item_key({"state": "stopped", "item_key": "primary/one"}) == ""
     assert timer_item_key({"state": "idle", "item_key": "primary/one"}) == ""

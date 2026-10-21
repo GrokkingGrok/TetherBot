@@ -96,6 +96,9 @@ METHOD_OUT: dict[str, str | None] = {
     "SetTimerStart": "(s)",
     "AssignTimer": "(s)",
     "DismissTimer": "(s)",
+    "GetItemTime": "(s)",
+    "SetTrackedTotal": "(s)",
+    "DeleteTimeRecord": "(s)",
 }
 
 PROPERTY_TYPES = {
@@ -404,6 +407,33 @@ class BridgeApi:
         payload = self._timer_call("dismiss")
         self.note_timer()
         return (_dumps(payload),)
+
+    def _get_item_time(self, item_key: str) -> tuple[str]:
+        self._require_todo(item_key)
+        return (_dumps(self._timer_call("item_time", item_key)),)
+
+    def _set_tracked_total(self, item_key: str, total_s: int) -> tuple[str]:
+        self._require_todo(item_key)
+        if isinstance(total_s, bool) or not isinstance(total_s, int):
+            raise ServiceError(INVALID_ARGS, "total is invalid")
+        payload = self._timer_call("set_total", item_key, total_s)
+        self.note_timer()
+        return (_dumps(payload),)
+
+    def _delete_time_record(self, item_key: str, record_id: str) -> tuple[str]:
+        self._require_todo(item_key)
+        if not isinstance(record_id, str) or not record_id:
+            raise ServiceError(INVALID_ARGS, "record is invalid")
+        payload = self._timer_call("delete_record", item_key, record_id)
+        self.note_timer()
+        return (_dumps(payload),)
+
+    def _require_todo(self, item_key: str) -> None:
+        if not isinstance(item_key, str) or _bad_item_key(item_key):
+            raise ServiceError(INVALID_ARGS, "item_key is invalid")
+        item = self._daemon.store.get(item_key)
+        if item is None or item.kind != "todo":
+            raise ServiceError(NOT_FOUND, "item not found")
 
     def _stop_owned_timer(self, key: str) -> None:
         timer = getattr(self._daemon, "timer", None)

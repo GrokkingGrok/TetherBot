@@ -119,12 +119,17 @@ def test_stop_is_applied_once_and_undo_restores_it(tmp_path: Path):
     assert result["recorded_s"] == 14
     assert result["total_s"] == 14
     assert store.totals()["primary/q4-budget"] == 14
+    saved = store.item_time("primary/q4-budget")
+    assert saved["records"][0]["kind"] == "session"
+    assert saved["records"][0]["seconds"] == 14
+    assert sum(record["seconds"] for record in saved["records"]) == 14
     clock.advance(2)
     assert store.undo_stop(timer_id) is True
     restored = store.view()
     assert restored["state"] == "running"
     assert restored["elapsed_s"] == pytest.approx(16.9)
     assert "primary/q4-budget" not in store.totals()
+    assert store.item_time("primary/q4-budget")["records"] == []
     store.stop()
     clock.advance(6)
     assert store.undo_stop(timer_id) is False
@@ -330,6 +335,106 @@ def test_api_start_stop_done_and_tracked_time(tmp_path: Path):
         api.call("StartTimer", ("",))
         api.call("SetTimerStart", (int(clock.wall) + 60,))
     assert "InvalidArgs" in future.value.error_name
+
+
+def test_set_total_adjustment_and_delete_keep_the_sum(tmp_path: Path):
+    store, clock = _store(tmp_path)
+    store.start("primary/one", "Pack the bag")
+    clock.advance(90)
+    assert store.stop()["total_s"] == 90
+    updated = store.set_total("primary/one", 60)
+    assert updated["total_s"] == 60
+    assert updated["records"][0]["kind"] == "session"
+    assert updated["records"][0]["seconds"] == 90
+    assert updated["records"][1]["kind"] == "adjustment"
+    assert updated["records"][1]["seconds"] == -30
+    assert sum(record["seconds"] for record in updated["records"]) == 60
+    raw = json.loads((tmp_path / "item-time.json").read_text(encoding="utf-8"))
+    saved = raw["items"]["primary/one"]
+    assert saved["total_s"] == sum(record["seconds"] for record in saved["records"])
+    same = store.set_total("primary/one", 60)
+    assert len(same["records"]) == 2
+    with pytest.raises(TimerError) as negative:
+        store.set_total("primary/one", -1)
+    assert negative.value.code == "invalid"
+    removed = store.delete_record("primary/one", updated["records"][0]["id"])
+    assert removed["total_s"] == -30
+    assert len(removed["records"]) == 1
+    with pytest.raises(TimerError) as missing:
+        store.delete_record("primary/one", "missing")
+    assert missing.value.code == "not_found"
+    reloaded = TimerStore(tmp_path, clock)
+    assert reloaded.item_time("primary/one")["total_s"] == -30
+
+
+def test_legacy_total_is_one_record_until_it_is_rewritten(tmp_path: Path):
+    payload = {
+        "schema": "tetherbot/1",
+        "items": {
+            "primary/one": {
+                "total_s": 6130,
+                "sessions": 3,
+                "last_stopped_at": 1_792_430_265.0,
+            }
+        },
+        "applied": ["tm-old"],
+    }
+    path = tmp_path / "item-time.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    store, _clock = _store(tmp_path)
+    viewed = store.item_time("primary/one")
+    assert viewed["total_s"] == 6130
+    assert viewed["records"] == [
+        {"id": "legacy", "seconds": 6130, "at": 1_792_430_265.0, "kind": "session"}
+    ]
+    on_disk = json.loads(path.read_text(encoding="utf-8"))
+    assert "records" not in on_disk["items"]["primary/one"]
+    edited = store.set_total("primary/one", 6000)
+    assert edited["total_s"] == 6000
+    assert sum(record["seconds"] for record in edited["records"]) == 6000
+    assert edited["records"][1]["kind"] == "adjustment"
+    assert edited["records"][1]["seconds"] == -130
+    rewritten = json.loads(path.read_text(encoding="utf-8"))["items"]["primary/one"]
+    assert rewritten["total_s"] == sum(row["seconds"] for row in rewritten["records"])
+    cleared = store.delete_record("primary/one", "legacy")
+    assert cleared["total_s"] == -130
+    gone = store.delete_record("primary/one", cleared["records"][0]["id"])
+    assert gone["records"] == []
+    assert gone["total_s"] == 0
+    assert "primary/one" not in store.totals()
+
+
+def test_api_edits_tracked_time(tmp_path: Path):
+    daemon = BridgeDaemon(
+        config_path=tmp_path / "config.toml",
+        state_dir=tmp_path / "state",
+        log_stream=StringIO(),
+    )
+    daemon.start()
+    api = daemon.api
+    assert api is not None
+    assert daemon.store is not None
+    daemon.store.replace_origin(
+        "feed",
+        [make_item(id="q4-budget", kind="todo", title="Pack the bag", actions=["done"])],
+        now=daemon.now(),
+    )
+    empty = json.loads(api.call("GetItemTime", ("primary/q4-budget",))[0])
+    assert empty["total_s"] == 0
+    assert empty["records"] == []
+    edited = json.loads(api.call("SetTrackedTotal", ("primary/q4-budget", 125))[0])
+    assert edited["total_s"] == 125
+    assert edited["records"][0]["kind"] == "adjustment"
+    assert edited["records"][0]["seconds"] == 125
+    assert daemon.timer.totals()["primary/q4-budget"] == 125
+    removed = json.loads(
+        api.call("DeleteTimeRecord", ("primary/q4-budget", edited["records"][0]["id"]))[0]
+    )
+    assert removed["total_s"] == 0
+    assert "primary/q4-budget" not in daemon.timer.totals()
+    with pytest.raises(Exception) as missing:
+        api.call("GetItemTime", ("primary/missing",))
+    assert "NotFound" in missing.value.error_name
 
 
 def test_ctl_timer_status(tmp_path: Path):

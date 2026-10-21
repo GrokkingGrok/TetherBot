@@ -128,6 +128,19 @@
     font-size: 0.85em;
 }
 
+.popup-menu-item.tetherbot-bot-warn {
+    color: #f8d06a;
+    font-weight: bold;
+}
+
+.popup-menu-item.tetherbot-bot-warn:hover,
+.popup-menu-item.tetherbot-bot-warn:focus,
+.popup-menu-item.tetherbot-bot-warn:active,
+.popup-menu-item.tetherbot-bot-warn:selected {
+    color: #ffffff;
+    background-color: rgba(229, 165, 10, 0.55);
+}
+
 .popup-menu-item.tetherbot-bot-alert {
     color: #ffb4ab;
     font-weight: bold;

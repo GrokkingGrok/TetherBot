@@ -756,8 +756,10 @@ export default class TetherBotExtension extends Extension {
         this._botSection.addMenuItem(sectionTitle('Bots'));
         if (summary && summary.text) {
             const item = new PopupMenu.PopupMenuItem(summary.text);
-            if (summary.tone === 'attention')
+            if (summary.tone === 'error')
                 item.add_style_class_name('tetherbot-bot-alert');
+            else if (summary.tone === 'warn')
+                item.add_style_class_name('tetherbot-bot-warn');
             item.connect('activate', () => this._openWindow('bots'));
             this._botSection.addMenuItem(item);
         }

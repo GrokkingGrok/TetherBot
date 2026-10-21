@@ -88,6 +88,7 @@ def test_disable_drops_the_proxy_and_handlers():
     open_at = order.index("_openItem")
     assert timer_at < todo_at < ask_at < bot_at < open_at
     assert "compactBotSection" in view
+    assert "* 0.25" in view
     render = text.split("    _render() {", 1)[1].split("\n    _", 1)[0]
     assert "keepAssigning" in render
     assert "_expireAssign" not in text
@@ -104,16 +105,23 @@ def test_disable_drops_the_proxy_and_handlers():
     assert "system-status-icon" in icon
     assert "icon-size" not in css
     assert "tetherbot-undo" in css
-    assert ".tetherbot-mark-ring" in css
+    assert ".tetherbot-badge-red" in css
     assert "#ed333b" in css
-    assert ".tetherbot-mark-dot" in css
+    assert ".tetherbot-badge-blue" in css
     assert "#3584e4" in css
+    assert "tetherbot-mark-ring" not in css
+    assert "border-color: #ed333b" not in css
     assert "max-width: 5.2em" in css
     assert "undoFraction" in text
     assert "Gio.FileIcon" in text
     assert "face-symbolic.svg" in text
-    assert "tetherbot-mark-ring" in text
-    assert "tetherbot-mark-dot" in text
+    assert "tetherbot-badge-red" in text
+    assert "tetherbot-badge-blue" in text
+    assert "tetherbot-mark-ring" not in text
+    assert "0.42" not in text
+    assert "0.34" not in text
+    assert "Clutter.FixedLayout" in text
+    assert "badgeBox" in text
     assert "Clutter.BinLayout" in text
     sync = text.split("    _syncIcon(kind) {", 1)[1].split("\n    _", 1)[0]
     assert "kind === 'slash' || kind === 'triangle'" in sync

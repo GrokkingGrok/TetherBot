@@ -2,7 +2,7 @@
 
 Status: approved. The Decisions section at the end is binding.
 
-The top-bar icon is a simple face, two eyes and a small smile. The panel shows that face as a symbolic icon, at the shell's panel icon size, so the shell recolors it with the other status icons and a larger panel icon grows it too. The slash and the triangle are symbolic variants of that face. The ring and the dot are drawn on top of it and scale with it: the ring is red, and the dot is blue. Mock todo titles in this file are generic examples.
+The top-bar icon is a simple face, two eyes and a small smile. The panel shows that face as a symbolic icon, at the shell's panel icon size, so the shell recolors it with the other status icons and a larger panel icon grows it too. The slash and the triangle are symbolic variants of that face. Attention is one filled dot in the bottom-right corner, about a quarter of the icon, with a thin dark outline. An open todo is red. An ask, or a bot that needs attention, is blue, and that blue dot wins when both apply. The dot stays inside the icon box. Mock todo titles in this file are generic examples.
 
 Goal: track time on one task at a time from the top bar, and make the top-bar button say one thing at a glance. Losing tracked time is the worst failure, so recovery comes first.
 
@@ -30,7 +30,7 @@ The button has two slots. The **text slot** shows the timer. The **badge slot** 
 |---|---|---|---|---|
 | Broken: bridge not running, `unconfigured`, `failed_closed`, or an auth reason (keyring locked, rejected key, routine not found) | Dimmed icon with a slash across it | red | 1 (highest) | none |
 | Bot needs attention, or an open ask | Filled dot | blue | 2 | time, if a timer exists |
-| Open todo | Hollow ring | red | 3 | time, if a timer exists |
+| Open todo | Filled corner dot | red | 3 | time, if a timer exists |
 | Clock warning (section 6.5) | Triangle with `!` | amber | 4 | `--:--` |
 | Timer running | no badge | none | 5 | `41m` or `1:05` |
 | Timer paused | two pause bars before the time | text at 60% opacity | 5 | `25m` or `1:05` |
@@ -44,7 +44,7 @@ Rules:
 - The panel button is as wide as the icon plus the current timer text. `5m` is narrower than `41m`, and `41m` is narrower than `1:29`. Digits in one shape (`1:05` and `1:29`) keep the same width. There is no reserved width for a longer shape.
 - Broken hides the time. The bridge owns the timer, so the extension does not show a number it cannot confirm. The popup says the saved time is safe.
 - Top-bar time has no seconds. Under an hour it is `0m`, `5m`, `41m` (no leading zero). From one hour it is `h:mm`, for example `1:05` and `12:40`. The popup clock may still show seconds. Use tabular figures so the button does not jitter (St support for `font-feature-settings: "tnum"` is **TBD, verify**).
-- The badge has a cutout in the bar color so it reads against the icon. The icon is not locked to 16 px. It uses the shell's panel icon size, and the badge scales with it.
+- The corner dot has a thin dark outline so it reads on the face and on the panel. The icon is not locked to 16 px. It uses the shell's panel icon size, and the dot scales with it. The dot stays inside the icon box, so the button does not grow wider.
 - The old count badge and the amber attention color on the icon go away. Amber stays for the bot row dot in the popup and for the clock warning.
 - No blinking, pulsing, or animation in any state.
 
@@ -195,7 +195,7 @@ Not now. One option: the Done action body carries `time_tracked_s` when the todo
 
 ## 10. Accessibility
 
-- Every state has a distinct shape: no badge, dot, ring, triangle, slash, pause bars, dashes. The states read in grayscale and with any accent color, including a red accent.
+- Slash, triangle, pause bars, and dashes keep their own shapes. The two attention states share one filled corner dot and are told apart by color (red or blue) and by the accessible name. The face stays the accent color in every state.
 - No flashing or motion. The elapsed text is the only thing that changes. The top bar has no seconds.
 - The button's accessible name names the state in words, and is updated once a minute, not every second:
   - `TetherBot: all clear`
@@ -211,7 +211,7 @@ Not now. One option: the Done action body carries `time_tracked_s` when the todo
 - The tooltip uses the same text. `extension/view_checks.js` expects the old `2 asks, 3 todos` names, so those tests change.
 - The row play button is icon-only, with the accessible name `Start timer: <title>`. Pause, Resume, Stop, Keep, Set time..., and Discard have text labels.
 - Keyboard: the timer buttons come first in the popup's focus order. `Space` on a focused todo row could toggle its timer (**TBD, verify** that it does not clash with Done).
-- High contrast theme: badges keep the bar-colored cutout so they stay visible.
+- High contrast theme: the corner dot keeps its dark outline so it stays visible.
 
 ## 11. Tests and manual checks
 
@@ -271,4 +271,4 @@ Manual checks, next free numbers in [MANUAL-CHECKS.md](MANUAL-CHECKS.md):
 - The TetherBot window closes from its close button, from Ctrl+W, and from Escape.
 - Slash (broken) only for a bridge that is down or an auth or keyring error. Smaller problems, like a stale feed, show only in the popup.
 - Paused: pause bars and dimmed time. Broken hides the time.
-- The placeholder robot glyph in the mockups becomes the real TetherBot icon. The face, the slash, and the triangle are symbolic SVGs. The ring and the dot are colored marks drawn on that face.
+- The placeholder robot glyph in the mockups becomes the real TetherBot icon. The face, the slash, and the triangle are symbolic SVGs. Attention is one filled corner dot drawn on that face, red or blue.

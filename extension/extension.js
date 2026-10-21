@@ -31,6 +31,7 @@ import {
     undoFraction,
     elapsedSeconds,
     formatElapsed,
+    badgeBox,
     indicatorView,
     topBarWidthSample,
     botLabels,
@@ -108,7 +109,7 @@ export default class TetherBotExtension extends Extension {
             x_align: Clutter.ActorAlign.CENTER,
         });
         this._mark = new St.Widget({
-            style_class: 'tetherbot-mark',
+            style_class: 'tetherbot-badge',
             visible: false,
             x_align: Clutter.ActorAlign.END,
             y_align: Clutter.ActorAlign.END,
@@ -116,15 +117,18 @@ export default class TetherBotExtension extends Extension {
             y_expand: false,
         });
         this._face = new St.Widget({
-            layout_manager: new Clutter.BinLayout(),
+            layout_manager: new Clutter.FixedLayout(),
             y_align: Clutter.ActorAlign.CENTER,
             x_align: Clutter.ActorAlign.CENTER,
+            x_expand: false,
+            y_expand: false,
         });
         this._face.add_child(this._icon);
         this._face.add_child(this._mark);
         this._badge = '';
         this._overlay = '';
         this._icon.connect('notify::height', () => this._layoutMark());
+        this._icon.connect('notify::width', () => this._layoutMark());
         this._pause = new St.BoxLayout({
             style_class: 'tetherbot-pause',
             visible: false,
@@ -680,7 +684,7 @@ export default class TetherBotExtension extends Extension {
     }
 
     _syncOverlay(kind) {
-        this._overlay = kind === 'dot' || kind === 'ring' ? kind : '';
+        this._overlay = kind === 'red' || kind === 'blue' ? kind : '';
         this._layoutMark();
     }
 
@@ -692,16 +696,23 @@ export default class TetherBotExtension extends Extension {
             return;
         }
         const height = this._icon ? this._icon.height : 0;
-        const dot = this._overlay === 'dot';
-        const span = height > 0 ? Math.max(4, Math.round(height * (dot ? 0.34 : 0.42))) : 0;
-        const stroke = height > 0 ? Math.max(1, Math.round(height * 0.1)) : 0;
-        this._mark.style_class = dot
-            ? 'tetherbot-mark tetherbot-mark-dot'
-            : 'tetherbot-mark tetherbot-mark-ring';
-        if (span)
-            this._mark.style = dot
-                ? `width:${span}px;height:${span}px;`
-                : `width:${span}px;height:${span}px;border-width:${stroke}px;`;
+        const width = this._icon && this._icon.width > 0 ? this._icon.width : 0;
+        const box = badgeBox(width, height);
+        this._mark.style_class = this._overlay === 'blue'
+            ? 'tetherbot-badge tetherbot-badge-blue'
+            : 'tetherbot-badge tetherbot-badge-red';
+        if (!box.span) {
+            this._mark.hide();
+            return;
+        }
+        this._mark.style = `width:${box.span}px;height:${box.span}px;`;
+        const layout = this._face && this._face.layout_manager;
+        if (layout && typeof layout.child_set_property === 'function') {
+            layout.child_set_property(this._face, this._mark, 'x', box.x);
+            layout.child_set_property(this._face, this._mark, 'y', box.y);
+            layout.child_set_property(this._face, this._mark, 'width', box.span);
+            layout.child_set_property(this._face, this._mark, 'height', box.span);
+        }
         this._mark.show();
     }
 

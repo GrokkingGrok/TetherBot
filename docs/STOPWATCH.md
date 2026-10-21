@@ -110,13 +110,23 @@ Recorded time per todo lives in `$XDG_STATE_HOME/tetherbot/item-time.json`, same
 {
   "schema": "tetherbot/1",
   "items": {
-    "primary/q4-budget": {"total_s": 6130, "sessions": 3, "last_stopped_at": 1792430265.0}
+    "primary/q4-budget": {
+      "total_s": 6130,
+      "sessions": 1,
+      "last_stopped_at": 1792430265.0,
+      "records": [
+        {"id": "tm-20261019-8f3a2c", "seconds": 6300, "at": 1792430265.0, "kind": "session"},
+        {"id": "tm-20261020-1b90aa", "seconds": -170, "at": 1792431000.0, "kind": "adjustment"}
+      ]
+    }
   },
   "applied": ["tm-20261019-8f3a2c"]
 }
 ```
 
 `applied` keeps the last 50 timer ids, so applying a stop twice is a no-op.
+
+`total_s` is the sum of `records`. A stop appends a `session` record whose `id` is the timer id and whose `seconds` is the recorded time. A direct edit of the total appends an `adjustment` record for the difference, including a negative one, and does not write when the total is already that value. Deleting a record removes it and sets `total_s` to the sum of what remains. `sessions` counts `session` records after a rewrite. A file from before records existed is read as one `legacy` session for the old `total_s`. That record is written back on the next edit, so the history still reconciles. Nothing here is sent to the bot.
 
 ## 6. Recovery
 
@@ -156,9 +166,9 @@ Normal NTP slews are small and stay under the 120 s threshold. Suspend is counte
 
 ## 7. What Stop records
 
-Stop writes `state: stopping` with the final segment closed (fsync), adds `accumulated_s` to that todo's `total_s` in `item-time.json`, increments `sessions`, sets `last_stopped_at`, adds the timer id to `applied` (fsync), then deletes `timer.json`. The recorded value is rounded down to whole seconds.
+Stop writes `state: stopping` with the final segment closed (fsync), appends a `session` record in `item-time.json`, sets `total_s` to the sum of that todo's records, sets `sessions` to the number of session records, sets `last_stopped_at`, adds the timer id to `applied` (fsync), then deletes `timer.json`. The recorded value is rounded down to whole seconds.
 
-- A timer that is already on a todo records as above. Undo within 5 seconds subtracts the amount, drops the id from `applied`, and restores the timer as it was. Time during the undo window counts, as if Stop never happened.
+- A timer that is already on a todo records as above. Undo within 5 seconds removes that session record, drops the id from `applied`, and restores the timer as it was. Time during the undo window counts, as if Stop never happened.
 - A timer that is not on a todo is written as `state: stopped` and the file stays. Undo within 5 seconds restores the running timer, and time during that window counts. After 5 seconds the Undo control fades and the stopped timer remains until Assign or Dismiss. Dismiss deletes the file and records nothing. Assign adds the stopped total to the todo, then deletes the file.
 - Done on a todo that owns the timer stops the timer first, records the time, then sends Done.
 - An item that leaves the feed while timed keeps running under `item_title`. Stop records under its key anyway.
@@ -182,6 +192,9 @@ Additive within `io.github.grokkinggrok.TetherBot1`. Update `data/io.github.grok
 | `SetTimerStart(x started_at) -> s timer_json` | Replace the start with a unix instant. Same checks as `AdjustTimerStart` |
 | `AssignTimer(s item_key) -> s timer_json` | Attach the current timer to an open todo. A stopped timer is recorded. A running or paused timer keeps counting on that todo. `Error.TimerBusy` when it is already on a todo |
 | `DismissTimer() -> s timer_json` | Delete a stopped unassigned timer and record nothing |
+| `GetItemTime(s item_key) -> s time_json` | `{item_key, total_s, records}` for a todo. Each record is `{id, seconds, at, kind}` with `kind` of `session` or `adjustment` |
+| `SetTrackedTotal(s item_key, x total_s) -> s time_json` | Set the saved total. A non-zero difference is one `adjustment` record. The records still sum to `total_s` |
+| `DeleteTimeRecord(s item_key, s record_id) -> s time_json` | Remove one record. `total_s` becomes the sum of the records that remain |
 
 | Signal | When |
 |---|---|

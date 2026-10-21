@@ -24,9 +24,11 @@ from tetherbot.files import ensure_private_dir, write_private_json
 
 _LOG = logging.getLogger("tetherbot")
 LIMIT_S = 24 * 60 * 60
+MAX_TRACKED_S = 1000 * 24 * 3600
 JUMP_S = 120.0
 UNDO_S = 5.0
 APPLIED_KEEP = 50
+_RECORD_KINDS = frozenset({"session", "adjustment"})
 _STATES = frozenset({"running", "paused", "stopping", "stopped"})
 _WARNINGS = frozenset({"clock_backward", "clock_jump", "over_limit"})
 
@@ -309,6 +311,81 @@ class TimerStore:
         self._undo = None
         return True
 
+    def item_time(self, item_key: str) -> dict[str, Any]:
+        """Saved records for one todo. The total is the sum of those records."""
+
+        if not isinstance(item_key, str) or not item_key:
+            raise TimerError("invalid", "item_key is invalid")
+        row = self._row(item_key)
+        records = [] if row is None else _public_records(row.get("records"))
+        total = 0 if row is None else _whole(row.get("total_s"))
+        return {
+            "schema": SCHEMA_VERSION,
+            "item_key": item_key,
+            "total_s": total,
+            "records": records,
+        }
+
+    def set_total(self, item_key: str, total_s: int) -> dict[str, Any]:
+        """Store a direct total edit as an adjustment so the records still sum to it."""
+
+        if not isinstance(item_key, str) or not item_key:
+            raise TimerError("invalid", "item_key is invalid")
+        if isinstance(total_s, bool) or not isinstance(total_s, int):
+            raise TimerError("invalid", "total is invalid")
+        if total_s < 0 or total_s > MAX_TRACKED_S:
+            raise TimerError("invalid", "total is invalid")
+        book = self._times
+        items = book.setdefault("items", {})
+        if not isinstance(items, dict):
+            items = {}
+            book["items"] = items
+        row = items.get(item_key)
+        if not isinstance(row, dict):
+            row = _empty_row()
+            items[item_key] = row
+        records = _record_list(row)
+        delta = int(total_s) - _record_total(records)
+        if delta == 0:
+            return self.item_time(item_key)
+        sample = self._clock()
+        records.append(
+            {
+                "id": _new_id(sample.wall),
+                "seconds": delta,
+                "at": sample.wall,
+                "kind": "adjustment",
+            }
+        )
+        row["records"] = records
+        _retotal(row)
+        book["schema"] = SCHEMA_VERSION
+        self._write_times(book)
+        self._times = book
+        return self.item_time(item_key)
+
+    def delete_record(self, item_key: str, record_id: str) -> dict[str, Any]:
+        """Remove one record and set the total to the sum of what remains."""
+
+        if not isinstance(item_key, str) or not item_key:
+            raise TimerError("invalid", "item_key is invalid")
+        if not isinstance(record_id, str) or not record_id:
+            raise TimerError("invalid", "record is invalid")
+        book = self._times
+        row = self._row(item_key)
+        if row is None:
+            raise TimerError("not_found", "time record not found")
+        records = _record_list(row)
+        kept = [record for record in records if record.get("id") != record_id]
+        if len(kept) == len(records):
+            raise TimerError("not_found", "time record not found")
+        row["records"] = kept
+        _retotal(row)
+        book["schema"] = SCHEMA_VERSION
+        self._write_times(book)
+        self._times = book
+        return self.item_time(item_key)
+
     def resolve(self, choice: str, seconds: int) -> dict[str, Any]:
         if choice not in {"keep", "set", "discard"}:
             raise TimerError("invalid", "choice is invalid")
@@ -501,13 +578,22 @@ class TimerStore:
             book["items"] = items
         row = items.get(item_key)
         if not isinstance(row, dict):
-            row = {"total_s": 0, "sessions": 0, "last_stopped_at": 0}
+            row = _empty_row()
             items[item_key] = row
         if timer_id in applied:
             return _whole(row.get("total_s"))
-        row["total_s"] = _whole(row.get("total_s")) + int(recorded_s)
-        row["sessions"] = _whole(row.get("sessions")) + 1
+        records = _record_list(row)
+        records.append(
+            {
+                "id": timer_id,
+                "seconds": int(recorded_s),
+                "at": float(when),
+                "kind": "session",
+            }
+        )
+        row["records"] = records
         row["last_stopped_at"] = when
+        _retotal(row)
         applied.append(timer_id)
         book["applied"] = applied[-APPLIED_KEEP:]
         book["schema"] = SCHEMA_VERSION
@@ -520,8 +606,14 @@ class TimerStore:
         items = book.get("items")
         if isinstance(items, dict) and isinstance(items.get(item_key), dict):
             row = items[item_key]
-            row["total_s"] = max(0, _whole(row.get("total_s")) - recorded_s)
-            row["sessions"] = max(0, _whole(row.get("sessions")) - 1)
+            records = _record_list(row)
+            kept = [record for record in records if record.get("id") != timer_id]
+            if len(kept) == len(records):
+                row["total_s"] = max(0, _whole(row.get("total_s")) - recorded_s)
+                row["sessions"] = max(0, _whole(row.get("sessions")) - 1)
+            else:
+                row["records"] = kept
+                _retotal(row)
         applied = [
             row
             for row in book.get("applied") or []
@@ -529,6 +621,13 @@ class TimerStore:
         ]
         book["applied"] = applied
         self._write_times(book)
+
+    def _row(self, item_key: str) -> dict[str, Any] | None:
+        items = self._times.get("items")
+        if not isinstance(items, dict):
+            return None
+        row = items.get(item_key)
+        return row if isinstance(row, dict) else None
 
     def _expire_undo(self) -> None:
         undo = self._undo
@@ -578,9 +677,14 @@ class TimerStore:
             return _empty_times()
         items = raw.get("items")
         applied = raw.get("applied")
+        cleaned: dict[str, Any] = {}
+        if isinstance(items, dict):
+            for key, row in items.items():
+                if isinstance(key, str) and isinstance(row, dict):
+                    cleaned[key] = _normalize_item(row)
         return {
             "schema": SCHEMA_VERSION,
-            "items": items if isinstance(items, dict) else {},
+            "items": cleaned,
             "applied": (
                 [row for row in applied if isinstance(row, str)]
                 if isinstance(applied, list)
@@ -711,6 +815,114 @@ def _schema_ok(payload: dict[str, Any]) -> bool:
 
 def _empty_times() -> dict[str, Any]:
     return {"schema": SCHEMA_VERSION, "items": {}, "applied": []}
+
+
+def _empty_row() -> dict[str, Any]:
+    return {"total_s": 0, "sessions": 0, "last_stopped_at": 0.0, "records": []}
+
+
+def _normalize_item(row: dict[str, Any]) -> dict[str, Any]:
+    """One item row. A file from before records existed becomes one legacy record."""
+
+    last = _stamp_time(row.get("last_stopped_at"))
+    if "records" in row:
+        records = _clean_records(row.get("records"))
+        normalized = {
+            "total_s": _record_total(records),
+            "sessions": _session_count(records),
+            "last_stopped_at": last,
+            "records": records,
+        }
+        return normalized
+    total = _whole(row.get("total_s"))
+    records = []
+    if total != 0:
+        records.append(
+            {
+                "id": "legacy",
+                "seconds": total,
+                "at": last,
+                "kind": "session",
+            }
+        )
+    sessions = _whole(row.get("sessions"))
+    if records and sessions <= 0:
+        sessions = 1
+    return {
+        "total_s": total,
+        "sessions": sessions,
+        "last_stopped_at": last,
+        "records": records,
+    }
+
+
+def _clean_records(raw: object) -> list[dict[str, Any]]:
+    if not isinstance(raw, list):
+        return []
+    found: list[dict[str, Any]] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        ident = item.get("id")
+        kind = item.get("kind")
+        seconds = item.get("seconds")
+        if not isinstance(ident, str) or not ident or kind not in _RECORD_KINDS:
+            continue
+        if isinstance(seconds, bool) or not isinstance(seconds, (int, float)):
+            continue
+        found.append(
+            {
+                "id": ident,
+                "seconds": int(seconds),
+                "at": _stamp_time(item.get("at")),
+                "kind": kind,
+            }
+        )
+    return found
+
+
+def _record_list(row: dict[str, Any]) -> list[dict[str, Any]]:
+    records = row.get("records")
+    if not isinstance(records, list):
+        records = []
+        row["records"] = records
+    return records
+
+
+def _record_total(records: list[dict[str, Any]]) -> int:
+    return sum(int(record["seconds"]) for record in records)
+
+
+def _session_count(records: list[dict[str, Any]]) -> int:
+    return sum(1 for record in records if record.get("kind") == "session")
+
+
+def _retotal(row: dict[str, Any]) -> int:
+    records = _clean_records(row.get("records"))
+    row["records"] = records
+    total = _record_total(records)
+    row["total_s"] = total
+    row["sessions"] = _session_count(records)
+    return total
+
+
+def _public_records(raw: object) -> list[dict[str, Any]]:
+    return [
+        {
+            "id": record["id"],
+            "seconds": int(record["seconds"]),
+            "at": float(record["at"]),
+            "kind": record["kind"],
+        }
+        for record in _clean_records(raw)
+    ]
+
+
+def _stamp_time(value: object) -> float:
+    try:
+        return float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def _new_id(wall: float) -> str:

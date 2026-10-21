@@ -105,6 +105,9 @@ def test_disable_drops_the_proxy_and_handlers():
     assert "system-status-icon" in icon
     assert "icon-size" not in css
     assert "tetherbot-undo" in css
+    assert ".tetherbot-bot-warn" in css
+    assert ".tetherbot-bot-alert" in css
+    assert "tetherbot-bot-warn" in text
     assert ".tetherbot-badge-red" in css
     assert "#ed333b" in css
     assert ".tetherbot-badge-blue" in css

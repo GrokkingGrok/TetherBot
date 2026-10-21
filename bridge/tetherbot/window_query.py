@@ -236,6 +236,50 @@ def parse_start_clock(text: object, now: datetime | None = None) -> int | None:
     return int(start.timestamp())
 
 
+def format_duration(seconds: object) -> str:
+    """Exact ``H:MM:SS`` for the tracked-time editor. A negative value keeps its sign."""
+
+    if isinstance(seconds, bool) or not isinstance(seconds, (int, float)):
+        return "0:00:00"
+    whole = int(seconds)
+    sign = "-" if whole < 0 else ""
+    whole = abs(whole)
+    hours, rem = divmod(whole, 3600)
+    minutes, secs = divmod(rem, 60)
+    return f"{sign}{hours}:{minutes:02d}:{secs:02d}"
+
+
+def format_time_record(record: object) -> str:
+    """One saved record. An adjustment says so. A session is just its length."""
+
+    if not isinstance(record, Mapping):
+        return format_duration(0)
+    text = format_duration(record.get("seconds"))
+    if record.get("kind") == "adjustment":
+        return f"{text} adjustment"
+    return text
+
+
+def parse_tracked_total(text: object) -> int | None:
+    """``H:MM:SS``, ``H:MM``, or a minute count such as ``25m``. Empty is not zero."""
+
+    if not isinstance(text, str):
+        return None
+    raw = text.strip()
+    if not raw:
+        return None
+    minutes = re.fullmatch(r"(\d+)m", raw)
+    if minutes is not None:
+        return int(minutes.group(1)) * 60
+    clock = re.fullmatch(r"(\d+):([0-5]\d):([0-5]\d)", raw)
+    if clock is not None:
+        return int(clock.group(1)) * 3600 + int(clock.group(2)) * 60 + int(clock.group(3))
+    short = re.fullmatch(r"(\d+):([0-5]\d)", raw)
+    if short is not None:
+        return int(short.group(1)) * 3600 + int(short.group(2)) * 60
+    return None
+
+
 def format_tracked(seconds: object) -> str:
     """Chip text for a todo's saved total. Empty when nothing has been recorded."""
 

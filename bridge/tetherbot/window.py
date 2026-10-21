@@ -30,6 +30,8 @@ from tetherbot.window_query import (  # noqa: E402
     bot_detail_line,
     can_mark_done,
     due_undo_keys,
+    format_duration,
+    format_time_record,
     format_top_bar,
     format_tracked,
     is_read_only,
@@ -38,6 +40,7 @@ from tetherbot.window_query import (  # noqa: E402
     note_done,
     note_payload,
     parse_start_clock,
+    parse_tracked_total,
     properties_need_reload,
     safe_http_url,
     source_line,
@@ -213,6 +216,15 @@ class BridgeClient:
 
     def dismiss_timer(self) -> dict[str, Any]:
         return _object_dict(self._call("DismissTimer", "()", ()))
+
+    def get_item_time(self, item_key: str) -> dict[str, Any]:
+        return _object_dict(self._call("GetItemTime", "(s)", (item_key,)))
+
+    def set_tracked_total(self, item_key: str, total_s: int) -> dict[str, Any]:
+        return _object_dict(self._call("SetTrackedTotal", "(sx)", (item_key, total_s)))
+
+    def delete_time_record(self, item_key: str, record_id: str) -> dict[str, Any]:
+        return _object_dict(self._call("DeleteTimeRecord", "(ss)", (item_key, record_id)))
 
     def load_timer(self, done: Callable[[dict[str, Any], BridgeError | None], None]) -> None:
         """Read the stopwatch without blocking the first paint."""
@@ -603,6 +615,28 @@ class TodoWindow(Adw.ApplicationWindow):
         self.detail_title = Gtk.Label(xalign=0, wrap=True, selectable=True)
         self.detail_title.add_css_class("title-1")
         self.detail_chips = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE)
+        self.time_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        self.time_box.set_visible(False)
+        time_row = Gtk.Box(spacing=8)
+        time_label = Gtk.Label(label="Tracked", xalign=0)
+        self.time_entry = Gtk.Entry(width_chars=8, max_width_chars=10)
+        self.time_entry.set_placeholder_text("0:00:00")
+        self.time_entry.set_tooltip_text("Tracked total, hours:minutes:seconds")
+        self.time_entry.connect("activate", lambda _entry: self._set_tracked())
+        self.time_set = Gtk.Button(label="Set")
+        self.time_set.set_tooltip_text("Set tracked total")
+        self.time_set.connect("clicked", lambda _button: self._set_tracked())
+        time_row.append(time_label)
+        time_row.append(self.time_entry)
+        time_row.append(self.time_set)
+        self.time_records = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        time_scroll = Gtk.ScrolledWindow(child=self.time_records)
+        time_scroll.set_propagate_natural_height(True)
+        time_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        time_scroll.set_max_content_height(132)
+        self.time_box.append(time_row)
+        self.time_box.append(time_scroll)
+        self._time_dialog: Adw.AlertDialog | None = None
         self.buffer = Gtk.TextBuffer()
         _install_style_tags(self.buffer)
         self.text = Gtk.TextView(
@@ -652,6 +686,7 @@ class TodoWindow(Adw.ApplicationWindow):
         detail.set_margin_bottom(12)
         detail.append(self.detail_title)
         detail.append(self.detail_chips)
+        detail.append(self.time_box)
         detail.append(body_scroll)
         detail.append(buttons)
         detail.append(self.source)
@@ -911,12 +946,14 @@ class TodoWindow(Adw.ApplicationWindow):
             self.copy_button.set_sensitive(False)
             self.ask_button.set_sensitive(False)
             self._sync_start_button(None)
+            self._sync_time_editor(None)
             return
         self.detail_title.set_label(str(item.get("title") or item.get("key") or ""))
         _fill_chip_box(self.detail_chips, item.get("chips"))
         tracked = format_tracked(item.get("time_tracked_s"))
         if tracked:
             self.detail_chips.append(_chip(tracked, "neutral"))
+        self._sync_time_editor(item)
         body = item.get("body") if isinstance(item.get("body"), str) else ""
         if item.get("body_format") == "markdown":
             runs = render(body)
@@ -931,6 +968,120 @@ class TodoWindow(Adw.ApplicationWindow):
         self.ask_button.set_sensitive("/" in key)
         self._sync_start_button(item)
         self._sync_detail_undo(key)
+
+    def _sync_time_editor(self, item: dict[str, Any] | None) -> None:
+        if (
+            not isinstance(item, dict)
+            or item.get("kind") != "todo"
+            or not hasattr(self.client, "get_item_time")
+        ):
+            self.time_box.set_visible(False)
+            _clear_box(self.time_records)
+            return
+        key = item.get("key")
+        if not isinstance(key, str) or not key:
+            self.time_box.set_visible(False)
+            return
+        try:
+            payload = self.client.get_item_time(key)
+        except BridgeError as exc:
+            self.time_box.set_visible(True)
+            self.time_entry.set_text("")
+            _clear_box(self.time_records)
+            self._toast(str(exc) or "Could not save the timer")
+            return
+        self._show_time_payload(payload if isinstance(payload, dict) else {})
+
+    def _show_time_payload(self, payload: dict[str, Any]) -> None:
+        self.time_box.set_visible(True)
+        total = payload.get("total_s")
+        self.time_entry.set_text(format_duration(total))
+        _clear_box(self.time_records)
+        records = payload.get("records")
+        if not isinstance(records, list):
+            return
+        for record in records:
+            if not isinstance(record, dict) or not record.get("id"):
+                continue
+            row = Gtk.Box(spacing=8)
+            label = Gtk.Label(label=format_time_record(record), xalign=0, hexpand=True)
+            label.add_css_class("tether-source")
+            delete = Gtk.Button(icon_name="user-trash-symbolic")
+            delete.add_css_class("flat")
+            delete.set_tooltip_text("Delete time record")
+            delete.connect("clicked", self._confirm_delete_record, str(record["id"]))
+            row.append(label)
+            row.append(delete)
+            self.time_records.append(row)
+
+    def _set_tracked(self) -> None:
+        item = self._current
+        if not isinstance(item, dict) or not hasattr(self.client, "set_tracked_total"):
+            return
+        key = item.get("key")
+        if not isinstance(key, str) or not key:
+            return
+        total = parse_tracked_total(self.time_entry.get_text())
+        if total is None:
+            self._toast("Enter a time like 1:42:00")
+            return
+        try:
+            payload = self.client.set_tracked_total(key, total)
+        except BridgeError as exc:
+            self._toast(str(exc) or "Could not save the timer")
+            return
+        self._apply_tracked(payload)
+
+    def _confirm_delete_record(self, _button: Gtk.Button, record_id: str) -> None:
+        item = self._current
+        if not isinstance(item, dict) or not record_id:
+            return
+        key = item.get("key")
+        if not isinstance(key, str) or not hasattr(self.client, "delete_time_record"):
+            return
+        dialog = Adw.AlertDialog(
+            heading="Delete this time record?",
+            body="The tracked total updates to match the records that remain.",
+        )
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("delete", "Delete")
+        dialog.set_response_appearance("delete", Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.set_default_response("cancel")
+        dialog.set_close_response("cancel")
+        dialog.connect("response", self._on_delete_record, key, record_id)
+        self._time_dialog = dialog
+        dialog.present(self)
+
+    def _on_delete_record(
+        self,
+        _dialog: Adw.AlertDialog,
+        response: str,
+        key: str,
+        record_id: str,
+    ) -> None:
+        if response != "delete":
+            return
+        try:
+            payload = self.client.delete_time_record(key, record_id)
+        except BridgeError as exc:
+            self._toast(str(exc) or "Could not save the timer")
+            return
+        self._apply_tracked(payload)
+
+    def _apply_tracked(self, payload: object) -> None:
+        if not isinstance(payload, dict):
+            return
+        key = payload.get("item_key")
+        total = payload.get("total_s")
+        if not isinstance(key, str) or isinstance(total, bool) or not isinstance(total, int):
+            self._show_time_payload(payload)
+            return
+        for item in self._items:
+            if item.get("key") == key:
+                item["time_tracked_s"] = total
+        if isinstance(self._current, dict) and self._current.get("key") == key:
+            self._current["time_tracked_s"] = total
+        self._fill_rows(self._items)
 
     def _sync_detail_undo(self, key: str) -> None:
         hold = self._undo_holds.get(key)

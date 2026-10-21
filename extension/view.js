@@ -332,6 +332,16 @@ function timerShown(timer) {
     return Boolean(timerActive(timer) || (timer && timer.state === 'stopped'));
 }
 
+export function panelIcon(mark) {
+    if (mark === 'slash')
+        return {file: 'slash', overlay: ''};
+    if (mark === 'triangle')
+        return {file: 'triangle', overlay: ''};
+    if (mark === 'dot' || mark === 'ring')
+        return {file: 'base', overlay: mark};
+    return {file: 'base', overlay: ''};
+}
+
 export function indicatorView({
     running,
     state = '',
@@ -350,6 +360,7 @@ export function indicatorView({
             showPause: false,
             dimmed: true,
             iconFile: 'base',
+            overlay: '',
             accessibleName: 'TetherBot',
         };
     }
@@ -413,18 +424,15 @@ export function indicatorView({
         else
             accessibleName = `TetherBot: ${extra}`;
     }
-    const iconFile = mark === 'dot' ? 'dot'
-        : mark === 'ring' ? 'ring'
-        : mark === 'triangle' ? 'triangle'
-        : mark === 'slash' ? 'slash'
-        : 'base';
+    const chosen = panelIcon(mark);
     return {
         mark,
         text,
         textStyle,
         showPause: Boolean(!slash && paused && !warning),
         dimmed: slash,
-        iconFile,
+        iconFile: chosen.file,
+        overlay: chosen.overlay,
         accessibleName,
     };
 }

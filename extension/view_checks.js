@@ -22,6 +22,7 @@ import {
     parseStartClock,
     todoActivation,
     indicatorView,
+    panelIcon,
     overdueCount,
     itemKey,
     parseSetTime,
@@ -80,6 +81,7 @@ export function runViewChecks() {
     assert(down.text === '', 'down hides the time');
     assert(down.accessibleName === 'TetherBot: bridge not running', 'down name');
     assert(down.iconFile === 'slash', 'down icon');
+    assert(down.overlay === '', 'a slash has no colored mark');
 
     const closed = indicatorView({
         running: true,
@@ -97,7 +99,8 @@ export function runViewChecks() {
         nowMs: NOW,
     });
     assert(attention.mark === 'dot', 'open asks are the dot');
-    assert(attention.iconFile === 'dot', 'approval icon');
+    assert(attention.iconFile === 'base', 'the face stays the symbolic icon');
+    assert(attention.overlay === 'dot', 'an ask adds the blue dot');
     assert(attention.text === '', 'asks add no toolbar number');
     assert(attention.accessibleName === 'TetherBot: an ask is waiting', 'approval name');
 
@@ -109,6 +112,7 @@ export function runViewChecks() {
     });
     assert(quiet.mark === null, 'an empty list has no badge');
     assert(quiet.iconFile === 'base', 'clear icon');
+    assert(quiet.overlay === '', 'a clear icon has no mark');
     assert(quiet.accessibleName === 'TetherBot: all clear', 'clear name');
 
     const offlineMenu = menuModel({
@@ -550,6 +554,7 @@ export function runViewChecks() {
         nowMs: NOW,
     });
     assert(overdueOnly.mark === 'ring', 'open todos use the ring');
+    assert(overdueOnly.iconFile === 'base' && overdueOnly.overlay === 'ring', 'the ring sits on the symbolic face');
     assert(overdueOnly.text === '', 'open todos add no toolbar number');
     assert(overdueCount([overdueItem, botTodo], NOW) === 1, 'bot todos are not overdue');
     assert(overdueOnly.accessibleName === 'TetherBot: open todos', 'open todo name');
@@ -567,6 +572,7 @@ export function runViewChecks() {
         nowMs: NOW,
     });
     assert(plainTodo.mark === 'ring', 'a todo that is not overdue still marks the icon');
+    assert(plainTodo.overlay === 'ring', 'a plain todo adds the ring');
     assert(plainTodo.text === '', 'a plain todo adds no number');
     const needy = indicatorView({
         running: true,
@@ -576,6 +582,7 @@ export function runViewChecks() {
         nowMs: NOW,
     });
     assert(needy.mark === 'dot', 'a bot that needs attention uses the dot');
+    assert(needy.overlay === 'dot' && needy.iconFile === 'base', 'attention keeps the symbolic face');
     assert(needy.text === '', 'attention adds no number');
     assert(needy.accessibleName === 'TetherBot: a bot needs attention', 'attention name');
     const bothMarks = indicatorView({
@@ -785,6 +792,11 @@ export function runViewChecks() {
     const botClick = botRowCall();
     assert(botClick.method === 'OpenWindow' && botClick.args[0] === 'bots', 'a bot row opens the bots tab');
     assert(approvalCount([ask({actions: ['veto']})], NOW) === 0, 'veto alone is not approval');
+    assert(panelIcon('dot').file === 'base' && panelIcon('dot').overlay === 'dot', 'dot overlay');
+    assert(panelIcon('ring').file === 'base' && panelIcon('ring').overlay === 'ring', 'ring overlay');
+    assert(panelIcon('slash').file === 'slash' && panelIcon('slash').overlay === '', 'slash stays symbolic');
+    assert(panelIcon('triangle').file === 'triangle' && panelIcon('triangle').overlay === '', 'triangle stays symbolic');
+    assert(panelIcon(null).file === 'base' && panelIcon(null).overlay === '', 'a clear face has no overlay');
 }
 
 if (typeof process !== 'undefined' && process.argv[1] && process.argv[1].endsWith('view_checks.js'))

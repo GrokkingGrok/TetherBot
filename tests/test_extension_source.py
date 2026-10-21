@@ -104,10 +104,21 @@ def test_disable_drops_the_proxy_and_handlers():
     assert "system-status-icon" in icon
     assert "icon-size" not in css
     assert "tetherbot-undo" in css
+    assert ".tetherbot-mark-ring" in css
+    assert "#ed333b" in css
+    assert ".tetherbot-mark-dot" in css
+    assert "#3584e4" in css
     assert "max-width: 5.2em" in css
     assert "undoFraction" in text
     assert "Gio.FileIcon" in text
     assert "face-symbolic.svg" in text
+    assert "tetherbot-mark-ring" in text
+    assert "tetherbot-mark-dot" in text
+    assert "Clutter.BinLayout" in text
+    sync = text.split("    _syncIcon(kind) {", 1)[1].split("\n    _", 1)[0]
+    assert "kind === 'slash' || kind === 'triangle'" in sync
+    assert "face-dot-symbolic" not in sync
+    assert "face-ring-symbolic" not in sync
     assert "St.DrawingArea" not in text
     assert "get_foreground_color" not in text
     assert "0.86" not in text

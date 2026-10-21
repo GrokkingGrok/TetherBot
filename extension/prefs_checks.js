@@ -16,6 +16,7 @@ import {
     botChoices,
     effectivePollSeconds,
     effectiveUndoSeconds,
+    resetFeedSettings,
     idList,
     keyButtonLabel,
     rememberExpansion,
@@ -75,6 +76,25 @@ assert(effectiveUndoSeconds(1) === 2, 'undo clamps up');
 assert(effectiveUndoSeconds(12) === 12, 'a saved undo is shown');
 assert(effectiveUndoSeconds(90) === 30, 'undo clamps down');
 
+const kept = {
+    hidden: ['notes'],
+    muted: ['primary'],
+    token: 'stored',
+    cleared: [],
+    reset(key) {
+        this.cleared.push(key);
+    },
+};
+const reset = resetFeedSettings(kept, 180);
+assert(reset.touched.join(',') === 'poll-seconds,undo-seconds', 'reset touches the two feed keys');
+assert(kept.cleared.join(',') === 'poll-seconds,undo-seconds', 'reset clears only those keys');
+assert(kept.hidden.join(',') === 'notes', 'hidden bots stay');
+assert(kept.muted.join(',') === 'primary', 'notification settings stay');
+assert(kept.token === 'stored', 'a stored token stays');
+assert(reset.poll === 180 && reset.undo === 5, 'reset shows config poll and the undo default');
+const plain = resetFeedSettings(kept, null);
+assert(plain.poll === 120 && plain.undo === 5, 'reset without config uses 120 and 5');
+
 let open = rememberExpansion([], 'primary', true);
 assert(open.join(',') === 'primary', 'the user can expand a bot');
 open = rememberExpansion(open, 'primary', null);
@@ -91,7 +111,9 @@ const prefsSource = readFileSync(
     join(dirname(fileURLToPath(import.meta.url)), 'prefs.js'),
     'utf8',
 );
-assert(prefsSource.includes('set_default_size(720, 820)'), 'prefs opens at 720 by 820');
+assert(prefsSource.includes('set_default_size(756, 820)'), 'prefs opens at 756 by 820');
+assert(prefsSource.includes('Reset to defaults'), 'prefs has a reset button');
+assert(prefsSource.includes('resetFeedSettings'), 'prefs resets through the feed helper');
 assert(prefsSource.includes('sameBotList'), 'prefs keeps an unchanged bot list');
 assert(prefsSource.includes('rememberExpansion'), 'prefs remembers which bot is expanded');
 assert(prefsSource.includes('effectivePollSeconds'), 'prefs shows the effective poll');

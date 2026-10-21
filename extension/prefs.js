@@ -19,6 +19,7 @@ import {
     botChoices,
     effectivePollSeconds,
     effectiveUndoSeconds,
+    resetFeedSettings,
     idList,
     keyButtonLabel,
     rememberExpansion,
@@ -104,16 +105,41 @@ export default class TetherBotPreferences extends ExtensionPreferences {
             UNDO_MAX,
             1,
         ));
+        const reset = new Adw.ActionRow({
+            title: 'Feed check and undo timer',
+            subtitle: 'Reset puts those two back to the defaults. Keys and bots stay as they are.',
+        });
+        const button = new Gtk.Button({
+            label: 'Reset to defaults',
+            valign: Gtk.Align.CENTER,
+        });
+        button.connect('clicked', () => this._resetFeed(settings));
+        reset.add_suffix(button);
+        reset.activatable_widget = button;
+        group.add(reset);
         page.add(group);
+    }
+
+    _resetFeed(settings) {
+        const next = resetFeedSettings(settings, this._configPoll);
+        for (const key of next.touched)
+            this._spinEdited.delete(key);
+        const poll = this._spins.get('poll-seconds');
+        const undo = this._spins.get('undo-seconds');
+        if (poll)
+            this._showSpin(poll, next.poll);
+        if (undo)
+            this._showSpin(undo, next.undo);
+        this._reloadBridge();
     }
 
     _sizeWindow(window) {
         if (!window)
             return;
         if (typeof window.set_default_size === 'function')
-            window.set_default_size(720, 820);
+            window.set_default_size(756, 820);
         if ('default_width' in window)
-            window.default_width = 720;
+            window.default_width = 756;
         if ('default_height' in window)
             window.default_height = 820;
     }

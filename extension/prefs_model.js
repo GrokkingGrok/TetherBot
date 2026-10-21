@@ -33,6 +33,22 @@ export function effectiveUndoSeconds(stored) {
     return UNDO_DEFAULT;
 }
 
+export const FEED_RESET_KEYS = ['poll-seconds', 'undo-seconds'];
+
+export function resetFeedSettings(settings, configPoll) {
+    const touched = [];
+    for (const key of FEED_RESET_KEYS) {
+        if (settings && typeof settings.reset === 'function')
+            settings.reset(key);
+        touched.push(key);
+    }
+    return {
+        touched,
+        poll: effectivePollSeconds(null, configPoll),
+        undo: effectiveUndoSeconds(null),
+    };
+}
+
 export function sameBotList(current, next) {
     const names = rows => (rows || [])
         .map(row => (row && typeof row.name === 'string' ? row.name : ''))

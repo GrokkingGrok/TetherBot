@@ -2,7 +2,7 @@
 
 Run these on one Fedora 44 desktop with GNOME Shell 50 on Wayland, after you can log in as a normal user. The project is unofficial and not affiliated with xAI.
 
-**Out of scope here:** M9 (webhook-only popup copy), M15 and M16 (a legacy todo sink outside this repository), and M17 (the full uninstall acceptance check). Uninstall is still documented in [SETUP.md](SETUP.md) and is the reset for M1. M18–M24 are the rich-todo checks later in this file. M25 checks that a new login starts the bridge. M26 checks that a todo click opens the window quickly. M27–M42 check the stopwatch. M43–M47 check more than one bot, display names, the compact Bots section, and the popup order. M48–M54 check an optional webhook slot, Sync now, the timer chip, toolbar colors, summary contrast, the bot-row dot and summary, and local dates. M55–M57 check the timer chip on the left, the top-bar width, and a window that updates while it stays open. M47 and M55–M68 passed on the desktop. M58 and M62 are the panel icon size and `primary` staying first. M59–M61 are replaced by M65–M68: a face in the shell's status-icon color, eyes that stay visible, Done sending when the shared bar ends, and one batch per menu. M75 checks that the ring stays red and the dot stays blue on that face. M63 and M64 are a shared webhook slot and a missing secret on one bot. M69–M74 check the settings screen. Do not treat M9, M15, M16, or M17 as part of the v0.1 runbook.
+**Out of scope here:** M9 (webhook-only popup copy), M15 and M16 (a legacy todo sink outside this repository), and M17 (the full uninstall acceptance check). Uninstall is still documented in [SETUP.md](SETUP.md) and is the reset for M1. M18–M24 are the rich-todo checks later in this file. M25 checks that a new login starts the bridge. M26 checks that a todo click opens the window quickly. M27–M42 check the stopwatch. M43–M47 check more than one bot, display names, the compact Bots section, and the popup order. M48–M54 check an optional webhook slot, Sync now, the timer chip, toolbar colors, summary contrast, the bot-row dot and summary, and local dates. M55–M57 check the timer chip on the left, the top-bar width, and a window that updates while it stays open. M47 and M55–M68 passed on the desktop. M58 and M62 are the panel icon size and `primary` staying first. M59–M61 are replaced by M65–M68: a face in the shell's status-icon color, eyes that stay visible, Done sending when the shared bar ends, and one batch per menu. M75 checks that the ring stays red and the dot stays blue on that face. M76 checks that one new item raises one notification, including after a bridge restart. M77 checks that popup Done waits for the undo bar and that closing the menu early does not send it. M63 and M64 are a shared webhook slot and a missing secret on one bot. M69–M74 check the settings screen. Do not treat M9, M15, M16, or M17 as part of the v0.1 runbook.
 
 Examples use the bot id `primary`. Yours can be any lowercase id of letters, digits, and hyphens. Use the same id in the bot's feed file, in `config.toml`, and in the commands below.
 
@@ -10,7 +10,7 @@ Nothing in these steps belongs in a chat, in `config.toml`, or in this repositor
 
 ## Suggested order
 
-M1, M2, then the extension install in M14 (log out and back in once), then M3. Do M10 before M4 if the popup has no ask yet. Then M4, M10a, M5, M11, M6, M7, M8, M12, M13. After a rich todo is in the feed, M18 through M24. M25 is the next login after the unit is installed. M26 is a todo click after that. M27 through M42 need a running timer. M43 through M47 need this version installed and a log out, then a second feed file. M48 through M54 need that same login. M47 and M55 through M68 passed on the desktop. M69 through M74 need the settings install and a log out, so the prefs window and the schema load. M75 needs that same login, an open todo, and either an open ask or a bot that needs attention.
+M1, M2, then the extension install in M14 (log out and back in once), then M3. Do M10 before M4 if the popup has no ask yet. Then M4, M10a, M5, M11, M6, M7, M8, M12, M13. After a rich todo is in the feed, M18 through M24. M25 is the next login after the unit is installed. M26 is a todo click after that. M27 through M42 need a running timer. M43 through M47 need this version installed and a log out, then a second feed file. M48 through M54 need that same login. M47 and M55 through M68 passed on the desktop. M69 through M74 need the settings install and a log out, so the prefs window and the schema load. M75 needs that same login, an open todo, and either an open ask or a bot that needs attention. M76 needs one new notify item in the feed. M77 needs two open todos in the popup.
 
 You can stop after any check. Later checks say what they need.
 
@@ -1176,7 +1176,7 @@ journalctl --user -b /usr/bin/gnome-shell --no-pager | tail -n 80
 - Done on one row. About two seconds later, Done on another. Both bars jump back to full and shrink together.
 - Undo one of them. That row comes back as an open todo, and nothing is sent for it. The other row keeps the same bar.
 - Let the bar end with the menu still open. The remaining rows queue together. The footer shows one Queued count for all of them, and the bot receives those clears in one run.
-- Done on two rows, then close the menu before the bar ends. Those rows queue immediately, as one batch. Closing the window with pending rows does the same.
+- Done on two rows, then close the menu before the bar ends. Nothing is queued yet. M77 checks that Undo still works and that the batch waits for the bar. Closing the window with pending rows still sends that batch.
 
 **Reset.** Undo a pending row if you do not want it sent.
 
@@ -1271,6 +1271,31 @@ journalctl --user -b /usr/bin/gnome-shell --no-pager | tail -n 80
 - The only number in the top bar is still the timer.
 
 **Reset.** None.
+
+## M76. One new item raises one notification
+
+**Preconditions.** M10. The bridge is running. You can add one open item, with `notify` set, to `feed/<bot>.json` and push it. The item can have a due date. It should not already be in the feed.
+
+**Look for.**
+
+- The desktop shows one notification for that item. The title and the body appear once.
+- The same item is still only once in `feed/<bot>.json`.
+- Restart the bridge with `systemctl --user restart tetherbot`. That item does not raise another notification. A later new item still does.
+
+**Reset.** None. Leave the item, or remove it from the feed if you do not want it.
+
+## M77. Popup Done waits for the undo bar
+
+**Preconditions.** M67 and M68. At least two open todos are on screen in the popup. The undo timer is 5 seconds.
+
+**Look for.**
+
+- Done on two rows. Both bars are full and shrink together. Close the menu before the bar ends. The footer does not say Queued for those rows, and the bot has not received them.
+- Open the menu again before the bar ends. Both rows are still there with Undo. Undo one of them. Nothing is sent for that row.
+- Leave the other row until the bar ends, with the menu either open or closed. It is sent then, and not before. The footer shows Queued once the bar has ended.
+- Done on one row and leave the menu open, with the pointer on the list, until the bar ends. It is sent while the menu is still open. That row keeps its place until the pointer leaves.
+
+**Reset.** Undo a pending row if you do not want it sent.
 
 ## When you are finished
 

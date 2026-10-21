@@ -19,7 +19,7 @@ from pathlib import Path
 from tetherbot import SCHEMA_VERSION
 from tetherbot.files import write_private_json
 from tetherbot.model import Item, looks_like_secret, parse_acted, parse_iso8601, resolved_status
-from tetherbot.notify_policy import Notice, NotifyPolicy
+from tetherbot.notify_policy import Notice, NotifyPolicy, visible_notices
 from tetherbot.todos import PALETTE_NAMES
 from tetherbot.version_gate import check_schema
 
@@ -369,7 +369,7 @@ class ItemStore:
         self._policy.mark(notices)
         notifications = tuple(
             Notification(reason=notice.reason, item=self._items[notice.key].clone())
-            for notice in notices
+            for notice in visible_notices(notices)
             if notice.key in self._items
         )
         return StoreUpdate(Diff(added, updated, removed), notifications, ())

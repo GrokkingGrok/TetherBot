@@ -2,9 +2,11 @@
 """Decide which item changes deserve a notification.
 
 Dedupe is by item key and ``updated_at`` for first sight and later edits.
-A due-soon nudge is separate and fires once per key and due value. Snoozed
-items produce nothing until the snooze has elapsed. ``delivery_failed`` is
-emitted by the outbound route, not by this policy.
+A due-soon nudge is separate and fires once per key and due value, but not
+in the same pass as a first-sight or edit notice for that item. Both tokens
+are still recorded, so a restart does not raise the nudge that pass already
+covered. Snoozed items produce nothing until the snooze has elapsed.
+``delivery_failed`` is emitted by the outbound route, not by this policy.
 
 Date-only due values use the UTC date of ``now``. A clock time in ``due``
 is read as UTC until the desktop timezone lands in config. That comparison
@@ -50,6 +52,22 @@ class NotifyPolicy:
     def mark(self, notices: list[Notice]) -> None:
         for notice in notices:
             self.delivered.add(notice.dedupe)
+
+
+def visible_notices(notices: list[Notice]) -> list[Notice]:
+    """One desktop notification per item when sight and due-soon land together.
+
+    The caller still marks every notice, including a due-soon token hidden
+    here. The shell would otherwise show two banners with the same title
+    and body, and a later restart would show the hidden one.
+    """
+
+    revised = {notice.key for notice in notices if notice.reason in {"new", "changed"}}
+    return [
+        notice
+        for notice in notices
+        if notice.reason != "due_soon" or notice.key not in revised
+    ]
 
 
 def _is_snoozed(item: Item, now: datetime) -> bool:

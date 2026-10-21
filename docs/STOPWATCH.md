@@ -2,7 +2,7 @@
 
 Status: approved. The Decisions section at the end is binding.
 
-The top-bar icon is a simple face, two eyes and a small smile. The panel shows that face as a symbolic icon, at the shell's panel icon size, so the shell recolors it with the other status icons and a larger panel icon grows it too. The ring, the dot, the slash, and the triangle are separate symbolic variants of the same face, so they take that same tint and scale with it. Mock todo titles in this file are generic examples.
+The top-bar icon is a simple face, two eyes and a small smile. The panel shows that face as a symbolic icon, at the shell's panel icon size, so the shell recolors it with the other status icons and a larger panel icon grows it too. The slash and the triangle are symbolic variants of that face. The ring and the dot are drawn on top of it and scale with it: the ring is red, and the dot is blue. Mock todo titles in this file are generic examples.
 
 Goal: track time on one task at a time from the top bar, and make the top-bar button say one thing at a glance. Losing tracked time is the worst failure, so recovery comes first.
 
@@ -29,7 +29,7 @@ The button has two slots. The **text slot** shows the timer. The **badge slot** 
 | State | Shape | Color | Priority | Text slot |
 |---|---|---|---|---|
 | Broken: bridge not running, `unconfigured`, `failed_closed`, or an auth reason (keyring locked, rejected key, routine not found) | Dimmed icon with a slash across it | red | 1 (highest) | none |
-| Bot needs attention, or an open ask | Filled dot | accent | 2 | time, if a timer exists |
+| Bot needs attention, or an open ask | Filled dot | blue | 2 | time, if a timer exists |
 | Open todo | Hollow ring | red | 3 | time, if a timer exists |
 | Clock warning (section 6.5) | Triangle with `!` | amber | 4 | `--:--` |
 | Timer running | no badge | none | 5 | `41m` or `1:05` |
@@ -271,4 +271,4 @@ Manual checks, next free numbers in [MANUAL-CHECKS.md](MANUAL-CHECKS.md):
 - The TetherBot window closes from its close button, from Ctrl+W, and from Escape.
 - Slash (broken) only for a bridge that is down or an auth or keyring error. Smaller problems, like a stale feed, show only in the popup.
 - Paused: pause bars and dimmed time. Broken hides the time.
-- The placeholder robot glyph in the mockups becomes the real TetherBot icon. Ship it as symbolic SVGs, one per badge state (`face-symbolic.svg`, plus the dot, ring, slash, and triangle variants), and replace the envelope icon.
+- The placeholder robot glyph in the mockups becomes the real TetherBot icon. The face, the slash, and the triangle are symbolic SVGs. The ring and the dot are colored marks drawn on that face.

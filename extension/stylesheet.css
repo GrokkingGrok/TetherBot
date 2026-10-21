@@ -1,10 +1,25 @@
 /* TetherBot top-bar indicator and popup. The face is a symbolic icon, so
-   the shell recolors it with the other status icons. The ring, dot, slash,
-   and triangle are the same kind of symbol and scale with the shell's
-   panel icon size. Amber stays on the bot-row dot. Digits stay tabular so
-   the panel width does not jump as the timer counts. The indicator uses
-   the shell's system-status-icon size, so a larger panel icon grows this
-   one too. */
+   the shell recolors it with the other status icons. The slash and the
+   triangle are the same kind of symbol. The ring and the dot are drawn on
+   top of the face, in their own colors, and scale with the icon height.
+   Amber stays on the bot-row dot. Digits stay tabular so the panel width
+   does not jump as the timer counts. The indicator uses the shell's
+   system-status-icon size, so a larger panel icon grows this one too. */
+
+.tetherbot-mark {
+    border-radius: 999px;
+}
+
+.tetherbot-mark-dot {
+    background-color: #3584e4;
+    border: 1px solid rgba(0, 0, 0, 0.55);
+}
+
+.tetherbot-mark-ring {
+    background-color: transparent;
+    border-style: solid;
+    border-color: #ed333b;
+}
 
 .tetherbot-dimmed {
     opacity: 0.45;

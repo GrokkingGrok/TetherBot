@@ -106,12 +106,9 @@ TetherBot is pre-alpha. Check items off as they land. Design detail is in [SPEC.
 - [ ] Start the stopwatch when the user logs in. The bridge already starts with the graphical session. Starting the timer itself on login is not built.
 - [ ] Money and watch section. Todo filters cover the need for now. A visual money overview is a possible future teaser, not part of v0.2.
 
-## Known bugs (later)
-
-- [ ] Since the symbolic icon in #37, the ring and dot overlays no longer show distinct attention colors. The shell tints the whole symbolic icon with the accent, so the ring and the dot match the face.
-
 ## Resolved
 
+- [x] The ring and the dot keep their own colors on the symbolic face. The face follows the theme accent. The ring is red and the dot is blue, drawn on top of the face, so the shell does not tint them with the accent. The eyes stay visible and the icon stays the shell's panel icon size.
 - [x] Bus name and interface `io.github.grokkinggrok.TetherBot1`, object path `/io/github/grokkinggrok/TetherBot1`. Schema string stays `tetherbot/1`. Libsecret schema `io.github.grokkinggrok.TetherBot.Secret`. Do not change the bus name after release.
 - [x] Extension UUID `tetherbot@grokkinggrok.github.io`. The README and the extension metadata description stay labelled unofficial, not affiliated with xAI.
 - [x] Concrete legacy inbox format stays out of this public repo. The `legacy-todo` sink stays generic.

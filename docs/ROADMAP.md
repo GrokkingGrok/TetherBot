@@ -54,6 +54,7 @@ TetherBot is pre-alpha. Check items off as they land. Design detail is in [SPEC.
 - [x] Manual checks M63 and M64 passed on the desktop: several bots can share one webhook slot, and a missing secret stays on that bot.
 - [x] Manual checks M65–M68 passed on the desktop: the face takes the shell accent, both eyes stay visible, Done sends when the shared bar ends, and one menu sends one batch.
 - [ ] Manual checks M69–M74 for the settings screen: key handoff, poll interval, undo length, notifications per bot, hidden bots, and reset to defaults. The steps are in [MANUAL-CHECKS.md](MANUAL-CHECKS.md). They have not been run on the desktop yet.
+- [ ] Manual checks M76 and M77: one notification per new item, including after a bridge restart, and popup Done sending when the undo bar ends rather than when the menu closes. The steps are in [MANUAL-CHECKS.md](MANUAL-CHECKS.md). They have not been run on the desktop yet.
 
 ## v0.2 — early adopters
 

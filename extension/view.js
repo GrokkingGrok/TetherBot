@@ -93,6 +93,20 @@ export function shareUndoWindow(holds, nowMs, windowMs = UNDO_MS) {
     });
 }
 
+export function menuClosePlan(holds, nowMs) {
+    const pending = [];
+    for (const hold of holds || []) {
+        if (!hold || hold.sent || typeof hold.key !== 'string' || !hold.key)
+            continue;
+        pending.push(hold);
+    }
+    const send = dueUndoKeys(pending, nowMs);
+    const sending = new Set(send);
+    const now = Number(nowMs);
+    const keep = pending.filter(hold => !sending.has(hold.key) && Number(hold.until) > now);
+    return {send, keep};
+}
+
 export function dueUndoKeys(holds, nowMs) {
     const now = Number(nowMs);
     const keys = [];
@@ -770,6 +784,24 @@ export function menuModel({
             queueLength: number(queueLength),
         },
     };
+}
+
+export function noticeKey(payload, reason) {
+    let item = payload;
+    if (typeof payload === 'string') {
+        try {
+            item = JSON.parse(payload);
+        } catch (error) {
+            return '';
+        }
+    }
+    if (!item || typeof item !== 'object')
+        return '';
+    const key = itemKey(item);
+    if (!key)
+        return '';
+    const updated = typeof item.updated_at === 'string' ? item.updated_at : '';
+    return `${reason || ''}\0${key}\0${updated}`;
 }
 
 export function notificationModel(payload, reason, labels) {

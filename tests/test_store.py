@@ -78,6 +78,56 @@ def test_expires_at_marks_the_item_and_skips_notification():
     assert store.counts(now=NOW)["asks"] == 0
 
 
+def test_new_item_due_soon_notifies_once_across_restart(tmp_path):
+    path = tmp_path / "items.json"
+    store = ItemStore(path)
+    item = make_item(
+        kind="todo",
+        actions=["done"],
+        due="2026-10-17",
+        title="Finish the open checks",
+        body="Run the checks that are still open.",
+    )
+    first = store.replace_origin("feed", [item], now=NOW)
+    assert [notice.reason for notice in first.notifications] == ["new"]
+    assert ("primary/sample-01", "2026-10-17", "due_soon") in store._policy.delivered
+
+    again = store.replace_origin("feed", [item], now=NOW + timedelta(minutes=1))
+    assert again.notifications == ()
+
+    reloaded = ItemStore(path)
+    assert reloaded.load_error is None
+    quiet = reloaded.replace_origin("feed", [item], now=NOW + timedelta(minutes=2))
+    assert quiet.notifications == ()
+
+    nudged = reloaded.replace_origin(
+        "feed",
+        [
+            make_item(
+                kind="todo",
+                actions=["done"],
+                due="2026-10-18",
+                title="Finish the open checks",
+                body="Run the checks that are still open.",
+            )
+        ],
+        now=NOW + timedelta(minutes=3),
+    )
+    assert [notice.reason for notice in nudged.notifications] == ["due_soon"]
+
+
+def test_an_edit_does_not_also_raise_due_soon():
+    store = ItemStore()
+    store.replace_origin("feed", [make_item(due="2026-10-20")], now=NOW)
+    edited = store.replace_origin(
+        "feed",
+        [make_item(due="2026-10-17", updated_at="2026-10-17T12:05:00+00:00")],
+        now=NOW,
+    )
+    assert [notice.reason for notice in edited.notifications] == ["changed"]
+    assert ("primary/sample-01", "2026-10-17", "due_soon") in store._policy.delivered
+
+
 def test_due_soon_is_deduped():
     store = ItemStore()
     first = store.replace_origin("feed", [make_item(due="2026-10-17", notify=False)], now=NOW)

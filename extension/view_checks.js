@@ -30,7 +30,9 @@ import {
     compactBotSection,
     menuModel,
     dueUndoKeys,
+    menuClosePlan,
     nextUndoDelay,
+    noticeKey,
     notificationModel,
     shareUndoWindow,
     botRowCall,
@@ -328,6 +330,16 @@ export function runViewChecks() {
     assert(labels.join(',') === 'Approve,Veto,Snooze 1 h,Snooze until tomorrow', 'notify buttons');
     assert(!notified.actions.some(action => action.id === 'open_chat'), 'no open chat button');
     assert(notified.actions[0].key === 'primary/sample-01', 'notify key');
+    const sample = {
+        id: 'sample-01',
+        title: 'Finish the open checks',
+        updated_at: '2026-10-17T11:40:00+00:00',
+        source: {bot: 'primary'},
+    };
+    const seen = noticeKey(sample, 'new');
+    assert(seen && seen === noticeKey(JSON.stringify(sample), 'new'), 'one token for one item');
+    assert(noticeKey(sample, 'due_soon') !== seen, 'a later nudge is a different token');
+    assert(noticeKey({title: 'Accepted'}, 'action_result') === '', 'a result with no key is not deduped');
     const listedChat = notificationModel({
         id: 'sample-01',
         title: 'Hello',
@@ -476,6 +488,15 @@ export function runViewChecks() {
     assert(together.todos[1].undoFraction === 1, 'the second bar matches it');
     assert(dueUndoKeys(shared, NOW + 4000 + 5000).join(',') === 'a,b', 'they send together');
     assert(dueUndoKeys(shared.filter(hold => hold.key !== 'a'), NOW + 4000 + 5000).join(',') === 'b', 'undo drops one row');
+    const early = menuClosePlan(shared, NOW + 4000);
+    assert(early.send.length === 0, 'closing early sends nothing');
+    assert(early.keep.map(hold => hold.key).join(',') === 'a,b', 'undo stays available');
+    const ended = menuClosePlan(shared, NOW + 4000 + 5000);
+    assert(ended.send.join(',') === 'a,b', 'the bar ending sends the batch');
+    assert(ended.keep.length === 0, 'a finished batch is not kept');
+    const kept = menuClosePlan(shared.filter(hold => hold.key !== 'a'), NOW + 4000);
+    assert(kept.send.length === 0, 'undo removes that row from the close batch');
+    assert(kept.keep.map(hold => hold.key).join(',') === 'b', 'the other row is still held');
     assert(nextUndoDelay(shared, NOW + 4000) === 5000, 'the shared window is the next expiry');
     assert(undoFraction(NOW + 5000, NOW + 4000) === 0.2, 'the bar matches the time left');
 

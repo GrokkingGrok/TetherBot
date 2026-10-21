@@ -128,7 +128,12 @@ def test_disable_drops_the_proxy_and_handlers():
     flush = text.split("    _flushDue(", 1)[1].split("\n    _", 1)[0]
     assert "_perform('done'" in flush
     close = text.split("open-state-changed", 1)[1].split("});", 1)[0]
-    assert "_flushDue(true)" in close
+    assert "menuClosePlan" in close
+    assert "_flushDue(true)" not in close
+    assert "_undoHolds = []" not in close
+    assert "noticeKey" in text.split("    _showNotification(", 1)[1].split("\n    _", 1)[0]
+    disable = text.split("    disable() {", 1)[1].split("\n    _buildMenu", 1)[0]
+    assert "_flushDue(true)" in disable
     face = (EXTENSION / "icons" / "face-symbolic.svg").read_text(encoding="utf-8")
     assert face.count("<circle ") == 2
     assert 'r="1.55"' in face

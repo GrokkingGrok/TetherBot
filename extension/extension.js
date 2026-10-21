@@ -24,7 +24,9 @@ import {
     ACTIVATE_RETRY_MS,
     UNDO_MS,
     dueUndoKeys,
+    menuClosePlan,
     nextUndoDelay,
+    noticeKey,
     shareUndoWindow,
     undoFraction,
     elapsedSeconds,
@@ -66,6 +68,8 @@ export default class TetherBotExtension extends Extension {
         this._searched = null;
         this._undoHolds = [];
         this._hiddenDone = new Set();
+        this._shownNotices = new Set();
+        this._menuOpen = false;
         this._undoSources = [];
         this._undoSource = 0;
         this._undoPaintSource = 0;
@@ -231,6 +235,8 @@ export default class TetherBotExtension extends Extension {
         this._undoSpan = 0;
         this._undoHolds = [];
         this._hiddenDone = new Set();
+        this._shownNotices = new Set();
+        this._menuOpen = false;
         this._bots = [];
         this._items = [];
         this._searched = null;
@@ -276,15 +282,21 @@ export default class TetherBotExtension extends Extension {
         settings.connect('activate', () => this.openPreferences());
         this._indicator.menu.addMenuItem(settings);
         this._indicator.menu.connect('open-state-changed', (_menu, open) => {
-            if (open)
+            this._menuOpen = open;
+            if (open) {
                 this._requestBridge();
-            else {
-                this._todoPointer = false;
-                this._flushDue(true);
-                this._undoHolds = [];
-                this._armUndoTimer();
-                this._refresh();
+                return;
             }
+            // The bar owns the send. Closing early keeps every unsent Done
+            // so Undo still works until that shared window ends.
+            this._todoPointer = false;
+            const plan = menuClosePlan(this._undoHolds, Date.now());
+            if (plan.send.length)
+                this._flushDue(false);
+            const keep = new Set(plan.keep.map(hold => hold.key));
+            this._undoHolds = (this._undoHolds || []).filter(hold => hold && keep.has(hold.key));
+            this._armUndoTimer();
+            this._refresh();
         });
         this._watchTodoPointer();
     }
@@ -1490,6 +1502,8 @@ export default class TetherBotExtension extends Extension {
     }
 
     _pointerOverTodos() {
+        if (!this._menuOpen)
+            return false;
         const box = this._todoSection && (this._todoSection.box || this._todoSection.actor);
         if (!box)
             return false;
@@ -1628,6 +1642,14 @@ export default class TetherBotExtension extends Extension {
         const source = this._ensureSource();
         if (!source)
             return;
+        const token = noticeKey(payload, reason);
+        if (token) {
+            if (!this._shownNotices)
+                this._shownNotices = new Set();
+            if (this._shownNotices.has(token))
+                return;
+            this._shownNotices.add(token);
+        }
         const notification = new MessageTray.Notification({
             source,
             title: model.title,

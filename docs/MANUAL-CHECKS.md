@@ -2,7 +2,7 @@
 
 Run these on one Fedora 44 desktop with GNOME Shell 50 on Wayland, after you can log in as a normal user. The project is unofficial and not affiliated with xAI.
 
-**Out of scope here:** M9 (webhook-only popup copy), M15 and M16 (a legacy todo sink outside this repository), and M17 (the full uninstall acceptance check). Uninstall is still documented in [SETUP.md](SETUP.md) and is the reset for M1. M18–M24 are the rich-todo checks later in this file. M25 checks that a new login starts the bridge. M26 checks that a todo click opens the window quickly. M27–M42 check the stopwatch. M43–M47 check more than one bot, display names, the compact Bots section, and the popup order. M48–M54 check an optional webhook slot, Sync now, the timer chip, toolbar colors, summary contrast, the bot-row dot and summary, and local dates. M55–M57 check the timer chip on the left, the top-bar width, and a window that updates while it stays open. M47 and M55–M68 passed on the desktop. M58 and M62 are the panel icon size and `primary` staying first. M59–M61 are replaced by M65–M68: a face in the shell's status-icon color, eyes that stay visible, Done sending when the shared bar ends, and one batch per menu. M75 checks that the ring stays red and the dot stays blue on that face. M76 checks that one new item raises one notification, including after a bridge restart. M77 checks that popup Done waits for the undo bar and that closing the menu early does not send it. M63 and M64 are a shared webhook slot and a missing secret on one bot. M69–M74 check the settings screen. Do not treat M9, M15, M16, or M17 as part of the v0.1 runbook.
+**Out of scope here:** M9 (webhook-only popup copy), M15 and M16 (a legacy todo sink outside this repository), and M17 (the full uninstall acceptance check). Uninstall is still documented in [SETUP.md](SETUP.md) and is the reset for M1. M18–M24 are the rich-todo checks later in this file. M25 checks that a new login starts the bridge. M26 checks that a todo click opens the window quickly. M27–M42 check the stopwatch. M43–M47 check more than one bot, display names, the compact Bots section, and the popup order. M48–M54 check an optional webhook slot, Sync now, the timer chip, toolbar colors, summary contrast, the bot-row dot and summary, and local dates. M55–M57 check the timer chip on the left, the top-bar width, and a window that updates while it stays open. M47 and M55–M68 passed on the desktop. M58 and M62 are the panel icon size and `primary` staying first. M59–M61 are replaced by M65–M68: a face in the shell's status-icon color, eyes that stay visible, Done sending when the shared bar ends, and one batch per menu. M75 checks the small corner dot: red for an open todo, blue for an ask or a bot that needs attention. M76 checks that one new item raises one notification, including after a bridge restart. M77 checks that popup Done waits for the undo bar and that closing the menu early does not send it. M63 and M64 are a shared webhook slot and a missing secret on one bot. M69–M74 check the settings screen. Do not treat M9, M15, M16, or M17 as part of the v0.1 runbook.
 
 Examples use the bot id `primary`. Yours can be any lowercase id of letters, digits, and hyphens. Use the same id in the bot's feed file, in `config.toml`, and in the commands below.
 
@@ -793,7 +793,7 @@ journalctl --user -b /usr/bin/gnome-shell --no-pager | tail -n 80
 **Look for.**
 
 - With Orca, focus the button in each state and hear the names in [STOPWATCH.md](STOPWATCH.md) section 10.
-- The same states are distinguishable in grayscale: no badge, dot, ring, triangle, slash, pause bars, or dashes.
+- Slash, triangle, pause bars, and dashes are distinguishable in grayscale. The red and blue corner dots share one shape; Orca names which one it is.
 
 **Reset.** None.
 
@@ -971,8 +971,8 @@ journalctl --user -b /usr/bin/gnome-shell --no-pager | tail -n 80
 **Look for.**
 
 - The top bar shows no count of todos, asks, or bots. The only number is the timer, such as `25m` or `1:05`, and it is absent when no timer is showing.
-- With an open todo and no ask, the icon carries the ring and no digit.
-- When a bot needs attention, or an ask is open, the icon carries the dot instead. The tooltip describes that in words and does not give a count.
+- With an open todo and no ask, the icon carries a small red corner dot and no digit.
+- When a bot needs attention, or an ask is open, that corner dot is blue instead. The tooltip describes that in words and does not give a count.
 
 **Reset.** None.
 
@@ -1049,7 +1049,7 @@ journalctl --user -b /usr/bin/gnome-shell --no-pager | tail -n 80
 **Look for.**
 
 - The TetherBot icon is the same height as the other status icons.
-- With an open todo, the red ring grows with the icon. With an ask waiting, the dot grows with it.
+- With an open todo, the red corner dot grows with the icon. With an ask waiting, the blue dot grows with it. The button does not get wider.
 - The only number in the top bar is still the timer.
 
 **Reset.** None.
@@ -1063,7 +1063,7 @@ journalctl --user -b /usr/bin/gnome-shell --no-pager | tail -n 80
 **Look for.**
 
 - The icon has two eyes and a small smile. It does not read as a piece of fruit.
-- The ring and the dot still sit in the corner and stay readable.
+- The corner dot still sits in the bottom-right and stays readable.
 
 **Reset.** None.
 
@@ -1137,7 +1137,7 @@ journalctl --user -b /usr/bin/gnome-shell --no-pager | tail -n 80
 - The TetherBot face is the same color as the other status icons, including their accent. It is not white, and it is not a dark filled block.
 - Change the desktop accent. The face changes with the other status icons.
 - With the bridge stopped, the face is dimmer and carries a slash. The slash uses that same icon color.
-- With an open todo, a red ring sits on the face. With an ask waiting, a blue dot sits on the face. Neither mark takes the accent. M75 checks that.
+- With an open todo, a small red dot sits in the bottom-right corner. With an ask waiting, that dot is blue. Neither dot takes the accent. M75 checks that.
 - The only number in the top bar is still the timer.
 
 **Reset.** None.
@@ -1150,7 +1150,7 @@ journalctl --user -b /usr/bin/gnome-shell --no-pager | tail -n 80
 
 - The face shows two eyes and a small smile at the normal panel size and at the larger size.
 - The eyes are not clipped off, and they are not the same color as an empty face.
-- With an open todo, the ring still sits in the corner and stays readable. With an ask waiting, the dot does too.
+- With an open todo, the red corner dot stays readable and the eyes stay clear of it. With an ask waiting, the blue dot does too.
 
 **Reset.** None.
 
@@ -1257,17 +1257,17 @@ journalctl --user -b /usr/bin/gnome-shell --no-pager | tail -n 80
 
 **Reset.** None. Set the feed check or the undo timer again only if a later check needs a different value.
 
-## M75. The ring and the dot keep their own colors
+## M75. A small corner dot marks attention
 
 **Preconditions.** M65 and M66. An open todo is on screen, and either an ask is open or a bot needs attention. Log out and back in after installing this version. Try a larger panel icon size if the shell lets you change it.
 
 **Look for.**
 
-- With only an open todo, the face matches the other status icons, including their accent. A hollow ring in the corner is red.
-- With an ask waiting, or a bot that needs attention, the face stays that accent color and a filled dot in the corner is blue. The dot replaces the ring.
-- Change the desktop accent. The face changes with the other status icons. The ring stays red and the dot stays blue.
-- Both eyes stay visible. The icon is the same height as the other panel icons, and the ring and the dot grow with it.
-- With the bridge stopped, the face is dimmer and the slash uses the icon color. There is no colored ring or dot.
+- With only an open todo, the face matches the other status icons, including their accent, and both eyes stay visible. A small filled red dot sits in the bottom-right corner. It overlaps the face only in that corner. There is no ring.
+- With an ask waiting, or a bot that needs attention, the face stays that accent color and the corner dot is blue. An ask and an open todo together still show only the blue dot.
+- The dot is about a quarter of the icon, with a thin dark outline. It grows when the panel icon grows. The top-bar button does not get wider.
+- Change the desktop accent. The face changes with the other status icons. The red dot stays red and the blue dot stays blue.
+- With the bridge stopped, the face is dimmer and the slash uses the icon color. There is no colored dot.
 - The only number in the top bar is still the timer.
 
 **Reset.** None.

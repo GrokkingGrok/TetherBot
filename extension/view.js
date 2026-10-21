@@ -346,13 +346,28 @@ function timerShown(timer) {
     return Boolean(timerActive(timer) || (timer && timer.state === 'stopped'));
 }
 
+export function badgeBox(iconWidth, iconHeight) {
+    const width = Number(iconWidth);
+    const height = Number(iconHeight);
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0)
+        return {span: 0, x: 0, y: 0};
+    const span = Math.max(3, Math.round(Math.max(width, height) * 0.25));
+    return {
+        span,
+        x: Math.max(0, width - span),
+        y: Math.max(0, height - span),
+    };
+}
+
 export function panelIcon(mark) {
     if (mark === 'slash')
         return {file: 'slash', overlay: ''};
     if (mark === 'triangle')
         return {file: 'triangle', overlay: ''};
-    if (mark === 'dot' || mark === 'ring')
-        return {file: 'base', overlay: mark};
+    if (mark === 'dot')
+        return {file: 'base', overlay: 'blue'};
+    if (mark === 'ring')
+        return {file: 'base', overlay: 'red'};
     return {file: 'base', overlay: ''};
 }
 

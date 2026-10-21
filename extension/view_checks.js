@@ -22,6 +22,7 @@ import {
     parseStartClock,
     todoActivation,
     indicatorView,
+    badgeBox,
     panelIcon,
     overdueCount,
     itemKey,
@@ -102,7 +103,7 @@ export function runViewChecks() {
     });
     assert(attention.mark === 'dot', 'open asks are the dot');
     assert(attention.iconFile === 'base', 'the face stays the symbolic icon');
-    assert(attention.overlay === 'dot', 'an ask adds the blue dot');
+    assert(attention.overlay === 'blue', 'an ask adds the blue dot');
     assert(attention.text === '', 'asks add no toolbar number');
     assert(attention.accessibleName === 'TetherBot: an ask is waiting', 'approval name');
 
@@ -574,8 +575,8 @@ export function runViewChecks() {
         items: [overdueItem, botTodo, overdueItem],
         nowMs: NOW,
     });
-    assert(overdueOnly.mark === 'ring', 'open todos use the ring');
-    assert(overdueOnly.iconFile === 'base' && overdueOnly.overlay === 'ring', 'the ring sits on the symbolic face');
+    assert(overdueOnly.mark === 'ring', 'open todos use the red badge');
+    assert(overdueOnly.iconFile === 'base' && overdueOnly.overlay === 'red', 'the todo dot sits on the symbolic face');
     assert(overdueOnly.text === '', 'open todos add no toolbar number');
     assert(overdueCount([overdueItem, botTodo], NOW) === 1, 'bot todos are not overdue');
     assert(overdueOnly.accessibleName === 'TetherBot: open todos', 'open todo name');
@@ -593,7 +594,7 @@ export function runViewChecks() {
         nowMs: NOW,
     });
     assert(plainTodo.mark === 'ring', 'a todo that is not overdue still marks the icon');
-    assert(plainTodo.overlay === 'ring', 'a plain todo adds the ring');
+    assert(plainTodo.overlay === 'red', 'a plain todo adds the red dot');
     assert(plainTodo.text === '', 'a plain todo adds no number');
     const needy = indicatorView({
         running: true,
@@ -603,7 +604,7 @@ export function runViewChecks() {
         nowMs: NOW,
     });
     assert(needy.mark === 'dot', 'a bot that needs attention uses the dot');
-    assert(needy.overlay === 'dot' && needy.iconFile === 'base', 'attention keeps the symbolic face');
+    assert(needy.overlay === 'blue' && needy.iconFile === 'base', 'attention keeps the symbolic face');
     assert(needy.text === '', 'attention adds no number');
     assert(needy.accessibleName === 'TetherBot: a bot needs attention', 'attention name');
     const bothMarks = indicatorView({
@@ -620,6 +621,7 @@ export function runViewChecks() {
         nowMs: NOW,
     });
     assert(bothMarks.mark === 'dot', 'attention outranks open todos');
+    assert(bothMarks.overlay === 'blue', 'an ask keeps the blue dot');
     assert(bothMarks.text === '', 'the toolbar still has no count');
     const staleFeed = indicatorView({
         running: true,
@@ -813,8 +815,13 @@ export function runViewChecks() {
     const botClick = botRowCall();
     assert(botClick.method === 'OpenWindow' && botClick.args[0] === 'bots', 'a bot row opens the bots tab');
     assert(approvalCount([ask({actions: ['veto']})], NOW) === 0, 'veto alone is not approval');
-    assert(panelIcon('dot').file === 'base' && panelIcon('dot').overlay === 'dot', 'dot overlay');
-    assert(panelIcon('ring').file === 'base' && panelIcon('ring').overlay === 'ring', 'ring overlay');
+    assert(panelIcon('dot').file === 'base' && panelIcon('dot').overlay === 'blue', 'ask badge');
+    assert(panelIcon('ring').file === 'base' && panelIcon('ring').overlay === 'red', 'todo badge');
+    const corner = badgeBox(16, 16);
+    assert(corner.span === 4, 'the badge is a quarter of the icon');
+    assert(corner.x === 12 && corner.y === 12, 'the badge sits in the bottom-right');
+    assert(corner.x + corner.span === 16 && corner.y + corner.span === 16, 'the badge stays inside the icon');
+    assert(badgeBox(0, 16).span === 0, 'an unsized icon draws no badge');
     assert(panelIcon('slash').file === 'slash' && panelIcon('slash').overlay === '', 'slash stays symbolic');
     assert(panelIcon('triangle').file === 'triangle' && panelIcon('triangle').overlay === '', 'triangle stays symbolic');
     assert(panelIcon(null).file === 'base' && panelIcon(null).overlay === '', 'a clear face has no overlay');

@@ -48,7 +48,7 @@ TetherBot is pre-alpha. Check items off as they land. Design detail is in [SPEC.
 - [ ] Manual checks M18–M36 and M42 for the rich todo view, login start, window open, and the remaining stopwatch checks. Login start and non-blocking window open are on main (#22, #23). The steps are in [MANUAL-CHECKS.md](MANUAL-CHECKS.md). M18–M36 and M42 have not been run on the desktop yet.
 - [x] Manual checks M43–M46 passed on the desktop: a second feed file, display names, the compact Bots section, popup order Timer then Todos then Asks then Bots, and the window Bots tab (summary click, name filter, and the list of bots).
 - [x] Manual check M47 passed on the desktop: the timer still behaves after the new popup.
-- [x] Manual checks M48–M54 passed on the desktop: a bot without a webhook slot, Sync now, the timer chip, the toolbar with no counts and the todo ring, the readable summary, the window bot status dot, and local-time dates.
+- [x] Manual checks M48–M54 passed on the desktop: a bot without a webhook slot, Sync now, the timer chip, the toolbar with no counts and the todo dot, the readable summary, the window bot status dot, and local-time dates.
 - [x] Manual checks M55–M57 passed on the desktop: the timer chip on the left, a top bar that hugs the timer text, and a window that updates bot names while it stays open.
 - [x] Manual checks M58 and M62 passed on the desktop: the panel icon matches the shell's icon size, and `primary` stays the first bot.
 - [x] Manual checks M63 and M64 passed on the desktop: several bots can share one webhook slot, and a missing secret stays on that bot.
@@ -109,7 +109,7 @@ TetherBot is pre-alpha. Check items off as they land. Design detail is in [SPEC.
 
 ## Resolved
 
-- [x] The ring and the dot keep their own colors on the symbolic face. The face follows the theme accent. The ring is red and the dot is blue, drawn on top of the face, so the shell does not tint them with the accent. The eyes stay visible and the icon stays the shell's panel icon size.
+- [x] Attention on the symbolic face is one small filled dot in the bottom-right corner. The face follows the theme accent and stays fully visible. An open todo is red. An ask, or a bot that needs attention, is blue, and blue wins when both apply. There is no ring. The dot scales with the shell's panel icon and stays inside the icon box.
 - [x] Bus name and interface `io.github.grokkinggrok.TetherBot1`, object path `/io/github/grokkinggrok/TetherBot1`. Schema string stays `tetherbot/1`. Libsecret schema `io.github.grokkinggrok.TetherBot.Secret`. Do not change the bus name after release.
 - [x] Extension UUID `tetherbot@grokkinggrok.github.io`. The README and the extension metadata description stay labelled unofficial, not affiliated with xAI.
 - [x] Concrete legacy inbox format stays out of this public repo. The `legacy-todo` sink stays generic.

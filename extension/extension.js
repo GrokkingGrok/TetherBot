@@ -1019,6 +1019,8 @@ export default class TetherBotExtension extends Extension {
                 can_focus: true,
             });
             this._timeEntry = entry;
+            if (entry.clutter_text)
+                entry.clutter_text.connect('activate', () => this._submitStartClock());
             row.add_child(entry);
             row.add_child(this._actionButton('Set', () => this._submitStartClock(), false));
             const cancel = new St.Button({

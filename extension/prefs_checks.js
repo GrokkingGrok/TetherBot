@@ -134,5 +134,13 @@ assert(prefsSource.includes('effectiveUndoSeconds'), 'prefs shows the effective 
 assert(prefsSource.includes('Keep completed todos'), 'prefs has the history toggle');
 assert(prefsSource.includes('history-unit'), 'prefs stores the history unit');
 assert(prefsSource.includes('Completed todos'), 'prefs has a completed-todo group');
+assert(
+    prefsSource.includes('1 month = 30 days, 1 year = 365 days'),
+    'how many names a month and a year',
+);
+assert(
+    !prefsSource.includes('A month is 30 days and a year is 365 days.'),
+    'the completed-todo description does not repeat the units',
+);
 
 console.log('prefs checks ok');

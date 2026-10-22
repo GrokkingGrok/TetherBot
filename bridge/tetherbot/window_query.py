@@ -17,7 +17,23 @@ from tetherbot.todos import display_zone, format_local_stamp
 
 VIEWS = ("all", "mine", "bots", "waiting", "today")
 SORTS = ("due", "priority", "created", "updated")
+MIN_WINDOW_HEIGHT = 680
 _WINDOW_LIVE = frozenset({"Bots"})
+
+
+def fitted_window_height(list_natural: int, chrome: int, minimum: int, usable: int) -> int:
+    """Height for the open list, plus chrome, capped by the monitor.
+
+    The result is never below ``minimum``. A usable height below that
+    minimum stays at the minimum; the list scrolls inside the window.
+    """
+
+    wanted = max(0, int(list_natural)) + max(0, int(chrome))
+    floor = max(0, int(minimum))
+    cap = int(usable) if isinstance(usable, int) and usable > 0 else wanted
+    if cap < floor:
+        cap = floor
+    return max(floor, min(wanted, cap))
 
 
 def properties_need_reload(names: object) -> bool:

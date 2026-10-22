@@ -432,6 +432,17 @@ def due_undo_keys(
     return [str(hold["key"]) for hold in chosen]
 
 
+def center_bar_span(width: float, fraction: float) -> tuple[float, float]:
+    """A bar of ``fraction`` of ``width``, centered so both ends move inward."""
+
+    if not isinstance(width, (int, float)) or isinstance(width, bool) or width <= 0:
+        return (0.0, 0.0)
+    if not isinstance(fraction, (int, float)) or isinstance(fraction, bool) or fraction <= 0:
+        return (width / 2, 0.0)
+    span = float(width) if fraction >= 1 else float(width) * float(fraction)
+    return ((float(width) - span) / 2, span)
+
+
 def undo_fraction(until_ms: object, now_ms: object, window_ms: int = UNDO_MS) -> float:
     """How much of an undo window is left, from 1 down to 0."""
 

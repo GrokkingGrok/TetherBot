@@ -60,6 +60,10 @@ def test_window_sources_do_not_touch_the_network_or_secrets():
     assert "window_width = WINDOW_DEFAULT_WIDTH" in window
     assert 'label="Note"' in window
     assert 'label="Done with note"' in window
+    assert "CenterUndoBar" in window
+    assert "center_bar_span" in window
+    assert "_schedule_after_send" in window
+    assert "hold[\"failed\"] = True" in window
     assert "KEY_w" in window
     assert "KEY_Escape" in window
     assert "AssignTimer" in window

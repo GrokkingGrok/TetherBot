@@ -6,9 +6,11 @@ from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from tetherbot.window_query import (
-    ASK_TEXT,
     bot_detail_line,
     can_mark_done,
+    copy_body,
+    copy_title,
+    copy_todo,
     due_undo_keys,
     format_duration,
     format_elapsed,
@@ -22,6 +24,7 @@ from tetherbot.window_query import (
     merge_undo_items,
     note_done,
     note_payload,
+    note_text,
     open_count_label,
     parse_start_clock,
     parse_tracked_total,
@@ -62,16 +65,26 @@ def test_list_filter_matches_the_bridge_shortcuts():
 
 
 def test_note_names_the_item_and_stays_short():
-    bot, payload = note_payload("primary/sample-01")
-    assert bot == "primary"
+    bot, payload = note_payload("notes/sample-01")
+    assert bot == "notes"
     body = json.loads(payload)
     assert body["schema"] == "tetherbot/1"
     assert body["type"] == "actions"
     action = body["actions"][0]
-    assert action["item"] == "primary/sample-01"
+    assert action["item"] == "notes/sample-01"
     assert action["action"] == "note"
-    assert action["args"]["text"] == ASK_TEXT
-    assert 1 <= len(ASK_TEXT) <= 500
+    assert action["args"]["bot"] == "notes"
+    assert action["args"]["text"] == note_text("notes")
+    assert "question about notes's item" in action["args"]["text"]
+    assert "check with notes for updates before answering" in action["args"]["text"]
+    assert 1 <= len(action["args"]["text"]) <= 500
+    assert len(note_text("n" * 64)) <= 500
+    item = {"title": "Pack the bag", "body": "Hold the date."}
+    assert copy_title(item) == "Pack the bag"
+    assert copy_body(item) == "Hold the date."
+    assert copy_todo(item) == "Pack the bag\n\nHold the date."
+    assert copy_todo({"title": "Pack the bag"}) == "Pack the bag"
+    assert copy_todo({"body": "Hold the date."}) == "Hold the date."
 
 
 def test_done_and_source_rules():

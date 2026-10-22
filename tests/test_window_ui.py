@@ -317,8 +317,13 @@ def _exercise_timer(app, fake, holder, glib) -> None:
             play.emit("clicked")
             assert fake.started == ["primary/one"]
             assert _has_label(window.list, "Timing")
-            assert window.start_button.get_label() == "Timing"
-            assert not window.start_button.get_sensitive()
+            assert window.start_button.get_label() == "Stop timer"
+            assert window.start_button.get_sensitive()
+            assert window.copy_button.get_label() == "Copy Todo"
+            assert window.copy_title_button.get_tooltip_text() == "Copy title"
+            assert window.copy_title_button.get_sensitive()
+            assert window.copy_body_button.get_tooltip_text() == "Copy body"
+            assert window.copy_body_button.get_sensitive()
             other = _find_play(window.list, "Start timer: Email venue about deposit")
             assert other is not None
             other.emit("clicked")
@@ -523,6 +528,9 @@ class _StoreTimer(_Fake):
         title = next((item["title"] for item in self.items if item["key"] == key), "")
         return self.store.start(key, title)
 
+    def stop_timer(self):
+        return self.store.stop()
+
 
 def test_attach_button_click_writes_the_timer(tmp_path):
     gi = pytest.importorskip("gi")
@@ -577,7 +585,11 @@ def _exercise_attach_click(app, fake, holder, glib) -> None:
             assert "Pack the bag" in window.timer_label.get_label()
             assert _has_label(window.list, "Timing")
             assert not window.attach_button.get_visible()
-            assert window.start_button.get_label() == "Timing"
+            assert window.start_button.get_label() == "Stop timer"
+            assert window.start_button.get_sensitive()
+            window.start_button.emit("clicked")
+            assert fake.store.view()["state"] == "idle"
+            assert window.start_button.get_label() == "Start timer"
             holder["ok"] = True
         except Exception as exc:
             holder["error"] = exc

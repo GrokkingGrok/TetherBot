@@ -43,6 +43,11 @@ def test_window_sources_do_not_touch_the_network_or_secrets():
     assert "LINGER_MS = 60_000" in window
     assert "GetTimer" in window
     assert "Start timer" in window
+    assert "Stop timer" in window
+    assert "Copy Todo" in window
+    assert "Copy title" in window
+    assert "Copy body" in window
+    assert "edit-copy-symbolic" in window
     assert "set_icon_name(APP_ID)" in window
     assert "set_titlebar" not in window
     assert "ToolbarView" in window

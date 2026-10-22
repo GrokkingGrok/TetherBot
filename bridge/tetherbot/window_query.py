@@ -18,7 +18,6 @@ from tetherbot.todos import display_zone, format_local_stamp
 VIEWS = ("all", "mine", "bots", "waiting", "today")
 SORTS = ("due", "priority", "created", "updated")
 DONE_DAYS = 7
-ASK_TEXT = "About this item"
 _WINDOW_LIVE = frozenset({"Bots"})
 
 
@@ -67,8 +66,22 @@ def list_filter(
     return spec
 
 
+def note_text(bot: str) -> str:
+    """Plain hint so the receiving bot can see who owns the item."""
+
+    name = bot if isinstance(bot, str) and bot else "that bot"
+    return (
+        f"question about {name}'s item; "
+        f"check with {name} for updates before answering"
+    )
+
+
 def note_payload(item_key: str) -> tuple[str, str]:
-    """Bot id and a SendToBot body that names the item."""
+    """Bot id and a SendToBot body that names the item and its owner.
+
+    ``args.bot`` is additive on schema ``tetherbot/1``. Older receivers that
+    only read ``args.text`` still see the same hint.
+    """
 
     bot = item_key.split("/", 1)[0]
     payload = {
@@ -78,11 +91,33 @@ def note_payload(item_key: str) -> tuple[str, str]:
             {
                 "item": item_key,
                 "action": "note",
-                "args": {"text": ASK_TEXT},
+                "args": {"text": note_text(bot), "bot": bot},
             }
         ],
     }
     return bot, json.dumps(payload, separators=(",", ":"))
+
+
+def copy_title(item: Mapping[str, Any]) -> str:
+    title = item.get("title")
+    return title if isinstance(title, str) else ""
+
+
+def copy_body(item: Mapping[str, Any]) -> str:
+    body = item.get("body")
+    return body if isinstance(body, str) else ""
+
+
+def copy_todo(item: Mapping[str, Any]) -> str:
+    """Title and body, the same text Copy Todo puts on the clipboard."""
+
+    title = copy_title(item)
+    body = copy_body(item)
+    if not body:
+        return title
+    if not title:
+        return body
+    return f"{title}\n\n{body}"
 
 
 def source_line(item: Mapping[str, Any], zone: tzinfo | None = None) -> str:

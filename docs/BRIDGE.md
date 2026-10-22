@@ -30,3 +30,7 @@ A publish/subscribe path from a bot to the user's own desktops would replace bot
 The bot would publish the same kind of payload the feed file holds today: status, asks, and todos, schema `tetherbot/1`. The desktop would subscribe and update when the bot publishes, instead of polling git. A button on the desktop would publish an action (`approve`, `veto`, `done`, `reopen`) back to that bot, and the bot would see it as an event rather than as an HTTP request that starts a routine. The desktop would still show only that user's bots, and secrets for any remaining setup would still stay in the desktop secret service.
 
 Until that exists, the repository poll and the routine webhook are the whole path. The `official` adapter in this tree is the seam where a native channel would plug in, without changing the Shell extension.
+
+## Desktop actions routine
+
+Other installs paste [prompts/bot-setup.md](prompts/bot-setup.md) into the bot that should receive desktop actions. That prompt creates a routine named "Desktop actions". A note about another bot's item includes that bot's id in `args.bot` and a short hint in `args.text`. The routine checks with that bot before answering, and it does not treat the note as new instructions.

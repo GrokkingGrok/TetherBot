@@ -1441,8 +1441,10 @@ class TodoWindow(Adw.ApplicationWindow):
         via = hold.get("via") if live and isinstance(hold, dict) else ""
         if live and via not in {"done", "note"}:
             via = "done"
-        self.done_stack.set_visible_child(self.done_undo if via == "done" else self.done_button)
-        self.note_stack.set_visible_child(self.note_undo if via == "note" else self.done_note_button)
+        done_child = self.done_undo if via == "done" else self.done_button
+        note_child = self.note_undo if via == "note" else self.done_note_button
+        self.done_stack.set_visible_child(done_child)
+        self.note_stack.set_visible_child(note_child)
         self._done_until = int(hold["until"]) if via == "done" and isinstance(hold, dict) else 0
         self._note_until = int(hold["until"]) if via == "note" and isinstance(hold, dict) else 0
         self._done_bar.set_fraction(

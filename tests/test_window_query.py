@@ -282,3 +282,5 @@ def test_fitted_height_keeps_the_minimum_and_the_cap():
     assert fitted_window_height(900, 200, MIN_WINDOW_HEIGHT, 2000) == 1100
     assert fitted_window_height(4000, 200, MIN_WINDOW_HEIGHT, 1000) == 1000
     assert fitted_window_height(4000, 200, MIN_WINDOW_HEIGHT, 400) == MIN_WINDOW_HEIGHT
+    # The last row, its border, the header, and client decoration all count.
+    assert fitted_window_height(640, 46 + 180 + 12 + 8, MIN_WINDOW_HEIGHT, 1400) == 886

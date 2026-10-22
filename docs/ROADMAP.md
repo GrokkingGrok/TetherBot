@@ -58,7 +58,7 @@ TetherBot is pre-alpha. Check items off as they land. Design detail is in [SPEC.
 - [x] Manual checks M78 and M79 passed on the desktop: editing a todo's tracked total and deleting a time record, and an amber bots summary for needs attention with red kept for an error or a bridge failure.
 - [x] Manual checks M80 and M81 passed on the desktop: Stop timer on the open todo, and copy icons for the title and the body plus Copy Todo.
 - [x] Manual check M82 passed on the desktop: completed todos stay in Show done for the history window, history filtering updates live, and Reset to defaults leaves that setting alone.
-- [ ] Manual checks M83–M86: Enter in the edit-start time field, Done while the pointer stays on the row, the How many unit note, and a window that opens at the list's height. The steps are in [MANUAL-CHECKS.md](MANUAL-CHECKS.md). They have not been run on the desktop yet.
+- [ ] Manual checks M83–M88: Enter in the edit-start time field, Done while the pointer stays on the row, the How many unit note, a window that opens at the list's height without clipping the last row, and the upper-right of the work area. The steps are in [MANUAL-CHECKS.md](MANUAL-CHECKS.md). They have not been run on the desktop yet.
 
 ## v0.2 — early adopters
 

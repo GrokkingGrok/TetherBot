@@ -3,12 +3,45 @@
 // Popup and notification mapping. This file imports nothing, so a GJS
 // test can run it without GNOME Shell. The extension sends the calls.
 
+export const WINDOW_APP_ID = 'io.github.grokkinggrok.TetherBot';
 export const BUS_NAME = 'io.github.grokkinggrok.TetherBot1';
 export const OBJECT_PATH = '/io/github/grokkinggrok/TetherBot1';
 export const ITEM_FILTER = '{"include_snoozed":false}';
 export const UPDATE_MESSAGE = 'This feed uses a newer protocol. Update TetherBot.';
 export const BRIDGE_DOWN = 'Bridge not running';
 export const ACTIVATE_RETRY_MS = 4000;
+
+export function isMainWindow({gtkId, wmClass, title} = {}) {
+    // Settings uses the same title inside gnome-shell, so the title alone
+    // is not enough. The main window is the GTK application id.
+    if (gtkId === WINDOW_APP_ID)
+        return true;
+    const wm = String(wmClass || '');
+    if (wm === WINDOW_APP_ID || wm === 'TetherBot' || wm === 'tetherbot' || wm === 'tetherbot-window')
+        return true;
+    return title === 'TetherBot' && /tether/i.test(wm) && !/shell|extension/i.test(wm);
+}
+
+export function topRightFrame(area, frame) {
+    // Upper-right of the work area. A window taller than that area is
+    // shortened so the last row is not past the bottom of the screen.
+    const width = Math.max(0, Math.round(frame && frame.width || 0));
+    let height = Math.max(0, Math.round(frame && frame.height || 0));
+    const limit = Math.max(0, Math.round(area && area.height || 0));
+    if (limit > 0 && height > limit)
+        height = limit;
+    const originX = Math.round(area && area.x || 0);
+    const room = Math.max(0, Math.round(area && area.width || 0));
+    let x = originX + room - width;
+    if (width > room)
+        x = originX;
+    return {
+        x,
+        y: Math.round(area && area.y || 0),
+        width,
+        height,
+    };
+}
 
 export function startServiceCall() {
     return {

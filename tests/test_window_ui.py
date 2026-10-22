@@ -274,15 +274,104 @@ def test_done_with_note_sends_the_text_and_stays_disabled_when_empty():
             assert not window.done_note_button.get_sensitive()
             window._done_current()
             assert "note" not in window._undo_holds["primary/one"]
+            assert window._undo_holds["primary/one"]["via"] == "done"
+            assert window.done_stack.get_visible_child() is window.done_undo
+            assert window.note_stack.get_visible_child() is window.done_note_button
+            assert not window.done_note_button.get_sensitive()
+            assert window.start_button.get_visible()
+            assert window.attach_button.get_visible()
+            assert window.copy_button.get_visible()
+            assert window.ask_button.get_visible()
             window._undo("primary/one")
+            assert window.done_stack.get_visible_child() is window.done_button
+            assert window.note_stack.get_visible_child() is window.done_note_button
             window.note_buffer.set_text("Packed the blue bag")
             window.done_note_button.emit("clicked")
+            assert window._undo_holds["primary/one"]["via"] == "note"
+            assert window.note_stack.get_visible_child() is window.note_undo
+            assert window.done_stack.get_visible_child() is window.done_button
+            assert not window.done_button.get_sensitive()
+            assert window.start_button.get_visible()
+            assert window.attach_button.get_visible()
             assert window._undo_holds["primary/one"]["note"] == "Packed the blue bag"
             assert window._note_text() == ""
             assert not window.done_note_button.get_sensitive()
             window._on_window_close(window)
             assert fake.done == ["primary/one"]
             assert fake.done_notes == ["Packed the blue bag"]
+            holder["ok"] = True
+        except Exception as exc:
+            holder["error"] = exc
+        app.quit()
+        return False
+
+    app.connect("activate", lambda _app: GLib.idle_add(finish))
+    GLib.timeout_add(8000, app.quit)
+    try:
+        app.run(["tetherbot-window"])
+    finally:
+        reset_tetherbot_logger()
+    if "error" in holder:
+        raise holder["error"]
+    assert holder.get("ok") is True
+
+
+def test_failed_send_leaves_the_hovered_row_until_a_later_idle():
+    gi = pytest.importorskip("gi")
+    try:
+        gi.require_version("Gtk", "4.0")
+        gi.require_version("Adw", "1")
+        from gi.repository import GLib
+    except ValueError as exc:
+        pytest.skip(str(exc))
+    if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
+        pytest.skip("GTK window test needs a display")
+
+    from tetherbot.window import BridgeError, WindowApp
+
+    class _Down(_Fake):
+        def mark_done(self, key, note=""):
+            self.done.append(key)
+            self.done_notes.append(note)
+            raise BridgeError("could not send")
+
+    fake = _Down()
+    app = WindowApp(client=fake)
+    holder: dict = {}
+
+    def finish():
+        try:
+            window = app.window
+            assert window is not None
+            window.select_key("primary/one")
+            window._done_current()
+            row = window._rows["primary/one"]
+            window._undo_holds["primary/one"]["until"] = 0
+            window._list_hovered = True
+            window._flush_due(False)
+            assert fake.done == ["primary/one"]
+            assert row.get_parent() is not None
+            assert row.get_visible()
+            assert "primary/one" in window._undo_holds
+            assert window._undo_holds["primary/one"].get("failed") is True
+            first = window._after_send_idle
+            assert first
+            window._schedule_after_send()
+            assert window._after_send_idle == first
+            assert window._after_send() == GLib.SOURCE_REMOVE
+            assert row.get_parent() is not None
+            assert row.get_visible()
+            assert "primary/one" in window._undo_holds
+            waiting = window._after_send_idle
+            assert waiting
+            GLib.source_remove(waiting)
+            window._after_send_idle = 0
+            window._list_hovered = False
+            window._schedule_after_send()
+            assert window._after_send() == GLib.SOURCE_REMOVE
+            assert "primary/one" not in window._undo_holds
+            assert any(item.get("key") == "primary/one" for item in window._items)
+            assert window._rows["primary/one"].get_parent() is not None
             holder["ok"] = True
         except Exception as exc:
             holder["error"] = exc
@@ -678,10 +767,12 @@ def _exercise_attach_click(app, fake, holder, glib) -> None:
             assert fake.store.view()["state"] == "idle"
             assert not (fake.store.path).exists()
             assert not window.timer_box.get_visible()
-            assert not window.attach_button.get_visible()
+            assert window.attach_button.get_visible()
+            assert not window.attach_button.get_sensitive()
             fake.store.start("", "")
             window._request_timer()
             assert window.attach_button.get_visible()
+            assert window.attach_button.get_sensitive()
             window.attach_button.emit("clicked")
             saved = fake.store.view()
             assert saved["state"] == "running"
@@ -689,7 +780,8 @@ def _exercise_attach_click(app, fake, holder, glib) -> None:
             assert saved["item_title"] == "Pack the bag"
             assert "Pack the bag" in window.timer_label.get_label()
             assert _has_label(window.list, "Timing")
-            assert not window.attach_button.get_visible()
+            assert window.attach_button.get_visible()
+            assert not window.attach_button.get_sensitive()
             assert window.start_button.get_label() == "Stop timer"
             assert window.start_button.get_sensitive()
             window.start_button.emit("clicked")

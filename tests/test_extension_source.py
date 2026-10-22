@@ -180,6 +180,11 @@ def test_disable_drops_the_proxy_and_handlers():
     assert 'r="2.4"' in dot
 
 
+def test_the_menu_undo_bar_is_centered():
+    extension = (EXTENSION / "extension.js").read_text(encoding="utf-8")
+    assert "style_class: 'tetherbot-undo-bar',\n            x_align: Clutter.ActorAlign.CENTER," in extension
+
+
 def test_the_desktop_does_not_offer_a_bot_chat_button():
     extension = (EXTENSION / "extension.js").read_text(encoding="utf-8")
     view = (EXTENSION / "view.js").read_text(encoding="utf-8")

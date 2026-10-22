@@ -9,6 +9,7 @@ from tetherbot.window_query import (
     MIN_WINDOW_HEIGHT,
     bot_detail_line,
     can_mark_done,
+    center_bar_span,
     copy_body,
     copy_title,
     copy_todo,
@@ -204,6 +205,13 @@ def test_safe_http_url_rejects_other_schemes():
     assert safe_http_url("file:///etc/passwd") is None
     assert safe_http_url("https://example.test/a b") is None
     assert safe_http_url("notes") is None
+
+
+def test_center_bar_shrinks_from_both_ends():
+    assert center_bar_span(100, 1) == (0.0, 100.0)
+    assert center_bar_span(100, 0.5) == (25.0, 50.0)
+    assert center_bar_span(100, 0) == (50.0, 0.0)
+    assert center_bar_span(0, 1) == (0.0, 0.0)
 
 
 def test_a_later_clear_keeps_an_earlier_done_note():

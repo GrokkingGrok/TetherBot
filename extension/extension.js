@@ -1590,7 +1590,7 @@ export default class TetherBotExtension extends Extension {
         });
         const bar = new St.Widget({
             style_class: 'tetherbot-undo-bar',
-            x_align: Clutter.ActorAlign.START,
+            x_align: Clutter.ActorAlign.CENTER,
             y_expand: true,
         });
         const label = new St.Label({

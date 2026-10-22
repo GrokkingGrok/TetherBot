@@ -20,7 +20,7 @@ gi.require_version("Adw", "1")
 gi.require_version("Gdk", "4.0")
 gi.require_version("Gtk", "4.0")
 gi.require_version("Pango", "1.0")
-from gi.repository import Adw, Gdk, Gio, GLib, Gtk, Pango  # noqa: E402
+from gi.repository import Adw, Gdk, Gio, GLib, Graphene, Gsk, Gtk, Pango  # noqa: E402
 
 from tetherbot.markdown import Run, render  # noqa: E402
 from tetherbot.window_launch import APP_ID  # noqa: E402
@@ -30,6 +30,7 @@ from tetherbot.window_query import (  # noqa: E402
     VIEWS,
     bot_detail_line,
     can_mark_done,
+    center_bar_span,
     copy_body,
     copy_title,
     copy_todo,
@@ -163,6 +164,7 @@ class BridgeClient:
         self._proxy: Gio.DBusProxy | None = None
         self._listener: Callable[[], None] | None = None
         self._generation = 0
+        self._signal_idle = 0
         self._waiting: tuple[int, dict[str, Any], Callable[..., None]] | None = None
 
     def set_listener(self, listener: Callable[[], None]) -> None:
@@ -438,8 +440,8 @@ class BridgeClient:
         return (unpacked,)
 
     def _on_signal(self, _proxy: Gio.DBusProxy, _sender: str, signal: str, _params: Any) -> None:
-        if signal in {"ItemsChanged", "TimerChanged"} and self._listener is not None:
-            GLib.idle_add(self._listener)
+        if signal in {"ItemsChanged", "TimerChanged"}:
+            self._schedule_listener()
 
     def _on_properties(self, _proxy: Any, changed: Any, invalidated: Any) -> None:
         names = [*_variant_names(changed), *_variant_names(invalidated)]
@@ -448,8 +450,22 @@ class BridgeClient:
     def note_properties(self, names: object) -> None:
         """Reload when ``Bots`` changed. Safe to call from a test."""
 
-        if properties_need_reload(names) and self._listener is not None:
-            GLib.idle_add(self._listener)
+        if properties_need_reload(names):
+            self._schedule_listener()
+
+    def _schedule_listener(self) -> None:
+        """Coalesce bridge signals into one reload on the next idle."""
+
+        if self._listener is None or self._signal_idle:
+            return
+        self._signal_idle = GLib.idle_add(self._emit_listener)
+
+    def _emit_listener(self) -> bool:
+        self._signal_idle = 0
+        listener = self._listener
+        if listener is not None:
+            listener()
+        return GLib.SOURCE_REMOVE
 
 
 WINDOW_DEFAULT_WIDTH = 1520
@@ -490,6 +506,10 @@ class TodoWindow(Adw.ApplicationWindow):
         self._undo_bars: list[tuple[Gtk.ProgressBar, int]] = []
         self._undo_source = 0
         self._undo_paint = 0
+        self._after_send_idle = 0
+        self._after_send_refresh = False
+        self._done_until = 0
+        self._note_until = 0
         self._list_hovered = False
         self._guard_rows = False
         self._drop_idle = 0
@@ -722,23 +742,24 @@ class TodoWindow(Adw.ApplicationWindow):
         self.done_note_button = Gtk.Button(label="Done with note")
         self.done_note_button.set_sensitive(False)
         self.done_note_button.connect("clicked", lambda _button: self._done_with_note())
-        self.undo_button, self._detail_bar = _undo_button()
-        self.undo_button.set_visible(False)
-        self.undo_button.connect("clicked", lambda _button: self._undo_current())
+        self.done_undo, self._done_bar = _undo_button()
+        self.done_undo.connect("clicked", lambda _button: self._undo_current())
+        self.note_undo, self._note_bar = _undo_button()
+        self.note_undo.connect("clicked", lambda _button: self._undo_current())
+        self.done_stack = _button_slot(self.done_button, self.done_undo)
+        self.note_stack = _button_slot(self.done_note_button, self.note_undo)
         self.start_button = Gtk.Button(label="Start timer")
         self.start_button.connect("clicked", lambda _button: self._start_current())
         self.attach_button = Gtk.Button(label="Attach timer")
         self.attach_button.connect("clicked", lambda _button: self._attach_current())
-        self.attach_button.set_visible(False)
         self.copy_button = Gtk.Button(label="Copy Todo")
         self.copy_button.set_tooltip_text("Copy title and body")
         self.copy_button.connect("clicked", lambda _button: self._copy_current())
         self.ask_button = Gtk.Button(label="Ask the bot about this")
         self.ask_button.connect("clicked", lambda _button: self._ask_current())
         buttons = Gtk.Box(spacing=8)
-        buttons.append(self.done_button)
-        buttons.append(self.done_note_button)
-        buttons.append(self.undo_button)
+        buttons.append(self.done_stack)
+        buttons.append(self.note_stack)
         buttons.append(self.start_button)
         buttons.append(self.attach_button)
         buttons.append(self.copy_button)
@@ -925,7 +946,10 @@ class TodoWindow(Adw.ApplicationWindow):
             pin_expired=self._list_hovered,
             window_ms=self._undo_span,
         )
-        self._undo_bars = [(self._detail_bar, self._detail_until)]
+        self._undo_bars = [
+            (self._done_bar, self._done_until),
+            (self._note_bar, self._note_until),
+        ]
         rows: list[Gtk.ListBoxRow] = []
         for item in shown:
             key = item.get("key")
@@ -1257,9 +1281,8 @@ class TodoWindow(Adw.ApplicationWindow):
             self.buffer.set_text("")
             self.source.set_label("")
             self.done_button.set_sensitive(False)
-            self.done_button.set_visible(True)
             self._sync_done_note()
-            self.undo_button.set_visible(False)
+            self._sync_detail_undo("")
             self.copy_button.set_sensitive(False)
             self.copy_title_button.set_sensitive(False)
             self.copy_body_button.set_sensitive(False)
@@ -1408,23 +1431,50 @@ class TodoWindow(Adw.ApplicationWindow):
         self._fill_rows(self._items)
 
     def _sync_detail_undo(self, key: str) -> None:
-        hold = self._undo_holds.get(key)
+        hold = self._undo_holds.get(key) if key else None
         now = _now_ms()
-        visible = (
-            hold is not None
+        live = (
+            isinstance(hold, dict)
             and not hold.get("sent")
             and int(hold.get("until") or 0) > now
         )
-        self.undo_button.set_visible(visible)
-        self.done_button.set_visible(not visible)
-        if not visible or hold is None:
-            self._detail_until = 0
-            self._detail_bar.set_fraction(0)
+        via = hold.get("via") if live and isinstance(hold, dict) else ""
+        if live and via not in {"done", "note"}:
+            via = "done"
+        self.done_stack.set_visible_child(self.done_undo if via == "done" else self.done_button)
+        self.note_stack.set_visible_child(self.note_undo if via == "note" else self.done_note_button)
+        self._done_until = int(hold["until"]) if via == "done" and isinstance(hold, dict) else 0
+        self._note_until = int(hold["until"]) if via == "note" and isinstance(hold, dict) else 0
+        self._done_bar.set_fraction(
+            undo_fraction(self._done_until, now, self._undo_span) if self._done_until else 0
+        )
+        self._note_bar.set_fraction(
+            undo_fraction(self._note_until, now, self._undo_span) if self._note_until else 0
+        )
+        self._bind_detail_bars()
+        if live:
+            self.done_button.set_sensitive(False)
+            self.done_note_button.set_sensitive(False)
             return
-        self._detail_until = int(hold["until"])
-        self._detail_bar.set_fraction(undo_fraction(self._detail_until, now, self._undo_span))
-        if self._undo_bars:
-            self._undo_bars[0] = (self._detail_bar, self._detail_until)
+        item = self._current
+        if not isinstance(item, dict):
+            return
+        item_key = str(item.get("key") or "")
+        outbound = self._outbound.get(item_key.split("/", 1)[0], False)
+        self.done_button.set_sensitive(can_mark_done(item, outbound))
+        self._sync_done_note()
+
+    def _bind_detail_bars(self) -> None:
+        detail = [
+            (self._done_bar, self._done_until),
+            (self._note_bar, self._note_until),
+        ]
+        rest = [
+            (bar, until)
+            for bar, until in self._undo_bars
+            if bar is not self._done_bar and bar is not self._note_bar
+        ]
+        self._undo_bars = detail + rest
 
     def _append_timer_control(
         self,
@@ -1563,7 +1613,8 @@ class TodoWindow(Adw.ApplicationWindow):
         offered = (
             hasattr(self.client, "start_timer") and item is not None and not is_read_only(item)
         )
-        self.start_button.set_visible(offered)
+        self.start_button.set_visible(True)
+        self.attach_button.set_visible(True)
         if not offered or item is None:
             self.start_button.set_label("Start timer")
             self.start_button.set_sensitive(False)
@@ -1575,7 +1626,7 @@ class TodoWindow(Adw.ApplicationWindow):
             else:
                 self.start_button.set_label("Start timer")
                 self.start_button.set_sensitive(True)
-        self.attach_button.set_visible(self._can_attach(item))
+        self.attach_button.set_sensitive(self._can_attach(item))
 
     def _can_attach(self, item: dict[str, Any] | None) -> bool:
         if item is None or not hasattr(self.client, "attach_timer") or is_read_only(item):
@@ -1740,6 +1791,12 @@ class TodoWindow(Adw.ApplicationWindow):
         if not isinstance(item, dict):
             self.done_note_button.set_sensitive(False)
             return
+        if (
+            self.done_stack.get_visible_child() is self.done_undo
+            or self.note_stack.get_visible_child() is self.note_undo
+        ):
+            self.done_note_button.set_sensitive(False)
+            return
         key = str(item.get("key") or "")
         outbound = self._outbound.get(key.split("/", 1)[0], False)
         ready = bool(self._note_text()) and can_mark_done(item, outbound)
@@ -1810,6 +1867,9 @@ class TodoWindow(Adw.ApplicationWindow):
         )
         if note:
             self._undo_holds[key]["note"] = note
+            self._undo_holds[key]["via"] = "note"
+        else:
+            self._undo_holds[key]["via"] = "done"
         self._arm_undo()
         self._fill_rows(self._items)
         self._sync_open_undo()
@@ -1885,7 +1945,8 @@ class TodoWindow(Adw.ApplicationWindow):
         self.toasts.add_toast(Adw.Toast.new(message))
 
     def _on_window_close(self, _window: Gtk.Window) -> bool:
-        self._flush_due(True)
+        self._flush_due(True, rebuild=False)
+        self._cancel_after_send()
         self._undo_holds.clear()
         self.drop_undo_timers()
         return False
@@ -1926,17 +1987,28 @@ class TodoWindow(Adw.ApplicationWindow):
     def _on_undo_due(self) -> bool:
         self._undo_source = 0
         self._flush_due(False)
-        self._settle_holds()
         return GLib.SOURCE_REMOVE
 
-    def _flush_due(self, force: bool) -> None:
-        """Send every cleared row whose shared window has ended, as one queue batch."""
+    def _flush_due(self, force: bool, *, rebuild: bool = True) -> None:
+        """Send every cleared row whose shared window has ended, as one queue batch.
+
+        ``mark_done`` is a blocking bus call. Rebuilding the list in this same
+        turn destroys the row the pointer is on before GTK can deliver the
+        crossing events queued during the call, which crashes in
+        ``gtk_synthesize_crossing_events``. The list update waits for an idle.
+        A failed send is not retried here: the row stays until that idle, then
+        the open item comes back unless the bridge already accepted the action.
+        """
 
         keys = due_undo_keys(self._undo_holds, _now_ms(), force=force)
-        changed = False
+        needs_ui = False
         for key in keys:
             hold = self._undo_holds.get(key)
             if hold is None or hold.get("sent"):
+                continue
+            if hold.get("failed"):
+                needs_ui = True
+                self._after_send_refresh = True
                 continue
             note = hold.get("note")
             try:
@@ -1946,17 +2018,51 @@ class TodoWindow(Adw.ApplicationWindow):
                     self.client.mark_done(key)
             except BridgeError as exc:
                 self._toast(str(exc))
+                hold["failed"] = True
+                needs_ui = True
+                self._after_send_refresh = True
                 continue
             hold["sent"] = True
             hold["until"] = _now_ms()
-            changed = True
-        if changed:
-            self.refresh()
+            needs_ui = True
+            self._after_send_refresh = True
+        if rebuild and needs_ui:
+            self._schedule_after_send()
 
-    def _settle_holds(self) -> None:
+    def _schedule_after_send(self) -> None:
+        if self._after_send_idle:
+            return
+        self._after_send_idle = GLib.idle_add(self._after_send)
+
+    def _cancel_after_send(self) -> None:
+        source = self._after_send_idle
+        self._after_send_idle = 0
+        if source:
+            GLib.source_remove(source)
+
+    def _after_send(self) -> bool:
+        """One list update after a send attempt. Hovered rows stay put."""
+
+        self._after_send_idle = 0
+        if self._list_hot():
+            self._after_send_idle = GLib.timeout_add(50, self._after_send)
+            return GLib.SOURCE_REMOVE
+        refresh = self._after_send_refresh
+        self._after_send_refresh = False
+        if refresh:
+            self.refresh()
+        self._settle_holds(fill=not refresh)
+        return GLib.SOURCE_REMOVE
+
+    def _list_hot(self) -> bool:
+        return bool(
+            self._list_hovered or self._guard_rows or self._doomed or self._any_pointer_row()
+        )
+
+    def _settle_holds(self, *, fill: bool = True) -> None:
         if self._list_hovered:
             self._sync_open_undo()
-            if self._page != "bots":
+            if fill and self._page != "bots":
                 self._fill_rows(self._items)
             self._arm_undo()
             return
@@ -1967,13 +2073,15 @@ class TodoWindow(Adw.ApplicationWindow):
             for key, hold in self._undo_holds.items()
             if not hold.get("sent") and int(hold.get("until") or 0) > now
         }
-        if set(self._undo_holds) != before and self._page != "bots":
+        if fill and set(self._undo_holds) != before and self._page != "bots":
             self._fill_rows(self._items)
         self._sync_open_undo()
         self._arm_undo()
 
     def _drop_expired_undos(self) -> None:
         self._flush_due(False)
+        if self._after_send_idle:
+            return
         self._settle_holds()
 
     def _arm_undo_paint(self) -> None:
@@ -2480,11 +2588,51 @@ def _now_ms() -> int:
     return int(time.time() * 1000)
 
 
-def _undo_button() -> tuple[Gtk.Button, Gtk.ProgressBar]:
-    """An Undo button with a bar that shrinks as the window runs out."""
+class CenterUndoBar(Gtk.Widget):
+    """Undo fill that shrinks toward the middle, from both ends."""
 
-    bar = Gtk.ProgressBar()
-    bar.add_css_class("tether-undo-bar")
+    def __init__(self) -> None:
+        super().__init__()
+        self._fraction = 1.0
+        self.set_hexpand(True)
+        self.set_vexpand(True)
+        self.add_css_class("tether-undo-bar")
+
+    def set_fraction(self, fraction: float) -> None:
+        value = float(fraction)
+        if value < 0:
+            value = 0.0
+        elif value > 1:
+            value = 1.0
+        if value == self._fraction:
+            return
+        self._fraction = value
+        self.queue_draw()
+
+    def do_snapshot(self, snapshot: Gtk.Snapshot) -> None:
+        width = self.get_width()
+        height = self.get_height()
+        x, bar = center_bar_span(width, self._fraction)
+        if bar <= 0 or height <= 0:
+            return
+        rect = Graphene.Rect()
+        rect.init(x, 0, bar, height)
+        color = Gdk.RGBA()
+        color.red = 28 / 255
+        color.green = 113 / 255
+        color.blue = 216 / 255
+        color.alpha = 0.35
+        rounded = Gsk.RoundedRect()
+        rounded.init_from_rect(rect, min(6, height / 2, bar / 2))
+        snapshot.push_rounded_clip(rounded)
+        snapshot.append_color(color, rect)
+        snapshot.pop()
+
+
+def _undo_button() -> tuple[Gtk.Button, CenterUndoBar]:
+    """An Undo button whose bar shrinks toward the middle."""
+
+    bar = CenterUndoBar()
     bar.set_fraction(1)
     overlay = Gtk.Overlay()
     overlay.set_child(bar)
@@ -2494,6 +2642,19 @@ def _undo_button() -> tuple[Gtk.Button, Gtk.ProgressBar]:
     button.set_hexpand(False)
     button.set_size_request(78, 28)
     return button, bar
+
+
+def _button_slot(action: Gtk.Button, undo: Gtk.Button) -> Gtk.Stack:
+    """One fixed slot. Undo replaces the action button without moving the row."""
+
+    stack = Gtk.Stack()
+    stack.set_hhomogeneous(True)
+    stack.set_vhomogeneous(True)
+    stack.set_transition_type(Gtk.StackTransitionType.NONE)
+    stack.add_child(action)
+    stack.add_child(undo)
+    stack.set_visible_child(action)
+    return stack
 
 
 def _copy_icon(label: str) -> Gtk.Button:

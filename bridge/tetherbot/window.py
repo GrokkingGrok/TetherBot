@@ -489,6 +489,8 @@ class TodoWindow(Adw.ApplicationWindow):
         self._drop_wait = False
         self._doomed: list[Gtk.ListBoxRow] = []
         self._height_fitted = False
+        self._fit_width = 0
+        self._fit_correct = 0
         self._user_sized = False
         self._fitting_height = False
         self._saw_fitted_layout = False
@@ -619,7 +621,9 @@ class TodoWindow(Adw.ApplicationWindow):
         self._list_controls = controls
         scrolled = Gtk.ScrolledWindow(vexpand=True, child=self.list)
         scrolled.set_propagate_natural_height(False)
+        self._list_scroll = scrolled
         sidebar_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        self._sidebar_box = sidebar_box
         sidebar_box.append(controls)
         sidebar_box.append(scrolled)
         sidebar_bar = Adw.ToolbarView(content=sidebar_box)
@@ -1007,24 +1011,94 @@ class TodoWindow(Adw.ApplicationWindow):
 
         if self._user_sized or self._height_fitted:
             return
-        content = _natural_height(self.list) + _natural_height(self._list_controls)
-        chrome = _natural_height(self.titlebar)
+        sidebar = self._sidebar_inner_width()
+        if sidebar <= 1:
+            if not self._fit_correct:
+                self._fit_correct = GLib.idle_add(self._correct_fit)
+            return
+        window_width = self.get_width()
+        if not isinstance(window_width, int) or window_width < 1180:
+            window_width = 1280
         height = fitted_window_height(
-            content,
-            chrome,
+            _natural_height(self.list, sidebar),
+            self._window_chrome(sidebar, window_width),
             MIN_WINDOW_HEIGHT,
             self._usable_monitor_height(),
         )
-        width, _current = self.get_default_size()
-        if not isinstance(width, int) or width < 1180:
-            width = 1280
         self._fitting_height = True
         try:
-            self.set_default_size(width, height)
+            self.set_default_size(window_width, height)
         finally:
             self._fitting_height = False
         self._height_fitted = True
+        self._fit_width = sidebar
         self._saw_fitted_layout = False
+        if not self._fit_correct:
+            self._fit_correct = GLib.idle_add(self._correct_fit)
+
+    def _correct_fit(self) -> bool:
+        """Measure again once the sidebar has its real width.
+
+        A guess made before allocation misses wrapped tag rows, and the
+        last todo is then clipped. One correction is enough. A resize the
+        user already made is left alone.
+        """
+
+        self._fit_correct = 0
+        if self._user_sized:
+            return GLib.SOURCE_REMOVE
+        sidebar = self._sidebar_inner_width()
+        if sidebar <= 1:
+            self._fit_correct = GLib.idle_add(self._correct_fit)
+            return GLib.SOURCE_REMOVE
+        if self._height_fitted and abs(sidebar - self._fit_width) <= 16:
+            return GLib.SOURCE_REMOVE
+        self._height_fitted = False
+        self._fit_to_list()
+        return GLib.SOURCE_REMOVE
+
+    def _sidebar_inner_width(self) -> int:
+        page = self.split.get_sidebar()
+        if page is not None and page.get_width() > 1:
+            return int(page.get_width())
+        minimum = self.split.get_min_sidebar_width()
+        if isinstance(minimum, (int, float)) and not isinstance(minimum, bool) and minimum > 1:
+            return int(minimum)
+        return 300
+
+    def _window_chrome(self, sidebar: int, window_width: int) -> int:
+        """Header, controls, borders, bottom padding, and client decoration.
+
+        Measured at the sidebar width so a wrapped tag row counts. The
+        propagated toolbar height includes padding the separate pieces miss.
+        """
+
+        controls = _natural_height(self._list_controls, sidebar)
+        header = _natural_height(self.titlebar, window_width)
+        frame = 0
+        propagated = 0
+        scroll = self._list_scroll
+        scroll.set_propagate_natural_height(True)
+        try:
+            column = _natural_height(self._sidebar_box, sidebar)
+            frame = max(0, column - _natural_height(self.list, sidebar) - controls)
+            propagated = _natural_height(self.toolbar, window_width)
+        finally:
+            scroll.set_propagate_natural_height(False)
+        csd = self._csd_vertical(window_width)
+        pieces = controls + header + frame + csd
+        # ``propagated`` already contains the list. Keep only the chrome
+        # above that list, then let the caller add the list back.
+        list_h = _natural_height(self.list, sidebar)
+        from_tree = max(0, propagated - list_h) + csd
+        return max(pieces, from_tree)
+
+    def _csd_vertical(self, width: int) -> int:
+        extra = self.get_margin_top() + self.get_margin_bottom()
+        bar = self.get_titlebar()
+        if bar is not None and bar is not self.titlebar:
+            extra += _natural_height(bar, width)
+        return extra
 
     def _usable_monitor_height(self) -> int:
         display = self.get_display()
@@ -1057,7 +1131,7 @@ class TodoWindow(Adw.ApplicationWindow):
         self._size_watch_id = surface.connect("layout", self._on_surface_layout)
 
     def _on_surface_layout(self, _surface: object, width: int, height: int) -> None:
-        if self._fitting_height or not self._height_fitted:
+        if self._fitting_height or not self._height_fitted or self._fit_correct:
             return
         size = (int(width), int(height))
         if not self._saw_fitted_layout:
@@ -2400,9 +2474,9 @@ def _clear_box(box: Gtk.Widget) -> None:
         box.remove(child)
 
 
-def _natural_height(widget: Gtk.Widget) -> int:
+def _natural_height(widget: Gtk.Widget, width: int = -1) -> int:
     try:
-        measured = widget.measure(Gtk.Orientation.VERTICAL, -1)
+        measured = widget.measure(Gtk.Orientation.VERTICAL, width)
     except Exception:
         return 0
     if not measured or len(measured) < 2:

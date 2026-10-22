@@ -50,7 +50,62 @@ import {
     snoozeCall,
     snoozeIso,
     todoFilter,
+    isMainWindow,
+    topRightFrame,
 } from './view.js';
+
+function _windowIdentity(metaWindow) {
+    let gtkId = '';
+    let wmClass = '';
+    let title = '';
+    try {
+        gtkId = metaWindow.gtk_application_id || '';
+        if (!gtkId && metaWindow.get_gtk_application_id)
+            gtkId = metaWindow.get_gtk_application_id() || '';
+    } catch (error) {
+        gtkId = '';
+    }
+    try {
+        wmClass = metaWindow.get_wm_class ? (metaWindow.get_wm_class() || '') : (metaWindow.wm_class || '');
+    } catch (error) {
+        wmClass = '';
+    }
+    try {
+        title = metaWindow.get_title ? (metaWindow.get_title() || '') : (metaWindow.title || '');
+    } catch (error) {
+        title = '';
+    }
+    return {gtkId, wmClass, title};
+}
+
+function _frameRect(metaWindow) {
+    try {
+        const frame = metaWindow.get_frame_rect ? metaWindow.get_frame_rect() : metaWindow.get_frame_rect;
+        if (!frame)
+            return null;
+        return {x: frame.x, y: frame.y, width: frame.width, height: frame.height};
+    } catch (error) {
+        return null;
+    }
+}
+
+function _workArea(metaWindow) {
+    try {
+        let monitor = 0;
+        if (metaWindow.get_monitor)
+            monitor = metaWindow.get_monitor();
+        const workspace = (metaWindow.get_workspace && metaWindow.get_workspace()) ||
+            global.workspace_manager.get_active_workspace();
+        if (!workspace || !workspace.get_work_area_for_monitor)
+            return null;
+        const area = workspace.get_work_area_for_monitor(monitor);
+        if (!area)
+            return null;
+        return {x: area.x, y: area.y, width: area.width, height: area.height};
+    } catch (error) {
+        return null;
+    }
+}
 
 export default class TetherBotExtension extends Extension {
     enable() {
@@ -172,6 +227,11 @@ export default class TetherBotExtension extends Extension {
             this._settingsId = 0;
         }
 
+        this._watchedWindows = new Map();
+        this._mainWindows = new Map();
+        this._displayWindowId = 0;
+        this._trackMainWindow();
+
         this._nameWatch = Gio.bus_watch_name(
             Gio.BusType.SESSION,
             BUS_NAME,
@@ -234,6 +294,7 @@ export default class TetherBotExtension extends Extension {
         }
         if (this._settings && this._settingsId)
             this._settings.disconnect(this._settingsId);
+        this._forgetMainWindows();
         this._settings = null;
         this._settingsId = 0;
         this._undoSpan = 0;
@@ -244,6 +305,150 @@ export default class TetherBotExtension extends Extension {
         this._bots = [];
         this._items = [];
         this._searched = null;
+    }
+
+    _trackMainWindow() {
+        this._displayWindowId = global.display.connect('window-created', (_display, metaWindow) => {
+            this._watchMainWindow(metaWindow);
+        });
+        const actors = global.get_window_actors ? global.get_window_actors() : [];
+        for (const actor of actors) {
+            const metaWindow = actor.meta_window || (actor.get_meta_window && actor.get_meta_window());
+            if (metaWindow)
+                this._watchMainWindow(metaWindow);
+        }
+    }
+
+    _forgetMainWindows() {
+        if (this._displayWindowId) {
+            global.display.disconnect(this._displayWindowId);
+            this._displayWindowId = 0;
+        }
+        for (const [metaWindow, state] of this._mainWindows || [])
+            this._disconnectWindow(metaWindow, state);
+        this._mainWindows = new Map();
+        for (const [metaWindow, state] of this._watchedWindows || [])
+            this._disconnectWindow(metaWindow, state);
+        this._watchedWindows = new Map();
+    }
+
+    _disconnectWindow(metaWindow, state) {
+        for (const id of state.signals || []) {
+            try {
+                metaWindow.disconnect(id);
+            } catch (error) {
+                // The window may already be gone.
+            }
+        }
+        if (state.signals)
+            state.signals.length = 0;
+        if (state.placeIdle) {
+            GLib.source_remove(state.placeIdle);
+            state.placeIdle = 0;
+        }
+    }
+
+    _watchMainWindow(metaWindow) {
+        if (!metaWindow || !this._enabled)
+            return;
+        if (this._mainWindows.has(metaWindow) || this._watchedWindows.has(metaWindow))
+            return;
+        const state = {signals: []};
+        const drop = () => {
+            this._disconnectWindow(metaWindow, state);
+            this._watchedWindows.delete(metaWindow);
+        };
+        const consider = () => {
+            if (!this._enabled || !isMainWindow(_windowIdentity(metaWindow)))
+                return;
+            drop();
+            this._adoptMainWindow(metaWindow);
+        };
+        this._watchedWindows.set(metaWindow, state);
+        for (const name of ['shown', 'notify::title', 'notify::gtk-application-id', 'notify::wm-class']) {
+            try {
+                state.signals.push(metaWindow.connect(name, consider));
+            } catch (error) {
+                // This Shell build has no such signal.
+            }
+        }
+        try {
+            state.signals.push(metaWindow.connect('unmanaged', drop));
+        } catch (error) {
+            // Nothing to undo if the window cannot tell us it closed.
+        }
+        consider();
+    }
+
+    _adoptMainWindow(metaWindow) {
+        if (!this._enabled || this._mainWindows.has(metaWindow))
+            return;
+        const state = {moved: false, placing: false, placed: null, until: 0, signals: [], placeIdle: 0};
+        this._mainWindows.set(metaWindow, state);
+        const noteMove = () => {
+            if (state.placing || !state.placed)
+                return;
+            const frame = _frameRect(metaWindow);
+            if (frame && frame.x === state.placed.x && frame.y === state.placed.y)
+                return;
+            state.moved = true;
+        };
+        const noteSize = () => {
+            if (!this._enabled || state.moved || !state.until)
+                return;
+            if (GLib.get_monotonic_time() > state.until)
+                return;
+            this._placeMainWindow(metaWindow, state);
+        };
+        try {
+            state.signals.push(metaWindow.connect('position-changed', noteMove));
+        } catch (error) {
+            // Placement still runs once; we just cannot tell a later drag apart.
+        }
+        try {
+            state.signals.push(metaWindow.connect('size-changed', noteSize));
+        } catch (error) {
+            // The first placement still uses the size at map.
+        }
+        try {
+            state.signals.push(metaWindow.connect('unmanaged', () => {
+                this._disconnectWindow(metaWindow, state);
+                this._mainWindows.delete(metaWindow);
+            }));
+        } catch (error) {
+            // The map entry is dropped on disable.
+        }
+        this._placeMainWindow(metaWindow, state);
+    }
+
+    _placeMainWindow(metaWindow, state) {
+        if (!state.until)
+            state.until = GLib.get_monotonic_time() + 1500 * 1000;
+        const frame = _frameRect(metaWindow);
+        const area = _workArea(metaWindow);
+        if (!frame || !area || frame.width < 1 || frame.height < 1)
+            return;
+        const next = topRightFrame(area, frame);
+        if (state.placed && state.placed.x === next.x && state.placed.y === next.y &&
+            state.placed.width === next.width && state.placed.height === next.height)
+            return;
+        state.placing = true;
+        state.placed = next;
+        try {
+            if (metaWindow.move_resize_frame)
+                metaWindow.move_resize_frame(true, next.x, next.y, next.width, next.height);
+            else if (metaWindow.move_frame)
+                metaWindow.move_frame(true, next.x, next.y);
+        } catch (error) {
+            console.debug('TetherBot: could not place the window');
+        }
+        if (state.placeIdle)
+            GLib.source_remove(state.placeIdle);
+        state.placeIdle = GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
+            state.placeIdle = 0;
+            state.placing = false;
+            return GLib.SOURCE_REMOVE;
+        });
     }
 
     _buildMenu() {

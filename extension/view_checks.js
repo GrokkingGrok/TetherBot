@@ -21,6 +21,9 @@ import {
     keepAssigning,
     parseStartClock,
     todoActivation,
+    isMainWindow,
+    topRightFrame,
+    WINDOW_APP_ID,
     indicatorView,
     badgeBox,
     panelIcon,
@@ -841,6 +844,17 @@ export function runViewChecks() {
     assert(panelIcon('slash').file === 'slash' && panelIcon('slash').overlay === '', 'slash stays symbolic');
     assert(panelIcon('triangle').file === 'triangle' && panelIcon('triangle').overlay === '', 'triangle stays symbolic');
     assert(panelIcon(null).file === 'base' && panelIcon(null).overlay === '', 'a clear face has no overlay');
+    assert(WINDOW_APP_ID === 'io.github.grokkinggrok.TetherBot', 'window app id');
+    assert(isMainWindow({gtkId: WINDOW_APP_ID}), 'the app id is the main window');
+    assert(isMainWindow({wmClass: 'tetherbot-window', title: 'TetherBot'}), 'the startup class counts');
+    assert(isMainWindow({title: 'TetherBot'}) === false, 'settings shares the title');
+    assert(isMainWindow({wmClass: 'org.gnome.Shell', title: 'TetherBot'}) === false, 'the shell window stays put');
+    const parked = topRightFrame({x: 0, y: 29, width: 1920, height: 1171}, {width: 1280, height: 800});
+    assert(parked.x === 640 && parked.y === 29, 'opens at the upper right of the work area');
+    assert(parked.width === 1280 && parked.height === 800, 'a short window keeps its height');
+    const tall = topRightFrame({x: 10, y: 40, width: 1000, height: 700}, {width: 1280, height: 900});
+    assert(tall.x === 10 && tall.y === 40, 'a wide window stays inside the work area');
+    assert(tall.height === 700, 'a tall window stops at the work area');
 }
 
 if (typeof process !== 'undefined' && process.argv[1] && process.argv[1].endsWith('view_checks.js'))

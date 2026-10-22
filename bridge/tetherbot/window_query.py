@@ -22,10 +22,12 @@ _WINDOW_LIVE = frozenset({"Bots"})
 
 
 def fitted_window_height(list_natural: int, chrome: int, minimum: int, usable: int) -> int:
-    """Height for the open list, plus chrome, capped by the monitor.
+    """Height for the open list, plus chrome, capped by the work area.
 
-    The result is never below ``minimum``. A usable height below that
-    minimum stays at the minimum; the list scrolls inside the window.
+    ``chrome`` is everything outside the list: the header bar, the
+    sidebar controls, borders, bottom padding, and client-side
+    decoration. The result is never below ``minimum``. A usable height
+    below that minimum stays at the minimum; the list scrolls.
     """
 
     wanted = max(0, int(list_natural)) + max(0, int(chrome))

@@ -12,6 +12,7 @@ class _Fake:
     def __init__(self) -> None:
         self.specs: list[dict] = []
         self.done: list[str] = []
+        self.done_notes: list[str] = []
         self.undone: list[str] = []
         self.notes: list[str] = []
         self.items = [
@@ -56,8 +57,9 @@ class _Fake:
                 return item
         raise AssertionError(key)
 
-    def mark_done(self, key):
+    def mark_done(self, key, note=""):
         self.done.append(key)
+        self.done_notes.append(note)
         return "a-done"
 
     def undo(self, key):
@@ -192,9 +194,9 @@ def _exercise_window(app, fake, opened, holder, gdk, glib, gtk, render, apply_ru
             assert index >= 1
             window._list_hovered = False
             width, height = window.get_default_size()
-            assert width >= 1200 and height >= 680
+            assert width >= 1520 and height >= 680
             request_width, request_height = window.get_size_request()
-            assert request_width >= 1100 and request_height >= 640
+            assert request_width >= 1400 and request_height >= 640
             assert window.toolbar.get_content() is window.toasts
             assert window.get_titlebar() is not window.detail_header
             assert window.titlebar.get_show_end_title_buttons()
@@ -228,6 +230,74 @@ def _exercise_window(app, fake, opened, holder, gdk, glib, gtk, render, apply_ru
     app.connect("activate", lambda _app: glib.idle_add(finish))
     glib.timeout_add(8000, app.quit)
     app.run(["tetherbot-window"])
+
+
+def test_done_with_note_sends_the_text_and_stays_disabled_when_empty():
+    gi = pytest.importorskip("gi")
+    try:
+        gi.require_version("Gtk", "4.0")
+        gi.require_version("Adw", "1")
+        from gi.repository import GLib, Gtk
+    except ValueError as exc:
+        pytest.skip(str(exc))
+    if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
+        pytest.skip("GTK window test needs a display")
+
+    from tetherbot.window import WindowApp
+
+    fake = _Fake()
+    app = WindowApp(client=fake)
+    holder: dict = {}
+
+    def finish():
+        try:
+            window = app.window
+            assert window is not None
+            assert isinstance(window.note_view, Gtk.TextView)
+            assert window.note_view.get_editable()
+            assert window.note_label.get_label() == "Note"
+            assert window.done_note_button.get_label() == "Done with note"
+            window.select_key("primary/one")
+            assert window.done_button.get_sensitive()
+            assert not window.done_note_button.get_sensitive()
+            window.note_buffer.set_text("   ")
+            assert not window.done_note_button.get_sensitive()
+            window.note_buffer.set_text("Packed the blue bag")
+            assert window.done_note_button.get_sensitive()
+            window._outbound["primary"] = False
+            window._sync_done_note()
+            assert not window.done_note_button.get_sensitive()
+            window._outbound["primary"] = True
+            window._sync_done_note()
+            assert window.done_note_button.get_sensitive()
+            window.note_buffer.set_text("")
+            assert not window.done_note_button.get_sensitive()
+            window._done_current()
+            assert "note" not in window._undo_holds["primary/one"]
+            window._undo("primary/one")
+            window.note_buffer.set_text("Packed the blue bag")
+            window.done_note_button.emit("clicked")
+            assert window._undo_holds["primary/one"]["note"] == "Packed the blue bag"
+            assert window._note_text() == ""
+            assert not window.done_note_button.get_sensitive()
+            window._on_window_close(window)
+            assert fake.done == ["primary/one"]
+            assert fake.done_notes == ["Packed the blue bag"]
+            holder["ok"] = True
+        except Exception as exc:
+            holder["error"] = exc
+        app.quit()
+        return False
+
+    app.connect("activate", lambda _app: GLib.idle_add(finish))
+    GLib.timeout_add(8000, app.quit)
+    try:
+        app.run(["tetherbot-window"])
+    finally:
+        reset_tetherbot_logger()
+    if "error" in holder:
+        raise holder["error"]
+    assert holder.get("ok") is True
 
 
 class _TimerFake(_Fake):

@@ -188,8 +188,11 @@ class BridgeClient:
         self._ensure()
         return self._bots_cached()
 
-    def mark_done(self, key: str) -> str:
-        raw = self._call("PerformAction", "(sss)", (key, "done", "{}"))
+    def mark_done(self, key: str, note: str = "") -> str:
+        args = "{}"
+        if isinstance(note, str) and note.strip():
+            args = json.dumps({"note": note.strip()})
+        raw = self._call("PerformAction", "(sss)", (key, "done", args))
         return raw[0] if raw else ""
 
     def undo(self, key: str) -> dict[str, Any]:
@@ -449,13 +452,17 @@ class BridgeClient:
             GLib.idle_add(self._listener)
 
 
+WINDOW_DEFAULT_WIDTH = 1520
+WINDOW_MIN_WIDTH = 1400
+
+
 class TodoWindow(Adw.ApplicationWindow):
     """List, filters, and a Markdown detail pane."""
 
     def __init__(self, app: Adw.Application, client: Any) -> None:
         super().__init__(application=app, title="TetherBot")
-        self.set_default_size(1280, 800)
-        self.set_size_request(1180, 680)
+        self.set_default_size(WINDOW_DEFAULT_WIDTH, 800)
+        self.set_size_request(WINDOW_MIN_WIDTH, 680)
         self.set_icon_name(APP_ID)
         self.client = client
         self._filling = False
@@ -688,9 +695,33 @@ class TodoWindow(Adw.ApplicationWindow):
         body_row = Gtk.Box(spacing=8)
         body_row.append(body_scroll)
         body_row.append(self.copy_body_button)
+        self.note_label = Gtk.Label(label="Note", xalign=0)
+        self.note_buffer = Gtk.TextBuffer()
+        self.note_view = Gtk.TextView(
+            buffer=self.note_buffer,
+            wrap_mode=Gtk.WrapMode.WORD_CHAR,
+            accepts_tab=False,
+            left_margin=6,
+            right_margin=6,
+            top_margin=4,
+            bottom_margin=4,
+        )
+        self.note_buffer.connect("changed", lambda _buffer: self._sync_done_note())
+        note_scroll = Gtk.ScrolledWindow(child=self.note_view, hexpand=True)
+        note_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        note_scroll.set_propagate_natural_height(True)
+        note_scroll.set_min_content_height(72)
+        note_scroll.set_max_content_height(140)
+        note_scroll.add_css_class("frame")
+        self.note_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        self.note_box.append(self.note_label)
+        self.note_box.append(note_scroll)
         self.done_button = Gtk.Button(label="Done")
         self.done_button.add_css_class("suggested-action")
         self.done_button.connect("clicked", lambda _button: self._done_current())
+        self.done_note_button = Gtk.Button(label="Done with note")
+        self.done_note_button.set_sensitive(False)
+        self.done_note_button.connect("clicked", lambda _button: self._done_with_note())
         self.undo_button, self._detail_bar = _undo_button()
         self.undo_button.set_visible(False)
         self.undo_button.connect("clicked", lambda _button: self._undo_current())
@@ -706,6 +737,7 @@ class TodoWindow(Adw.ApplicationWindow):
         self.ask_button.connect("clicked", lambda _button: self._ask_current())
         buttons = Gtk.Box(spacing=8)
         buttons.append(self.done_button)
+        buttons.append(self.done_note_button)
         buttons.append(self.undo_button)
         buttons.append(self.start_button)
         buttons.append(self.attach_button)
@@ -722,6 +754,7 @@ class TodoWindow(Adw.ApplicationWindow):
         detail.append(self.detail_chips)
         detail.append(self.time_box)
         detail.append(body_row)
+        detail.append(self.note_box)
         detail.append(buttons)
         detail.append(self.source)
         detail_bar = Adw.ToolbarView(content=detail)
@@ -1017,8 +1050,8 @@ class TodoWindow(Adw.ApplicationWindow):
                 self._fit_correct = GLib.idle_add(self._correct_fit)
             return
         window_width = self.get_width()
-        if not isinstance(window_width, int) or window_width < 1180:
-            window_width = 1280
+        if not isinstance(window_width, int) or window_width < WINDOW_MIN_WIDTH:
+            window_width = WINDOW_DEFAULT_WIDTH
         height = fitted_window_height(
             _natural_height(self.list, sidebar),
             self._window_chrome(sidebar, window_width),
@@ -1212,8 +1245,12 @@ class TodoWindow(Adw.ApplicationWindow):
         return row
 
     def _show_item(self, item: dict[str, Any] | None) -> None:
+        previous = self._current.get("key") if isinstance(self._current, dict) else None
         self._current = item
         self._link_tags.clear()
+        incoming = item.get("key") if isinstance(item, dict) else None
+        if previous != incoming:
+            self.note_buffer.set_text("")
         if item is None:
             self.detail_title.set_label("Select a todo")
             _clear_box(self.detail_chips)
@@ -1221,6 +1258,7 @@ class TodoWindow(Adw.ApplicationWindow):
             self.source.set_label("")
             self.done_button.set_sensitive(False)
             self.done_button.set_visible(True)
+            self._sync_done_note()
             self.undo_button.set_visible(False)
             self.copy_button.set_sensitive(False)
             self.copy_title_button.set_sensitive(False)
@@ -1245,6 +1283,7 @@ class TodoWindow(Adw.ApplicationWindow):
         key = str(item.get("key") or "")
         outbound = self._outbound.get(key.split("/", 1)[0], False)
         self.done_button.set_sensitive(can_mark_done(item, outbound))
+        self._sync_done_note()
         title = item.get("title") if isinstance(item.get("title"), str) else ""
         body = item.get("body") if isinstance(item.get("body"), str) else ""
         self.copy_title_button.set_sensitive(bool(title))
@@ -1692,6 +1731,39 @@ class TodoWindow(Adw.ApplicationWindow):
         if can_mark_done(item, outbound):
             self._mark_done(key)
 
+    def _note_text(self) -> str:
+        start, end = self.note_buffer.get_bounds()
+        return self.note_buffer.get_text(start, end, True).strip()
+
+    def _sync_done_note(self) -> None:
+        item = self._current
+        if not isinstance(item, dict):
+            self.done_note_button.set_sensitive(False)
+            return
+        key = str(item.get("key") or "")
+        outbound = self._outbound.get(key.split("/", 1)[0], False)
+        ready = bool(self._note_text()) and can_mark_done(item, outbound)
+        self.done_note_button.set_sensitive(ready)
+
+    def _done_with_note(self) -> None:
+        item = self._current
+        if not isinstance(item, dict):
+            return
+        key = item.get("key")
+        if not isinstance(key, str):
+            return
+        note = self._note_text()
+        if not note:
+            return
+        if len(note) > 500:
+            self._toast("Note must be 1 to 500 characters")
+            return
+        outbound = self._outbound.get(key.split("/", 1)[0], False)
+        if not can_mark_done(item, outbound):
+            return
+        self._mark_done(key, note)
+        self.note_buffer.set_text("")
+
     def _undo_window_ms(self) -> int:
         """The shared undo length, from settings, in milliseconds."""
 
@@ -1699,7 +1771,7 @@ class TodoWindow(Adw.ApplicationWindow):
 
         return resolve_ui_settings(None).undo_seconds * 1000
 
-    def _mark_done(self, key: str) -> None:
+    def _mark_done(self, key: str, note: str = "") -> None:
         index = 0
         snapshot: dict[str, Any] | None = None
         for item in self._items:
@@ -1736,6 +1808,8 @@ class TodoWindow(Adw.ApplicationWindow):
             _now_ms(),
             self._undo_span,
         )
+        if note:
+            self._undo_holds[key]["note"] = note
         self._arm_undo()
         self._fill_rows(self._items)
         self._sync_open_undo()
@@ -1864,8 +1938,12 @@ class TodoWindow(Adw.ApplicationWindow):
             hold = self._undo_holds.get(key)
             if hold is None or hold.get("sent"):
                 continue
+            note = hold.get("note")
             try:
-                self.client.mark_done(key)
+                if isinstance(note, str) and note.strip():
+                    self.client.mark_done(key, note.strip())
+                else:
+                    self.client.mark_done(key)
             except BridgeError as exc:
                 self._toast(str(exc))
                 continue
@@ -2541,9 +2619,9 @@ def _focus_is_text(window: TodoWindow) -> bool:
     focus = window.get_focus()
     if focus is None:
         return False
-    if focus is window.text or focus is window.start_entry:
+    if focus is window.text or focus is window.note_view or focus is window.start_entry:
         return True
-    return _widget_inside(focus, window.start_entry)
+    return _widget_inside(focus, window.start_entry) or _widget_inside(focus, window.note_view)
 
 
 def _object_dict(raw: tuple[Any, ...]) -> dict[str, Any]:

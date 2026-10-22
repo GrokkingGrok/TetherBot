@@ -326,6 +326,27 @@ def _check_limits(
         raise ValueError("pace limits must be at least 1")
 
 
+_DONE_NOTE_LIMIT = 500
+
+
+def _done_args(args: dict[str, Any]) -> dict[str, Any]:
+    """A done action carries an optional note, or no arguments."""
+
+    if not args:
+        return {}
+    if set(args) != {"note"}:
+        raise QueueError("done note must be 1 to 500 characters")
+    note = args.get("note")
+    if note is None or (isinstance(note, str) and not note.strip()):
+        return {}
+    if not isinstance(note, str):
+        raise QueueError("done note must be 1 to 500 characters")
+    text = note.strip()
+    if not text or len(text) > _DONE_NOTE_LIMIT:
+        raise QueueError("done note must be 1 to 500 characters")
+    return {"note": text}
+
+
 def _validate_action(
     action_id: str,
     bot: str,
@@ -347,6 +368,10 @@ def _validate_action(
         text = args.get("text")
         if not isinstance(text, str) or not text or len(text) > 500:
             raise QueueError("note text must be 1 to 500 characters")
+    elif action == "done":
+        normalized = _done_args(args)
+        args.clear()
+        args.update(normalized)
     elif args:
         raise QueueError("only note actions carry args")
     if _strings_look_secret(item) or _strings_look_secret(action) or _tree_looks_secret(args):

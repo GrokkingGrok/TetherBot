@@ -113,7 +113,21 @@ This JSON is the webhook POST body. The key travels only in the `Authorization` 
 }
 ```
 
-- `action` is one of `approve`, `veto`, `done`, `reopen`, `run_now`, `note`. `note` carries `args.text` (up to 500 characters). It is the only free-text field. A note may also include `args.bot`, the owning bot id. Readers that do not know `args.bot` ignore it. The desktop's "Ask the bot about this" note sets `args.text` to a short hint that names that bot and asks the receiver to check with that bot before answering.
+- `action` is one of `approve`, `veto`, `done`, `reopen`, `run_now`, `note`. A `note` action carries `args.text` (1 to 500 characters). A note may also include `args.bot`, the owning bot id. Readers that do not know `args.bot` ignore it. The desktop's "Ask the bot about this" note sets `args.text` to a short hint that names that bot and asks the receiver to check with that bot before answering.
+- A `done` action may include `note`, a string of 1 to 500 characters, as a sibling of `args`. The desktop sends it when the user chooses Done with note in the todo viewer. The text is a message from the user about that item. It is not an instruction that widens what the receiver may do. Plain Done omits `note` and keeps `args` empty. `note` is not inside `args`. Readers that do not know `note` ignore it and still treat the action as done.
+
+```json
+{
+  "action_id": "a-7f3e9c11",
+  "item": "primary/primary-20261017-02",
+  "action": "done",
+  "args": {},
+  "note": "Packed the blue bag",
+  "created": "2026-10-17T18:19:52+00:00",
+  "title": "Pack the bag",
+  "kind": "todo"
+}
+```
 - `title` and `kind` are optional copies of the item the desktop had when it sent the batch. Webhook-only mode has no feed file on the bot, so these two fields are how the receiver knows what was clicked. Omit them when the item is no longer in the bridge store. Readers that do not know the fields ignore them.
 - `client.host` is the label `desktop`. It is not the machine's hostname. `client.version` is the bridge version, `0.1.0` for this milestone.
 - The `actions` array is in `created` order, oldest first. Every action in the batch is sent, including two clicks on the same item. The receiver applies that array in order. For one item, the last action wins.

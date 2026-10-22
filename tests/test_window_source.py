@@ -52,8 +52,14 @@ def test_window_sources_do_not_touch_the_network_or_secrets():
     assert "set_titlebar" not in window
     assert "ToolbarView" in window
     assert "WindowControls" not in window
-    assert "set_default_size(1280, 800)" in window
-    assert "set_size_request(1180, 680)" in window
+    assert "WINDOW_DEFAULT_WIDTH = 1520" in window
+    assert "WINDOW_MIN_WIDTH = 1400" in window
+    assert "set_default_size(WINDOW_DEFAULT_WIDTH, 800)" in window
+    assert "set_size_request(WINDOW_MIN_WIDTH, 680)" in window
+    assert "window_width < WINDOW_MIN_WIDTH" in window
+    assert "window_width = WINDOW_DEFAULT_WIDTH" in window
+    assert 'label="Note"' in window
+    assert 'label="Done with note"' in window
     assert "KEY_w" in window
     assert "KEY_Escape" in window
     assert "AssignTimer" in window

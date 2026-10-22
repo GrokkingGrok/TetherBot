@@ -372,6 +372,40 @@ def test_setup_reports_the_configured_poll_interval(tmp_path: Path):
     assert setup["poll_seconds"] == 180
 
 
+def test_done_with_note_is_queued_and_plain_done_stays_empty(tmp_path: Path):
+    daemon, _seen = _api(tmp_path)
+    assert daemon.store is not None and daemon.api is not None and daemon.queue is not None
+    daemon.store.replace_origin(
+        "feed",
+        [
+            make_item(id="todo-01", kind="todo", title="Pack the bag", actions=["done"]),
+            make_item(id="todo-02", kind="todo", title="Mail the form", actions=["done"]),
+            make_item(id="todo-03", kind="todo", title="File the form", actions=["done"]),
+            make_item(),
+        ],
+        now=NOW,
+    )
+    api = daemon.api
+    noted = api.call(
+        "PerformAction",
+        ("primary/todo-01", "done", json.dumps({"note": "  Packed the blue bag  "})),
+    )[0]
+    queued = {row.action_id: row for row in daemon.queue.snapshot()}
+    assert queued[noted].action == "done"
+    assert queued[noted].args == {"note": "Packed the blue bag"}
+    plain = api.call("PerformAction", ("primary/todo-02", "done", "{}"))[0]
+    assert daemon.queue.snapshot()
+    queued = {row.action_id: row for row in daemon.queue.snapshot()}
+    assert queued[plain].args == {}
+    with pytest.raises(ServiceError, match="1 to 500"):
+        api.call(
+            "PerformAction",
+            ("primary/todo-03", "done", json.dumps({"note": "x" * 501})),
+        )
+    with pytest.raises(ServiceError, match="does not take arguments"):
+        api.call("PerformAction", ("primary/sample-01", "approve", json.dumps({"note": "no"})))
+
+
 def test_missing_config_cannot_enable_an_adapter(tmp_path: Path):
     daemon, _seen = _api(tmp_path)
     assert daemon.api is not None

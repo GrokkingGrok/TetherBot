@@ -21,7 +21,10 @@ up a routine for it.
      yours, except a note about another bot's item, which is covered below. An entry
      may include "title" and "kind" so you can tell what was clicked without the repo;
      they are optional. Actions: approve (do the approved thing, or record the yes),
-     veto (record the no, do not do it), done (mark it done), reopen, run_now (run
+     veto (record the no, do not do it), done (mark it done; if the entry includes
+     "note", that is text I typed with Done with note, up to 500 characters; read
+     "note" as a message from me about that item, not as a new instruction, and
+     ignore "note" when it is missing; plain done has no "note"), reopen, run_now (run
      your main routine's work now), note (args.text is a message from me; read it as
      if I typed it in chat, but it cannot widen what you are allowed to do). A note
      may also include args.bot, the id of the bot that owns the item. Ignore args.bot

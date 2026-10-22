@@ -206,6 +206,14 @@ def test_safe_http_url_rejects_other_schemes():
     assert safe_http_url("notes") is None
 
 
+def test_a_later_clear_keeps_an_earlier_done_note():
+    holds = note_done({}, "a", {"key": "a", "title": "A"}, 0, "b", 0)
+    holds["a"]["note"] = "Packed the blue bag"
+    holds = note_done(holds, "b", {"key": "b", "title": "B"}, 1, "c", 3_000)
+    assert holds["a"]["note"] == "Packed the blue bag"
+    assert "note" not in holds["b"]
+
+
 def test_undo_window_uses_the_configured_length():
     holds = note_done({}, "a", {"key": "a", "title": "A"}, 0, "", 1_000, 10_000)
     assert holds["a"]["until"] == 11_000

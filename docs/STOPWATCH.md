@@ -69,7 +69,7 @@ Todo rows (popup and window):
 - Starting a timer while another one exists asks one question in place: "Stop <title> and start this one?" with Switch and Cancel. A stopped unassigned timer asks "Discard the stopped time and start this one?"
 - Add to a todo puts the popup in pick mode. The rows are highlighted, the title says what the click will do, and Cancel leaves pick mode. Clicking a row attaches the time. It does not open the window.
 - A running or paused timer that is not already on a todo can be attached the same way. A timer that is already on a todo stays there until Stop.
-- The window detail pane gets the same Start timer button next to Done, plus Attach timer when the current timer can move onto that todo. Attach timer puts the running or stopped timer on the open todo in front of you. The sidebar shows Edit start. The window has one titlebar, with one set of window buttons. Ctrl+W and Escape close it.
+- The window detail pane gets the same Start timer button next to Done. While that todo's timer is running or paused, the button is Stop timer and it stops the timer. Attach timer is there when the current timer can move onto that todo. Attach timer puts the running or stopped timer on the open todo in front of you. The sidebar shows Edit start. The window has one titlebar, with one set of window buttons. Ctrl+W and Escape close it.
 
 ## 5. Timer data model
 

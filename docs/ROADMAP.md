@@ -56,6 +56,7 @@ TetherBot is pre-alpha. Check items off as they land. Design detail is in [SPEC.
 - [ ] Manual checks M69–M73 for the settings screen: key handoff, poll interval, undo length, notifications per bot, and hidden bots. The steps are in [MANUAL-CHECKS.md](MANUAL-CHECKS.md). They have not been run on the desktop yet.
 - [x] Manual checks M74–M77 passed on the desktop: reset to defaults, the corner badge with blue for asks confirmed, one notification per new item, and popup Done sending when the undo bar ends.
 - [ ] Manual checks M78 and M79: editing a todo's tracked total and deleting a time record, and an amber bots summary for needs attention with red kept for an error or a bridge failure. The steps are in [MANUAL-CHECKS.md](MANUAL-CHECKS.md). They have not been run on the desktop yet.
+- [ ] Manual checks M80 and M81: Stop timer on the open todo, and copy icons for the title and the body plus Copy Todo. The steps are in [MANUAL-CHECKS.md](MANUAL-CHECKS.md). They have not been run on the desktop yet.
 
 ## v0.2 — early adopters
 

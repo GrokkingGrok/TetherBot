@@ -29,6 +29,9 @@ from tetherbot.window_query import (  # noqa: E402
     VIEWS,
     bot_detail_line,
     can_mark_done,
+    copy_body,
+    copy_title,
+    copy_todo,
     due_undo_keys,
     format_duration,
     format_time_record,
@@ -612,8 +615,14 @@ class TodoWindow(Adw.ApplicationWindow):
         self.back.set_visible(False)
         self.back.connect("clicked", lambda _button: self.split.set_show_content(False))
         self.split.connect("notify::collapsed", self._on_collapsed)
-        self.detail_title = Gtk.Label(xalign=0, wrap=True, selectable=True)
+        self.detail_title = Gtk.Label(xalign=0, wrap=True, selectable=True, hexpand=True)
+        self.detail_title.set_valign(Gtk.Align.START)
         self.detail_title.add_css_class("title-1")
+        self.copy_title_button = _copy_icon("Copy title")
+        self.copy_title_button.connect("clicked", lambda _button: self._copy_title())
+        title_row = Gtk.Box(spacing=8)
+        title_row.append(self.detail_title)
+        title_row.append(self.copy_title_button)
         self.detail_chips = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE)
         self.time_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         self.time_box.set_visible(False)
@@ -654,7 +663,12 @@ class TodoWindow(Adw.ApplicationWindow):
         motion = Gtk.EventControllerMotion()
         motion.connect("motion", self._on_text_motion)
         self.text.add_controller(motion)
-        body_scroll = Gtk.ScrolledWindow(vexpand=True, child=self.text)
+        body_scroll = Gtk.ScrolledWindow(vexpand=True, hexpand=True, child=self.text)
+        self.copy_body_button = _copy_icon("Copy body")
+        self.copy_body_button.connect("clicked", lambda _button: self._copy_body())
+        body_row = Gtk.Box(spacing=8)
+        body_row.append(body_scroll)
+        body_row.append(self.copy_body_button)
         self.done_button = Gtk.Button(label="Done")
         self.done_button.add_css_class("suggested-action")
         self.done_button.connect("clicked", lambda _button: self._done_current())
@@ -666,7 +680,8 @@ class TodoWindow(Adw.ApplicationWindow):
         self.attach_button = Gtk.Button(label="Attach timer")
         self.attach_button.connect("clicked", lambda _button: self._attach_current())
         self.attach_button.set_visible(False)
-        self.copy_button = Gtk.Button(label="Copy text")
+        self.copy_button = Gtk.Button(label="Copy Todo")
+        self.copy_button.set_tooltip_text("Copy title and body")
         self.copy_button.connect("clicked", lambda _button: self._copy_current())
         self.ask_button = Gtk.Button(label="Ask the bot about this")
         self.ask_button.connect("clicked", lambda _button: self._ask_current())
@@ -684,10 +699,10 @@ class TodoWindow(Adw.ApplicationWindow):
         detail.set_margin_end(16)
         detail.set_margin_top(12)
         detail.set_margin_bottom(12)
-        detail.append(self.detail_title)
+        detail.append(title_row)
         detail.append(self.detail_chips)
         detail.append(self.time_box)
-        detail.append(body_scroll)
+        detail.append(body_row)
         detail.append(buttons)
         detail.append(self.source)
         detail_bar = Adw.ToolbarView(content=detail)
@@ -944,6 +959,8 @@ class TodoWindow(Adw.ApplicationWindow):
             self.done_button.set_visible(True)
             self.undo_button.set_visible(False)
             self.copy_button.set_sensitive(False)
+            self.copy_title_button.set_sensitive(False)
+            self.copy_body_button.set_sensitive(False)
             self.ask_button.set_sensitive(False)
             self._sync_start_button(None)
             self._sync_time_editor(None)
@@ -964,7 +981,11 @@ class TodoWindow(Adw.ApplicationWindow):
         key = str(item.get("key") or "")
         outbound = self._outbound.get(key.split("/", 1)[0], False)
         self.done_button.set_sensitive(can_mark_done(item, outbound))
-        self.copy_button.set_sensitive(True)
+        title = item.get("title") if isinstance(item.get("title"), str) else ""
+        body = item.get("body") if isinstance(item.get("body"), str) else ""
+        self.copy_title_button.set_sensitive(bool(title))
+        self.copy_body_button.set_sensitive(bool(body))
+        self.copy_button.set_sensitive(bool(title or body))
         self.ask_button.set_sensitive("/" in key)
         self._sync_start_button(item)
         self._sync_detail_undo(key)
@@ -1136,7 +1157,27 @@ class TodoWindow(Adw.ApplicationWindow):
         if not isinstance(key, str) or not key:
             return
         title = item.get("title") if isinstance(item.get("title"), str) else key
+        if timer_item_key(self._timer) == key:
+            self._stop_owned_timer()
+            return
         self._start_timer(key, title)
+
+    def _stop_owned_timer(self) -> None:
+        if not hasattr(self.client, "stop_timer"):
+            return
+        try:
+            updated = self.client.stop_timer()
+        except BridgeError as exc:
+            self._toast(str(exc) or "Could not save the timer")
+            return
+        if isinstance(updated, dict) and updated.get("state"):
+            self._apply_timer_result(updated)
+            return
+        self._timer = {"state": "idle"}
+        self._show_page_list()
+        self._sync_timer_strip()
+        self._sync_start_button(self._current)
+        self.refresh()
 
     def _start_timer(self, key: str, title: str) -> None:
         if not hasattr(self.client, "start_timer"):
@@ -1226,8 +1267,8 @@ class TodoWindow(Adw.ApplicationWindow):
         else:
             key = str(item.get("key") or "")
             if timer_item_key(self._timer) == key and key:
-                self.start_button.set_label("Timing")
-                self.start_button.set_sensitive(False)
+                self.start_button.set_label("Stop timer")
+                self.start_button.set_sensitive(True)
             else:
                 self.start_button.set_label("Start timer")
                 self.start_button.set_sensitive(True)
@@ -1472,13 +1513,33 @@ class TodoWindow(Adw.ApplicationWindow):
             return
         self._toast("Sent a note about this item")
 
+    def _copy_title(self) -> None:
+        item = self._current
+        if not isinstance(item, dict):
+            return
+        text = copy_title(item)
+        if not text:
+            return
+        self.get_clipboard().set(text)
+        self._toast("Copied title")
+
+    def _copy_body(self) -> None:
+        item = self._current
+        if not isinstance(item, dict):
+            return
+        text = copy_body(item)
+        if not text:
+            return
+        self.get_clipboard().set(text)
+        self._toast("Copied body")
+
     def _copy_current(self) -> None:
         item = self._current
-        if item is None:
+        if not isinstance(item, dict):
             return
-        title = item.get("title") if isinstance(item.get("title"), str) else ""
-        body = item.get("body") if isinstance(item.get("body"), str) else ""
-        text = title if not body else f"{title}\n\n{body}"
+        text = copy_todo(item)
+        if not text:
+            return
         self.get_clipboard().set(text)
         self._toast("Copied")
 
@@ -2089,6 +2150,15 @@ def _undo_button() -> tuple[Gtk.Button, Gtk.ProgressBar]:
     button.set_hexpand(False)
     button.set_size_request(78, 28)
     return button, bar
+
+
+def _copy_icon(label: str) -> Gtk.Button:
+    button = Gtk.Button(icon_name="edit-copy-symbolic")
+    button.add_css_class("flat")
+    button.set_valign(Gtk.Align.START)
+    button.set_tooltip_text(label)
+    button.update_property([Gtk.AccessibleProperty.LABEL], [label])
+    return button
 
 
 def _chip(label: str, tone: str) -> Gtk.Label:

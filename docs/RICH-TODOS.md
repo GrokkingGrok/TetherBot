@@ -88,7 +88,7 @@ List pane:
 Detail pane:
 - Title, then the chip row (due, created, priority, tags, waiting-on).
 - Body rendered as Markdown: headings, bold, italic, inline code, code blocks, bullet and numbered lists, task-list checkboxes (display only), block quotes, and links. Links open in the default browser after a click, never automatically. Images and raw HTML are not rendered.
-- Buttons: Done, Copy text, and "Ask the bot about this", which uses the existing `SendToBot` path to send a note with the item key so the owner can say "change the due date" or "add a tag" in chat.
+- Buttons: Done, Copy Todo, and "Ask the bot about this", which uses the existing `SendToBot` path to send a note with the item key so the owner can say "change the due date" or "add a tag" in chat. Copy icons beside the title and the body copy only that part. The note includes the owning bot id.
 - Source line: which bot, which routine, last updated.
 
 Rendering: a small built-in Markdown subset renderer into a GtkTextView (or GtkLabel markup) with no JavaScript and no web engine. No new runtime dependency.

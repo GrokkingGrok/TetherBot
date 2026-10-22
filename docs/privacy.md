@@ -23,7 +23,7 @@ Nothing leaves until an adapter is enabled by name.
 - `client.name`, `client.version`, and `client.host` (the label `desktop`, not the machine's hostname)
 - `actions[]`, each with `action_id`, `item`, `action`, `args`, `created`, and optional `title` and `kind`
 
-`args` is empty except for a `note`, which carries the text the user typed. A ping is `schema`, `type`, and the same `sent_at` and `client` fields. A ping is sent only when the user asks for a test.
+`args` is empty except for a `note`, which carries `args.text` and may include `args.bot`, the owning bot id. Neither field is a secret. A ping is `schema`, `type`, and the same `sent_at` and `client` fields. A ping is sent only when the user asks for a test.
 
 No other host is used. There is no telemetry, no analytics, and no crash upload.
 

@@ -54,7 +54,7 @@ The stopwatch block is the first section of the popup. Todos and asks follow it,
 
 - **Running:** a "Timer running" label with a solid dot, the elapsed time in large text, then the bot name as a chip and the todo title after it on the same line, left aligned (or "Timer" when standalone), then Pause, Stop, and Edit start. A timer that is not on a todo also offers Add to a todo.
 - **Paused:** "Paused" with the pause glyph, the frozen time dimmed, then Resume, Stop, and Edit start.
-- **Edit start:** one row with `-5m`, `-15m`, `-30m`, a small `HH:MM` field, Set, and a close control. The new start cannot be in the future, cannot be before the 24 hour limit, and is stored as one span so the elapsed time cannot go negative.
+- **Edit start:** one row with `-5m`, `-15m`, `-30m`, a small `HH:MM` field, Set, and a close control. Enter in the time field does the same thing as Set. The new start cannot be in the future, cannot be before the 24 hour limit, and is stored as one span so the elapsed time cannot go negative.
 - **Idle:** "No timer running" and a Start timer button for a standalone timer.
 - **Clock warning:** the saved time, one sentence on why, and Keep, Set time..., and Discard (section 6.5).
 - **Bridge down:** "Timer unavailable: bridge not running. Saved time is safe on disk and keeps counting."

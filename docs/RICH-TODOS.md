@@ -83,7 +83,7 @@ List pane:
 - Tag filter: a row of tag chips (all tags in open items, with counts). Click to toggle; multiple tags mean all must match. A "clear" chip resets.
 - Sort menu: due (default), priority, created, updated.
 - Each row: checkbox (Done), priority, title, chip row. Done rows leave the list on tap, same as the popup.
-- A "Show done" toggle reveals completed todos inside the history window from Settings. The default is on, for 1 year. A month is 30 days and a year is 365 days. When history is off, the toggle shows no done todos. Dropped items stay hidden. The rows are read-only. An older done todo is left out of the view. The desktop does not rewrite the bot's feed file.
+- A "Show done" toggle reveals completed todos inside the history window from Settings. The default is on, for 1 year. The How many row in Settings says that 1 month = 30 days and 1 year = 365 days. When history is off, the toggle shows no done todos. Dropped items stay hidden. The rows are read-only. An older done todo is left out of the view. The desktop does not rewrite the bot's feed file.
 
 Detail pane:
 - Title, then the chip row (due, created, priority, tags, waiting-on).

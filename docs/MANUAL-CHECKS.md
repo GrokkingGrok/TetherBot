@@ -2,7 +2,7 @@
 
 Run these on one Fedora 44 desktop with GNOME Shell 50 on Wayland, after you can log in as a normal user. The project is unofficial and not affiliated with xAI.
 
-**Out of scope here:** M9 (webhook-only popup copy), M15 and M16 (a legacy todo sink outside this repository), and M17 (the full uninstall acceptance check). Uninstall is still documented in [SETUP.md](SETUP.md) and is the reset for M1. M18–M24 are the rich-todo checks later in this file. M25 checks that a new login starts the bridge. M26 checks that a todo click opens the window quickly. M27–M42 check the stopwatch. M43–M47 check more than one bot, display names, the compact Bots section, and the popup order. M48–M54 check an optional webhook slot, Sync now, the timer chip, toolbar colors, summary contrast, the bot-row dot and summary, and local dates. M55–M57 check the timer chip on the left, the top-bar width, and a window that updates while it stays open. M47 and M55–M68 passed on the desktop. M58 and M62 are the panel icon size and `primary` staying first. M59–M61 are replaced by M65–M68: a face in the shell's status-icon color, eyes that stay visible, Done sending when the shared bar ends, and one batch per menu. M74 passed on the desktop: reset to defaults restores the feed check and the undo timer. M75 passed on the desktop: the corner badge is in place, and blue for asks was confirmed. M76 passed on the desktop: one new item raises one notification, including after a bridge restart. M77 passed on the desktop: popup Done sends when the undo bar ends, and closing the menu early does not send it. M63 and M64 are a shared webhook slot and a missing secret on one bot. M69–M73 check the settings screen. M78 passed on the desktop: editing a todo's tracked total and deleting a time record. M79 passed on the desktop: the bots summary is amber for needs attention and red for an error or a bridge failure. M80 passed on the desktop: Stop timer on the open todo. M81 passed on the desktop: the title copy icon, the body copy icon, and Copy Todo. M82 checks that completed todos stay in Show done for the history window and that dropped items do not. Do not treat M9, M15, M16, or M17 as part of the v0.1 runbook.
+**Out of scope here:** M9 (webhook-only popup copy), M15 and M16 (a legacy todo sink outside this repository), and M17 (the full uninstall acceptance check). Uninstall is still documented in [SETUP.md](SETUP.md) and is the reset for M1. M18–M24 are the rich-todo checks later in this file. M25 checks that a new login starts the bridge. M26 checks that a todo click opens the window quickly. M27–M42 check the stopwatch. M43–M47 check more than one bot, display names, the compact Bots section, and the popup order. M48–M54 check an optional webhook slot, Sync now, the timer chip, toolbar colors, summary contrast, the bot-row dot and summary, and local dates. M55–M57 check the timer chip on the left, the top-bar width, and a window that updates while it stays open. M47 and M55–M68 passed on the desktop. M58 and M62 are the panel icon size and `primary` staying first. M59–M61 are replaced by M65–M68: a face in the shell's status-icon color, eyes that stay visible, Done sending when the shared bar ends, and one batch per menu. M74 passed on the desktop: reset to defaults restores the feed check and the undo timer. M75 passed on the desktop: the corner badge is in place, and blue for asks was confirmed. M76 passed on the desktop: one new item raises one notification, including after a bridge restart. M77 passed on the desktop: popup Done sends when the undo bar ends, and closing the menu early does not send it. M63 and M64 are a shared webhook slot and a missing secret on one bot. M69–M73 check the settings screen. M78 passed on the desktop: editing a todo's tracked total and deleting a time record. M79 passed on the desktop: the bots summary is amber for needs attention and red for an error or a bridge failure. M80 passed on the desktop: Stop timer on the open todo. M81 passed on the desktop: the title copy icon, the body copy icon, and Copy Todo. M82 passed on the desktop: completed todos stay in Show done for the history window, and Reset to defaults leaves that setting alone. M83–M86 are still open. Do not treat M9, M15, M16, or M17 as part of the v0.1 runbook.
 
 Examples use the bot id `primary`. Yours can be any lowercase id of letters, digits, and hyphens. Use the same id in the bot's feed file, in `config.toml`, and in the commands below.
 
@@ -10,7 +10,7 @@ Nothing in these steps belongs in a chat, in `config.toml`, or in this repositor
 
 ## Suggested order
 
-M1, M2, then the extension install in M14 (log out and back in once), then M3. Do M10 before M4 if the popup has no ask yet. Then M4, M10a, M5, M11, M6, M7, M8, M12, M13. After a rich todo is in the feed, M18 through M24. M25 is the next login after the unit is installed. M26 is a todo click after that. M27 through M42 need a running timer. M43 through M47 need this version installed and a log out, then a second feed file. M48 through M54 need that same login. M47 and M55 through M68 passed on the desktop. M74 through M77 passed on the desktop. M69 through M73 need the settings install and a log out, so the prefs window and the schema load. M78 through M81 passed on the desktop. M82 needs the settings screen and at least one completed todo.
+M1, M2, then the extension install in M14 (log out and back in once), then M3. Do M10 before M4 if the popup has no ask yet. Then M4, M10a, M5, M11, M6, M7, M8, M12, M13. After a rich todo is in the feed, M18 through M24. M25 is the next login after the unit is installed. M26 is a todo click after that. M27 through M42 need a running timer. M43 through M47 need this version installed and a log out, then a second feed file. M48 through M54 need that same login. M47 and M55 through M68 passed on the desktop. M74 through M77 passed on the desktop. M69 through M73 need the settings install and a log out, so the prefs window and the schema load. M78 through M82 passed on the desktop. M83 needs a running or paused timer. M84 needs an open todo. M85 needs the settings screen. M86 needs the TetherBot window.
 
 You can stop after any check. Later checks say what they need.
 
@@ -1368,6 +1368,8 @@ journalctl --user -b /usr/bin/gnome-shell --no-pager | tail -n 80
 
 ## M82. Completed todos stay for the history window
 
+**Passed.** History filtering updates live, and Reset to defaults leaves it alone.
+
 **Preconditions.** Log out and back in after installing this version, so the settings schema loads. Settings shows Completed todos, on, with 1 and Years. Have one todo marked done on the desktop, and one the bot closed (`status` `done` in the feed). Have a dropped or vetoed item, or veto one during the check.
 
 **Look for.**
@@ -1380,6 +1382,57 @@ journalctl --user -b /usr/bin/gnome-shell --no-pager | tail -n 80
 - The top bar still has no number except the timer.
 
 **Reset.** Turn history back on, amount 1, unit Years, if you changed it.
+
+## M83. Enter sets the start time
+
+**Preconditions.** A timer is running or paused. Open Edit start in the top-bar popup, and again in the TetherBot window.
+
+**Look for.**
+
+- The row has `-5m`, `-15m`, `-30m`, a time field, and Set.
+- Type a time such as `8:29` and press Enter. The start changes the same way it does when you click Set.
+- A time that is not `HH:MM` shows the same hint as clicking Set, and the timer does not change.
+- The top bar still has no number except the timer.
+
+**Reset.** None.
+
+## M84. Done with the pointer left on the row
+
+**Preconditions.** The TetherBot window is open on a todo list. The undo timer is at its default, about 5 seconds.
+
+**Look for.**
+
+- Click Done on a row and leave the pointer where it is, over that row.
+- The row switches to Undo. When the undo time ends, the row leaves the list.
+- The window stays open. It does not close, freeze, or disappear while the pointer is still there.
+- The top bar still has no number except the timer.
+
+**Reset.** Undo the todo if you want it back, before the bar ends.
+
+## M85. How many names a month and a year
+
+**Preconditions.** Log out and back in after installing this version, so the settings schema loads. Open Settings.
+
+**Look for.**
+
+- The Completed todos description does not say that a month is 30 days or that a year is 365 days.
+- The How many row says `1 month = 30 days, 1 year = 365 days`.
+- The top bar still has no number except the timer.
+
+**Reset.** None.
+
+## M86. The window opens at the list's height
+
+**Preconditions.** Open the TetherBot window with a short todo list, then again with enough todos to scroll.
+
+**Look for.**
+
+- A short list opens the window tall enough for those rows, the header, and the toolbar, and no taller. The window is still at least as tall as before this change.
+- A long list stops at the monitor's usable height. The extra rows scroll.
+- Drag the window to a different height. Leave it open and let the list refresh. It stays at the height you set.
+- The top bar still has no number except the timer.
+
+**Reset.** None.
 
 ## When you are finished
 

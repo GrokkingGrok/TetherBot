@@ -6,12 +6,14 @@ from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from tetherbot.window_query import (
+    MIN_WINDOW_HEIGHT,
     bot_detail_line,
     can_mark_done,
     copy_body,
     copy_title,
     copy_todo,
     due_undo_keys,
+    fitted_window_height,
     format_duration,
     format_elapsed,
     format_last_seen,
@@ -273,3 +275,10 @@ def test_a_cleared_row_stays_put_until_its_window_ends():
     assert pinned[0]["_undo"]["fraction"] == 0
     assert pinned[0]["_undo"]["live"] is False
     assert undo_fraction(5_000, 4_000) == 0.2
+
+
+def test_fitted_height_keeps_the_minimum_and_the_cap():
+    assert fitted_window_height(200, 100, MIN_WINDOW_HEIGHT, 1200) == MIN_WINDOW_HEIGHT
+    assert fitted_window_height(900, 200, MIN_WINDOW_HEIGHT, 2000) == 1100
+    assert fitted_window_height(4000, 200, MIN_WINDOW_HEIGHT, 1000) == 1000
+    assert fitted_window_height(4000, 200, MIN_WINDOW_HEIGHT, 400) == MIN_WINDOW_HEIGHT

@@ -129,7 +129,7 @@ export default class TetherBotPreferences extends ExtensionPreferences {
     _buildHistory(page, settings) {
         const group = new Adw.PreferencesGroup({
             title: 'Completed todos',
-            description: 'Show done lists a completed todo for this long, whether it was closed on the desktop or by the bot. Dropped items are not listed. Older ones are hidden here only. A bot feed file is not changed. A month is 30 days and a year is 365 days.',
+            description: 'Show done lists a completed todo for this long, whether it was closed on the desktop or by the bot. Dropped items are not listed. Older ones are hidden here only. A bot feed file is not changed.',
         });
         const enabled = new Adw.SwitchRow({
             title: 'Keep completed todos',
@@ -175,7 +175,7 @@ export default class TetherBotPreferences extends ExtensionPreferences {
         adjustment.value = shown;
         const row = new Adw.SpinRow({
             title: 'How many',
-            subtitle: 'How long to keep a completed todo. 1 to 999. The default is 1.',
+            subtitle: 'How long to keep a completed todo. 1 to 999. The default is 1. 1 month = 30 days, 1 year = 365 days.',
             adjustment,
             css_classes: ['tetherbot-seconds'],
         });

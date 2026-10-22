@@ -170,8 +170,29 @@ def _exercise_window(app, fake, opened, holder, gdk, glib, gtk, render, apply_ru
             assert fake.undone == []
             window._ask_current()
             assert fake.notes == ["primary/one"]
+            kept = window.list.get_row_at_index(0)
+            assert kept is not None
+            window._list_hovered = True
+            window.refresh()
+            assert kept.get_visible() is False
+            assert kept.get_parent() is not None
+            drop = window._drop_idle
+            assert drop
+            window._drop_idle = 0
+            glib.source_remove(drop)
+            assert window._drop_doomed() == glib.SOURCE_CONTINUE
+            assert window._drop_doomed() == glib.SOURCE_REMOVE
+            index = 0
+            while True:
+                current = window.list.get_row_at_index(index)
+                if current is None:
+                    break
+                assert current is not kept
+                index += 1
+            assert index >= 1
+            window._list_hovered = False
             width, height = window.get_default_size()
-            assert width >= 1200 and height >= 760
+            assert width >= 1200 and height >= 680
             request_width, request_height = window.get_size_request()
             assert request_width >= 1100 and request_height >= 640
             assert window.toolbar.get_content() is window.toasts
@@ -406,9 +427,10 @@ class _EditFake(_TimerFake):
 def test_window_edits_a_start_and_keeps_a_stopped_timer():
     gi = pytest.importorskip("gi")
     try:
+        gi.require_version("Gdk", "4.0")
         gi.require_version("Gtk", "4.0")
         gi.require_version("Adw", "1")
-        from gi.repository import GLib
+        from gi.repository import Gdk, GLib
     except ValueError as exc:
         pytest.skip(str(exc))
     if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
@@ -420,7 +442,7 @@ def test_window_edits_a_start_and_keeps_a_stopped_timer():
         fake = _EditFake()
         app = WindowApp(client=fake)
         holder: dict = {}
-        _exercise_edit(app, fake, holder, GLib)
+        _exercise_edit(app, fake, holder, GLib, Gdk)
     finally:
         reset_tetherbot_logger()
     if "error" in holder:
@@ -428,7 +450,7 @@ def test_window_edits_a_start_and_keeps_a_stopped_timer():
     assert holder.get("ok") is True
 
 
-def _exercise_edit(app, fake, holder, glib) -> None:
+def _exercise_edit(app, fake, holder, glib, gdk) -> None:
     def finish():
         try:
             window = app.window
@@ -459,10 +481,16 @@ def _exercise_edit(app, fake, holder, glib) -> None:
             assert window.timer_label.get_label() == "Timer running · 10m"
             window._set_editing_start(True)
             window.start_entry.set_text("nope")
-            window._on_set_start()
+            window.start_entry.emit("activate")
             assert fake.starts == []
             window.start_entry.set_text("09:30")
-            window._on_set_start()
+            window.set_focus(window.start_entry)
+            focus = window.get_focus()
+            assert focus is not None and (
+                focus is window.start_entry or focus.is_ancestor(window.start_entry)
+            )
+            assert window._on_key(None, gdk.KEY_Return, 0, gdk.ModifierType(0)) is False
+            window.start_entry.emit("activate")
             assert len(fake.starts) == 1
             assert isinstance(fake.starts[0], int)
             fake.timer = {

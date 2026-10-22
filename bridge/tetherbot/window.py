@@ -25,6 +25,7 @@ from gi.repository import Adw, Gdk, Gio, GLib, Gtk, Pango  # noqa: E402
 from tetherbot.markdown import Run, render  # noqa: E402
 from tetherbot.window_launch import APP_ID  # noqa: E402
 from tetherbot.window_query import (  # noqa: E402
+    MIN_WINDOW_HEIGHT,
     SORTS,
     VIEWS,
     bot_detail_line,
@@ -33,6 +34,7 @@ from tetherbot.window_query import (  # noqa: E402
     copy_title,
     copy_todo,
     due_undo_keys,
+    fitted_window_height,
     format_duration,
     format_time_record,
     format_top_bar,
@@ -482,10 +484,21 @@ class TodoWindow(Adw.ApplicationWindow):
         self._undo_source = 0
         self._undo_paint = 0
         self._list_hovered = False
+        self._guard_rows = False
+        self._drop_idle = 0
+        self._drop_wait = False
+        self._doomed: list[Gtk.ListBoxRow] = []
+        self._height_fitted = False
+        self._user_sized = False
+        self._fitting_height = False
+        self._saw_fitted_layout = False
+        self._last_layout: tuple[int, int] | None = None
+        self._size_watch_id = 0
         self._detail_until = 0
         self.open_uri = _open_uri
         self._build()
         self.connect("close-request", self._on_window_close)
+        self.connect("realize", self._bind_size_watch)
         keys = Gtk.EventControllerKey()
         keys.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
         keys.connect("key-pressed", self._on_key)
@@ -603,7 +616,9 @@ class TodoWindow(Adw.ApplicationWindow):
         controls.append(self._page_buttons)
         controls.append(self._todo_controls)
         controls.append(self.bot_search)
+        self._list_controls = controls
         scrolled = Gtk.ScrolledWindow(vexpand=True, child=self.list)
+        scrolled.set_propagate_natural_height(False)
         sidebar_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         sidebar_box.append(controls)
         sidebar_box.append(scrolled)
@@ -790,6 +805,7 @@ class TodoWindow(Adw.ApplicationWindow):
         self._fill_bot_chips()
         self._show_page_list()
         self._request_timer()
+        self._fit_to_list()
 
     def select_key(self, key: str) -> None:
         """Raise the window. An empty key shows todos. ``bots`` opens the bot list."""
@@ -863,6 +879,8 @@ class TodoWindow(Adw.ApplicationWindow):
         if not selected:
             current = self.list.get_selected_row()
             selected = getattr(current, "item_key", "") if current is not None else ""
+            if not isinstance(selected, str):
+                selected = ""
         shown = merge_undo_items(
             items,
             self._undo_holds,
@@ -871,21 +889,184 @@ class TodoWindow(Adw.ApplicationWindow):
             window_ms=self._undo_span,
         )
         self._undo_bars = [(self._detail_bar, self._detail_until)]
-        self._filling = True
-        self.list.remove_all()
-        self._rows.clear()
+        rows: list[Gtk.ListBoxRow] = []
         for item in shown:
             key = item.get("key")
             if not isinstance(key, str):
                 continue
-            row = self._make_row(item)
+            rows.append(self._make_row(item))
+        self._install_rows(rows, selected if isinstance(selected, str) else "", clear_missing=True)
+
+    def _install_rows(
+        self,
+        rows: list[Gtk.ListBoxRow],
+        selected_key: str,
+        *,
+        clear_missing: bool,
+    ) -> None:
+        self._park_list_focus()
+        hot = bool(
+            self._list_hovered or self._guard_rows or self._doomed or self._any_pointer_row()
+        )
+        self._filling = True
+        self._retire_current(force=not hot)
+        self._rows = {}
+        for row in rows:
             self.list.append(row)
-            self._rows[key] = row
+            key = getattr(row, "item_key", "")
+            if isinstance(key, str) and key:
+                self._rows[key] = row
         self._filling = False
-        if selected and selected in self._rows:
-            self.list.select_row(self._rows[selected])
-        elif self._current is not None and self._current.get("key") not in self._rows:
-            self._show_item(None)
+        if selected_key and selected_key in self._rows:
+            self.list.select_row(self._rows[selected_key])
+        elif clear_missing and isinstance(self._current, dict):
+            if self._current.get("key") not in self._rows:
+                self._show_item(None)
+        if self._doomed:
+            self._schedule_drop()
+
+    def _retire_current(self, *, force: bool) -> None:
+        existing: list[Gtk.ListBoxRow] = []
+        index = 0
+        while True:
+            row = self.list.get_row_at_index(index)
+            if row is None:
+                break
+            existing.append(row)
+            index += 1
+        for row in existing:
+            if row in self._doomed:
+                continue
+            self._release_row(row, force=force)
+
+    def _release_row(self, row: Gtk.ListBoxRow, *, force: bool) -> None:
+        row.item = None
+        row.item_key = ""
+        if force and not _row_blocked(self, row):
+            self.list.remove(row)
+            _dispose_widget(row)
+            return
+        row.set_visible(False)
+        row.set_sensitive(False)
+        row.set_selectable(False)
+        if row not in self._doomed:
+            self._doomed.append(row)
+
+    def _any_pointer_row(self) -> bool:
+        index = 0
+        while True:
+            row = self.list.get_row_at_index(index)
+            if row is None:
+                return False
+            if row.get_visible() and _pointer_on_row(row):
+                return True
+            index += 1
+
+    def _park_list_focus(self) -> None:
+        focus = self.get_focus()
+        if focus is None or focus is self.list or not _widget_inside(focus, self.list):
+            return
+        self.list.grab_focus()
+
+    def _schedule_drop(self) -> None:
+        if not self._doomed or self._drop_idle:
+            return
+        self._drop_wait = True
+        self._drop_idle = GLib.idle_add(self._drop_doomed)
+
+    def _drop_doomed(self) -> bool:
+        """Unparent hidden rows only after one more main-loop turn.
+
+        The extra turn is what lets the frame clock deliver leave events
+        while the row widget is still alive.
+        """
+
+        if self._drop_wait:
+            self._drop_wait = False
+            return GLib.SOURCE_CONTINUE
+        kept: list[Gtk.ListBoxRow] = []
+        for row in self._doomed:
+            if row.get_parent() is None:
+                _dispose_widget(row)
+                continue
+            if _row_blocked(self, row):
+                kept.append(row)
+                continue
+            self.list.remove(row)
+            _dispose_widget(row)
+        self._doomed = kept
+        if kept:
+            self._drop_wait = True
+            self._drop_idle = GLib.timeout_add(50, self._drop_doomed)
+        else:
+            self._drop_idle = 0
+        return GLib.SOURCE_REMOVE
+
+    def _fit_to_list(self) -> None:
+        """Size the window to the list once. A later user resize sticks."""
+
+        if self._user_sized or self._height_fitted:
+            return
+        content = _natural_height(self.list) + _natural_height(self._list_controls)
+        chrome = _natural_height(self.titlebar)
+        height = fitted_window_height(
+            content,
+            chrome,
+            MIN_WINDOW_HEIGHT,
+            self._usable_monitor_height(),
+        )
+        width, _current = self.get_default_size()
+        if not isinstance(width, int) or width < 1180:
+            width = 1280
+        self._fitting_height = True
+        try:
+            self.set_default_size(width, height)
+        finally:
+            self._fitting_height = False
+        self._height_fitted = True
+        self._saw_fitted_layout = False
+
+    def _usable_monitor_height(self) -> int:
+        display = self.get_display()
+        if display is None:
+            return 0
+        monitor = None
+        surface = self.get_surface()
+        if surface is not None and hasattr(display, "get_monitor_at_surface"):
+            monitor = display.get_monitor_at_surface(surface)
+        if monitor is None:
+            monitors = display.get_monitors()
+            if monitors is not None and monitors.get_n_items() > 0:
+                monitor = monitors.get_item(0)
+        if monitor is None:
+            return 0
+        rect = monitor.get_geometry()
+        work = getattr(monitor, "get_workarea", None)
+        if callable(work):
+            try:
+                rect = work()
+            except Exception:
+                rect = monitor.get_geometry()
+        height = getattr(rect, "height", 0)
+        return int(height) if isinstance(height, int) else 0
+
+    def _bind_size_watch(self, *_args: object) -> None:
+        surface = self.get_surface()
+        if surface is None or self._size_watch_id:
+            return
+        self._size_watch_id = surface.connect("layout", self._on_surface_layout)
+
+    def _on_surface_layout(self, _surface: object, width: int, height: int) -> None:
+        if self._fitting_height or not self._height_fitted:
+            return
+        size = (int(width), int(height))
+        if not self._saw_fitted_layout:
+            self._saw_fitted_layout = True
+            self._last_layout = size
+            return
+        if self._last_layout != size:
+            self._user_sized = True
+        self._last_layout = size
 
     def _make_row(self, item: dict[str, Any]) -> Gtk.ListBoxRow:
         key = str(item.get("key") or "")
@@ -1719,7 +1900,11 @@ class TodoWindow(Adw.ApplicationWindow):
     def _on_check(self, button: Gtk.CheckButton, key: str) -> None:
         if self._filling or not button.get_active():
             return
-        self._mark_done(key)
+        self._guard_rows = True
+        try:
+            self._mark_done(key)
+        finally:
+            self._guard_rows = False
 
     def _on_row_selected(self, _box: Gtk.ListBox, row: Gtk.ListBoxRow | None) -> None:
         if self._filling or self._page == "bots":
@@ -1793,8 +1978,7 @@ class TodoWindow(Adw.ApplicationWindow):
     def _fill_bot_rows(self) -> None:
         query = self._bot_query.casefold().strip()
         now = int(time.time())
-        self._filling = True
-        self.list.remove_all()
+        rows: list[Gtk.ListBoxRow] = []
         for bot in self._known_bots:
             ident = bot.get("name")
             if not isinstance(ident, str) or not ident:
@@ -1803,9 +1987,8 @@ class TodoWindow(Adw.ApplicationWindow):
             text = label if isinstance(label, str) and label else ident
             if query and query not in text.casefold() and query not in ident.casefold():
                 continue
-            row = self._make_bot_row(bot, text, now)
-            self.list.append(row)
-        self._filling = False
+            rows.append(self._make_bot_row(bot, text, now))
+        self._install_rows(rows, "", clear_missing=False)
 
     def _make_bot_row(self, bot: dict[str, Any], label: str, now: int) -> Gtk.ListBoxRow:
         state = bot.get("state")
@@ -2217,9 +2400,76 @@ def _clear_box(box: Gtk.Widget) -> None:
         box.remove(child)
 
 
-def _focus_is_text(window: TodoWindow) -> bool:
+def _natural_height(widget: Gtk.Widget) -> int:
+    try:
+        measured = widget.measure(Gtk.Orientation.VERTICAL, -1)
+    except Exception:
+        return 0
+    if not measured or len(measured) < 2:
+        return 0
+    natural = measured[1]
+    if isinstance(natural, int) and natural > 0:
+        return natural
+    return 0
+
+
+def _widget_inside(widget: Gtk.Widget | None, ancestor: Gtk.Widget) -> bool:
+    while widget is not None:
+        if widget == ancestor:
+            return True
+        widget = widget.get_parent()
+    return False
+
+
+def _collect_flags(widget: Gtk.Widget) -> Gtk.StateFlags:
+    flags = widget.get_state_flags()
+    child = widget.get_first_child()
+    while child is not None:
+        flags |= _collect_flags(child)
+        child = child.get_next_sibling()
+    return flags
+
+
+def _pointer_on_row(row: Gtk.ListBoxRow) -> bool:
+    """True when the pointer or a press is still on this row."""
+
+    hot = Gtk.StateFlags.PRELIGHT | Gtk.StateFlags.ACTIVE
+    return bool(_collect_flags(row) & hot)
+
+
+def _row_blocked(window: TodoWindow, row: Gtk.ListBoxRow) -> bool:
+    """True when unparenting this row can crash a pointer or key grab."""
+
+    if _pointer_on_row(row):
+        return True
     focus = window.get_focus()
-    return focus is window.text
+    return focus is not None and focus is not window.list and _widget_inside(focus, row)
+
+
+def _dispose_widget(widget: Gtk.Widget) -> None:
+    """Drop the Python wrapper's hold on a widget that has left the list."""
+
+    dispose = getattr(widget, "run_dispose", None)
+    if not callable(dispose):
+        return
+    try:
+        dispose()
+    except Exception:
+        return
+
+
+def _focus_is_text(window: TodoWindow) -> bool:
+    """True when Enter belongs to a text widget, including the start field.
+
+    GTK 4 puts focus on the entry's inner text, not on the entry itself.
+    """
+
+    focus = window.get_focus()
+    if focus is None:
+        return False
+    if focus is window.text or focus is window.start_entry:
+        return True
+    return _widget_inside(focus, window.start_entry)
 
 
 def _object_dict(raw: tuple[Any, ...]) -> dict[str, Any]:

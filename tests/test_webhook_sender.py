@@ -61,6 +61,40 @@ class Clock:
         return self.moment
 
 
+def test_done_note_is_posted_beside_empty_args(tmp_path: Path):
+    script = Script([200])
+    daemon, _clock, _seen, log = _boot(tmp_path, script)
+    assert daemon.store is not None and daemon.queue is not None
+    daemon.store.replace_origin(
+        "feed",
+        [make_item(id="todo-01", kind="todo", title="Pack the bag", actions=["done"])],
+        now=NOW,
+    )
+    daemon.queue.enqueue(
+        bot="primary",
+        item="primary/todo-01",
+        action="done",
+        args={"note": "Packed the blue bag"},
+        created=(NOW - timedelta(seconds=30)).isoformat(),
+        action_id="a-noted",
+    )
+    daemon.tick_webhook()
+    assert len(script.calls) == 1
+    body = script.calls[0][2]
+    row = body["actions"][0]
+    assert row["action"] == "done"
+    assert row["action_id"] == "a-noted"
+    assert row["item"] == "primary/todo-01"
+    assert row["note"] == "Packed the blue bag"
+    assert row["args"] == {}
+    assert row["title"] == "Pack the bag"
+    assert row["kind"] == "todo"
+    text = log.getvalue() + (tmp_path / "state" / "bridge.log").read_text(encoding="utf-8")
+    assert "Packed the blue bag" not in text
+    assert WEBHOOK_URL not in text
+    assert WEBHOOK_KEY not in text
+
+
 def test_accept_posts_one_bearer_batch_and_records_a_poll_burst(tmp_path: Path):
     script = Script([200])
     daemon, _clock, seen, log = _boot(tmp_path, script)

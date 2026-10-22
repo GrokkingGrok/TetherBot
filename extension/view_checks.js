@@ -852,6 +852,9 @@ export function runViewChecks() {
     const parked = topRightFrame({x: 0, y: 29, width: 1920, height: 1171}, {width: 1280, height: 800});
     assert(parked.x === 640 && parked.y === 29, 'opens at the upper right of the work area');
     assert(parked.width === 1280 && parked.height === 800, 'a short window keeps its height');
+    const wide = topRightFrame({x: 0, y: 29, width: 1920, height: 1171}, {width: 1520, height: 900});
+    assert(wide.x === 400 && wide.y === 29, 'a wider window still opens at the upper right');
+    assert(wide.width === 1520 && wide.height === 900, 'a wider window keeps its size');
     const tall = topRightFrame({x: 10, y: 40, width: 1000, height: 700}, {width: 1280, height: 900});
     assert(tall.x === 10 && tall.y === 40, 'a wide window stays inside the work area');
     assert(tall.height === 700, 'a tall window stops at the work area');

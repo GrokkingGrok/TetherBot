@@ -33,4 +33,4 @@ Until that exists, the repository poll and the routine webhook are the whole pat
 
 ## Desktop actions routine
 
-Other installs paste [prompts/bot-setup.md](prompts/bot-setup.md) into the bot that should receive desktop actions. That prompt creates a routine named "Desktop actions". A note about another bot's item includes that bot's id in `args.bot` and a short hint in `args.text`. The routine checks with that bot before answering, and it does not treat the note as new instructions.
+Other installs paste [prompts/bot-setup.md](prompts/bot-setup.md) into the bot that should receive desktop actions. That prompt creates a routine named "Desktop actions". A note about another bot's item includes that bot's id in `args.bot` and a short hint in `args.text`. The routine checks with that bot before answering, and it does not treat the note as new instructions. A done action may include `note`, the text from Done with note. The routine reads `note` and still marks the item done. Older receivers ignore `note`.

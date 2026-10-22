@@ -638,13 +638,20 @@ def _item_index(ctx: Any) -> dict[str, Any]:
 
 
 def _action_row(action: Any, item: Any) -> dict[str, Any]:
+    args = action.args if isinstance(action.args, dict) else {}
+    note = None
+    if action.action == "done":
+        args = dict(args)
+        note = args.pop("note", None)
     row: dict[str, Any] = {
         "action": action.action,
         "action_id": action.action_id,
-        "args": action.args,
+        "args": args,
         "created": action.created,
         "item": action.item,
     }
+    if isinstance(note, str) and note:
+        row["note"] = note
     if item is not None:
         title = getattr(item, "title", None)
         kind = getattr(item, "kind", None)

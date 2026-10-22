@@ -499,10 +499,12 @@ class BridgeApi:
         if item.status != "open":
             raise ServiceError(INVALID_ARGS, "item is not open")
         args = _object(args_json, "args_json")
-        if args:
-            raise ServiceError(INVALID_ARGS, "this action does not take arguments")
         if action == "done":
+            if set(args) - {"note"}:
+                raise ServiceError(INVALID_ARGS, "done note must be 1 to 500 characters")
             self._stop_owned_timer(key)
+        elif args:
+            raise ServiceError(INVALID_ARGS, "this action does not take arguments")
         bot = key.split("/", 1)[0]
         return (self._enqueue(bot, key, action, args),)
 

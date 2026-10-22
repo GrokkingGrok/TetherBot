@@ -114,6 +114,58 @@ def test_park_drop_and_retry(tmp_path):
     assert queue.next_batch(NOW + timedelta(seconds=20)) is None
 
 
+def test_done_note_is_stored_and_a_blank_note_is_plain(tmp_path):
+    queue = ActionQueue(tmp_path / "queue")
+    queue.enqueue(
+        bot="primary",
+        item="primary/sample-01",
+        action="done",
+        args={"note": "  Packed the blue bag  "},
+        created="2026-10-17T12:00:00+00:00",
+        action_id="a-noted",
+    )
+    ready = queue.next_batch(NOW + timedelta(seconds=30))
+    assert ready is not None
+    assert ready[0].args == {"note": "Packed the blue bag"}
+    queue.enqueue(
+        bot="primary",
+        item="primary/sample-02",
+        action="done",
+        args={"note": "   "},
+        created="2026-10-17T12:00:01+00:00",
+        action_id="a-blank",
+    )
+    blank = [row for row in queue.snapshot() if row.action_id == "a-blank"]
+    assert blank[0].args == {}
+    with pytest.raises(QueueError, match="1 to 500"):
+        queue.enqueue(
+            bot="primary",
+            item="primary/sample-01",
+            action="done",
+            args={"note": "x" * 501},
+            created="2026-10-17T12:00:02+00:00",
+            action_id="a-long",
+        )
+    with pytest.raises(QueueError, match="1 to 500"):
+        queue.enqueue(
+            bot="primary",
+            item="primary/sample-01",
+            action="done",
+            args={"note": "ok", "extra": 1},
+            created="2026-10-17T12:00:03+00:00",
+            action_id="a-extra",
+        )
+    with pytest.raises(QueueError, match="looks like a secret"):
+        queue.enqueue(
+            bot="primary",
+            item="primary/sample-01",
+            action="done",
+            args={"note": "ghp_abcdefghijklmnopqrstuvwxyz"},
+            created="2026-10-17T12:00:04+00:00",
+            action_id="a-secret-note",
+        )
+
+
 def test_corrupt_action_file_is_left_in_place(tmp_path):
     directory = tmp_path / "queue"
     directory.mkdir()

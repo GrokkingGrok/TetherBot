@@ -23,5 +23,28 @@
       <summary>Bots hidden from the popup and the window</summary>
       <description>Bot ids left out of the popup and the window. Their items and rows are not shown.</description>
     </key>
+    <key name="history-enabled" type="b">
+      <default>true</default>
+      <summary>Keep completed todos in history</summary>
+      <description>When on, Show done lists completed todos for the history window. When off, Show done lists no completed todos. Dropped items are never listed. The default is on.</description>
+    </key>
+    <key name="history-amount" type="i">
+      <default>1</default>
+      <range min="1" max="999"/>
+      <summary>How long completed todos stay</summary>
+      <description>How many history units a completed todo stays in Show done. The default is 1. The minimum is 1 and the maximum is 999.</description>
+    </key>
+    <key name="history-unit" type="s">
+      <choices>
+        <choice value="hours"/>
+        <choice value="days"/>
+        <choice value="weeks"/>
+        <choice value="months"/>
+        <choice value="years"/>
+      </choices>
+      <default>'years'</default>
+      <summary>Unit for completed-todo history</summary>
+      <description>Hours, days, weeks, months, or years. A month is 30 days and a year is 365 days. The default is years.</description>
+    </key>
   </schema>
 </schemalist>

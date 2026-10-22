@@ -29,16 +29,16 @@ No other host is used. There is no telemetry, no analytics, and no crash upload.
 
 ## Secrets
 
-Webhook URL, webhook key, and GitHub token live in the desktop secret service (the login keyring), inside the bridge process. The libsecret schema is `io.github.grokkinggrok.TetherBot.Secret`. The prefs window can ask the bridge to open a key dialog. The dialog writes the secret service and does not show a value that is already stored. gsettings holds only UI choices: poll interval, undo length, which bots notify, and which bots are hidden.
+Webhook URL, webhook key, and GitHub token live in the desktop secret service (the login keyring), inside the bridge process. The libsecret schema is `io.github.grokkinggrok.TetherBot.Secret`. The prefs window can ask the bridge to open a key dialog. The dialog writes the secret service and does not show a value that is already stored. gsettings holds only UI choices: poll interval, undo length, completed-todo history, which bots notify, and which bots are hidden.
 
 ## What stays on the machine
 
 The bridge keeps an item cache, the action queue, logs, `timer.json`, and `item-time.json` under the XDG state directory. A local clone of the feed repository, including `desktop/state.json`, stays on the machine except for the push described above. Snooze times stay on this machine. The stopwatch is not written to the feed and is not sent to the bot.
 
-gsettings on this machine stores the poll interval, the undo length, the list of muted bots, and the list of hidden bots.
+gsettings on this machine stores the poll interval, the undo length, completed-todo history (on or off, a number, and a unit), the list of muted bots, and the list of hidden bots.
 
 ## Nothing is paid, sent, or deleted from the desktop
 
-The desktop does not charge money, does not sell data, and does not delete items from the bot or from the feed repository. Checking an item off sends the webhook post described above and records the close in the bridge's own `desktop/state.json`. It does not remove the bot's feed file. A webhook post can start a bot run, which uses the account's existing usage. TetherBot does not add a charge of its own.
+The desktop does not charge money, does not sell data, and does not delete items from the bot or from the feed repository. Checking an item off sends the webhook post described above and records the close in the bridge's own `desktop/state.json`. It does not remove the bot's feed file. Show done hides a completed todo that is older than the history window. That hide does not delete the feed entry or the local item cache. A webhook post can start a bot run, which uses the account's existing usage. TetherBot does not add a charge of its own.
 
 The extension does not read the screen, files outside the bridge, the clipboard, or other apps.

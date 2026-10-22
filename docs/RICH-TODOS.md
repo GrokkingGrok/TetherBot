@@ -83,7 +83,7 @@ List pane:
 - Tag filter: a row of tag chips (all tags in open items, with counts). Click to toggle; multiple tags mean all must match. A "clear" chip resets.
 - Sort menu: due (default), priority, created, updated.
 - Each row: checkbox (Done), priority, title, chip row. Done rows leave the list on tap, same as the popup.
-- A "Show done" toggle reveals items closed in the last 7 days, read-only.
+- A "Show done" toggle reveals completed todos inside the history window from Settings. The default is on, for 1 year. A month is 30 days and a year is 365 days. When history is off, the toggle shows no done todos. Dropped items stay hidden. The rows are read-only. An older done todo is left out of the view. The desktop does not rewrite the bot's feed file.
 
 Detail pane:
 - Title, then the chip row (due, created, priority, tags, waiting-on).
@@ -98,7 +98,7 @@ Keyboard: `Ctrl+F` focuses search, `Up`/`Down` move, `Enter` opens, `Ctrl+Enter`
 ## 7. D-Bus additions
 
 - `OpenWindow(s item_key)`: bridge launches or raises the window, selecting the item if the key is not empty.
-- `GetItems` gains filter fields: `tags`, `query`, `view`, `include_done_days`. Filtering happens in the bridge so the popup and window agree.
+- `GetItems` gains filter fields: `tags`, `query`, `view`, `include_done_days`, `include_done_seconds`. Filtering happens in the bridge so the popup and window agree. `include_done_seconds` is the history window. When both done keys are set, seconds wins. Only a completed todo is added.
 - `GetTags() -> s` (JSON): tags in open items with counts and resolved palette colors.
 - Existing `PerformAction` stays the only way to send Done.
 

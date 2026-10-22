@@ -17,7 +17,6 @@ from tetherbot.todos import display_zone, format_local_stamp
 
 VIEWS = ("all", "mine", "bots", "waiting", "today")
 SORTS = ("due", "priority", "created", "updated")
-DONE_DAYS = 7
 _WINDOW_LIVE = frozenset({"Bots"})
 
 
@@ -44,8 +43,13 @@ def list_filter(
     sort: str,
     show_done: bool,
     bots: list[str] | tuple[str, ...] = (),
+    done_seconds: int | None = None,
 ) -> dict[str, Any]:
-    """The GetItems object for the current window controls."""
+    """The GetItems object for the current window controls.
+
+    ``done_seconds`` is the completed-todo history window. Show done with
+    no positive window asks for no done todos. History off uses that path.
+    """
 
     chosen_view = view if view in VIEWS else "all"
     chosen_sort = sort if sort in SORTS else "due"
@@ -60,10 +64,15 @@ def list_filter(
     if chosen_bots:
         spec["bots"] = chosen_bots
     if show_done:
-        spec["include_done_days"] = DONE_DAYS
+        if _positive_seconds(done_seconds):
+            spec["include_done_seconds"] = done_seconds
     else:
         spec["status"] = "open"
     return spec
+
+
+def _positive_seconds(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value > 0
 
 
 def note_text(bot: str) -> str:

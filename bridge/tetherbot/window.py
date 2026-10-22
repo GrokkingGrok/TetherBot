@@ -714,8 +714,16 @@ class TodoWindow(Adw.ApplicationWindow):
         detail_bar.add_top_bar(self.detail_header)
         self.split.set_content(Adw.NavigationPage.new(detail_bar, "Detail"))
         self._show_item(None)
+        self._history_watch = self._watch_history()
+
+    def _watch_history(self) -> object | None:
+        from tetherbot.ui_settings import watch_history_settings
+
+        return watch_history_settings(self.refresh)
 
     def refresh(self) -> bool:
+        from tetherbot.ui_settings import resolve_ui_settings
+
         spec = list_filter(
             view=self._view,
             query=self._query,
@@ -723,6 +731,7 @@ class TodoWindow(Adw.ApplicationWindow):
             sort=self._sort,
             show_done=self._show_done,
             bots=sorted(self._bot_filter),
+            done_seconds=resolve_ui_settings(None).done_history_seconds,
         )
         if hasattr(self.client, "load_list"):
             if not self._items and not self._known_bots:

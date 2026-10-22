@@ -52,9 +52,20 @@ def test_list_filter_matches_the_bridge_shortcuts():
         "sort": "priority",
         "status": "open",
     }
-    done = list_filter(view="all", query="due:overdue", tags=[], sort="due", show_done=True)
-    assert done["include_done_days"] == 7
+    done = list_filter(
+        view="all",
+        query="due:overdue",
+        tags=[],
+        sort="due",
+        show_done=True,
+        done_seconds=365 * 86400,
+    )
+    assert done["include_done_seconds"] == 365 * 86400
+    assert "include_done_days" not in done
     assert "status" not in done
+    hidden = list_filter(view="all", query="", tags=[], sort="due", show_done=True)
+    assert "include_done_seconds" not in hidden
+    assert "status" not in hidden
     fallback = list_filter(view="nope", query="", tags=[], sort="nope", show_done=False)
     named = list_filter(
         view="all", query="", tags=[], sort="due", show_done=False, bots=["notes", "primary"]

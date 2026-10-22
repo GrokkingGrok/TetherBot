@@ -4,8 +4,11 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from tests.helpers import NOW, make_item
 from tests.test_service import _api
+from tetherbot.service import ServiceError
 from tetherbot.store import FeedView
 
 _CONFIG = """\
@@ -113,6 +116,62 @@ def test_closed_items_stay_hidden_unless_include_done_days(tmp_path: Path):
     assert "primary/open-01" in shown
     assert "primary/new-01" in shown
     assert "primary/old-01" not in shown
+
+
+def test_done_history_is_todos_inside_the_window(tmp_path: Path):
+    daemon, _seen = _api(tmp_path, _CONFIG)
+    assert daemon.api is not None
+    desktop = _todo("desk-01", title="Closed here", updated_at="2026-10-01T12:00:00+00:00")
+    desktop.resolved = "done"
+    desktop.acted = {"action": "done", "at": "2026-10-17T11:30:00+00:00"}
+    dropped = _todo(
+        "drop-01",
+        title="Dropped",
+        status="dropped",
+        updated_at="2026-10-17T11:30:00+00:00",
+    )
+    vetoed = _todo("veto-01", title="Vetoed", updated_at="2026-10-17T11:00:00+00:00")
+    vetoed.resolved = "dropped"
+    vetoed.acted = {"action": "veto", "at": "2026-10-17T11:30:00+00:00"}
+    _load(
+        daemon,
+        _todo("open-01", title="Still open"),
+        _todo(
+            "hour-01",
+            title="Closed this hour",
+            status="done",
+            updated_at="2026-10-17T11:30:00+00:00",
+        ),
+        _todo(
+            "old-01",
+            title="Closed earlier today",
+            status="done",
+            updated_at="2026-10-17T10:00:00+00:00",
+        ),
+        desktop,
+        dropped,
+        vetoed,
+        make_item(
+            id="ask-01",
+            kind="ask",
+            title="Closed ask",
+            status="done",
+            updated_at="2026-10-17T11:30:00+00:00",
+        ),
+    )
+    hour = set(_keys(daemon, '{"include_done_seconds":3600}'))
+    assert hour == {"primary/desk-01", "primary/hour-01", "primary/open-01"}
+    year = set(_keys(daemon, '{"include_done_seconds":31536000}'))
+    assert "primary/old-01" in year
+    assert "primary/drop-01" not in year
+    assert "primary/ask-01" not in year
+    both = set(_keys(daemon, '{"include_done_days":0,"include_done_seconds":3600}'))
+    assert "primary/hour-01" in both
+    assert "primary/old-01" not in both
+    with pytest.raises(ServiceError, match="include_done_seconds"):
+        _keys(daemon, '{"include_done_seconds":true}')
+    with pytest.raises(ServiceError, match="999 years"):
+        _keys(daemon, '{"include_done_seconds":31536000001}')
 
 
 def test_undo_drops_a_queued_done_and_reopens_after_send(tmp_path: Path):

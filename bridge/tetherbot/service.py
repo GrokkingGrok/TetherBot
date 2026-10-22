@@ -31,7 +31,7 @@ from tetherbot.todos import (
     sort_key,
     tag_color,
 )
-from tetherbot.ui_settings import notice_bot, resolve_ui_settings
+from tetherbot.ui_settings import HISTORY_MAX_SECONDS, notice_bot, resolve_ui_settings
 from tetherbot.version_gate import check_schema
 
 NOT_FOUND = f"{INTERFACE}.Error.NotFound"
@@ -52,6 +52,7 @@ _FILTER_KEYS = frozenset(
         "query",
         "view",
         "include_done_days",
+        "include_done_seconds",
         "sort",
     }
 )
@@ -182,6 +183,9 @@ class BridgeApi:
         query = _query_filter(spec.get("query"))
         view = _view_filter(spec.get("view"))
         done_days = _done_days(spec.get("include_done_days"))
+        done_seconds = _done_seconds(spec.get("include_done_seconds"))
+        if done_seconds is None and done_days is not None:
+            done_seconds = done_days * 86400
         sort = _sort_filter(spec.get("sort"))
         now = self._daemon.now()
         zone = _chip_zone(now)
@@ -191,7 +195,7 @@ class BridgeApi:
         for item in self._daemon.store.items():
             if item.bot in hidden:
                 continue
-            recent = done_days is not None and _recently_done(item, now, done_days)
+            recent = done_seconds is not None and _recently_done(item, now, done_seconds)
             if item.status != "open" and not recent:
                 continue
             if (item.acted or item.resolved) and not recent:
@@ -1096,7 +1100,27 @@ def _done_days(value: object) -> int | None:
     return value
 
 
-def _recently_done(item: Any, now: datetime, days: int) -> bool:
+def _done_seconds(value: object) -> int | None:
+    if value is None:
+        return None
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int)
+        or value < 0
+        or value > HISTORY_MAX_SECONDS
+    ):
+        raise ServiceError(
+            INVALID_ARGS,
+            "include_done_seconds must be an integer from 0 to 999 years",
+        )
+    return value
+
+
+def _recently_done(item: Any, now: datetime, seconds: int) -> bool:
+    """A completed todo closed inside the window. Dropped items are not."""
+
+    if item.kind != "todo":
+        return False
     if item.status != "done" and item.resolved != "done":
         return False
     stamp = item.updated_at
@@ -1106,7 +1130,7 @@ def _recently_done(item: Any, now: datetime, days: int) -> bool:
         closed = parse_iso8601(stamp, field_name="updated_at")
     except ValueError:
         return False
-    return (now - closed).total_seconds() <= days * 86400
+    return (now - closed).total_seconds() <= seconds
 
 
 def _bad_item_key(key: str) -> bool:

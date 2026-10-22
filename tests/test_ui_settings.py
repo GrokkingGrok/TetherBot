@@ -11,12 +11,15 @@ from tetherbot.adapters.github_poller import GitHubPoller
 from tetherbot.secret_dialog import launch_secret_dialog, save_slot
 from tetherbot.secrets import MemoryBackend, SecretStore
 from tetherbot.ui_settings import (
+    HISTORY_MAX_SECONDS,
     POLL_DEFAULT,
+    YEAR_SECONDS,
     UiSettings,
     clamp_poll_seconds,
     clamp_undo_seconds,
     effective_poll_seconds,
     effective_undo_seconds,
+    history_seconds,
     load_ui_settings,
     notice_bot,
 )
@@ -69,6 +72,22 @@ def test_zero_is_the_default_not_the_minimum():
     assert effective_undo_seconds(12) == 12
 
 
+def test_history_window_uses_fixed_months_and_years():
+    assert history_seconds(True, 1, "years") == YEAR_SECONDS
+    assert history_seconds(True, 2, "hours") == 7200
+    assert history_seconds(True, 2, "weeks") == 14 * 86400
+    assert history_seconds(True, 2, "months") == 60 * 86400
+    assert history_seconds(False, 1, "years") is None
+    assert history_seconds(True, 0, "days") == 86400
+    assert history_seconds(True, 1, "nope") == YEAR_SECONDS
+    assert history_seconds(True, 5000, "years") == HISTORY_MAX_SECONDS
+    settings = UiSettings(history_enabled=True, history_amount=1, history_unit="years")
+    assert settings.done_history_seconds == YEAR_SECONDS
+    off = UiSettings(history_enabled=False, history_amount=3, history_unit="days")
+    assert off.done_history_seconds is None
+    assert off.history_amount == 3
+
+
 def test_schema_defaults_match_the_labels():
     text = (
         ROOT / "extension" / "schemas" / "org.gnome.shell.extensions.tetherbot.gschema.xml"
@@ -79,6 +98,15 @@ def test_schema_defaults_match_the_labels():
     assert 'min="60"' in poll and 'max="900"' in poll
     assert "<default>5</default>" in undo
     assert 'min="2"' in undo and 'max="30"' in undo
+    history = text.split('name="history-enabled"', 1)[1].split("</key>", 1)[0]
+    amount = text.split('name="history-amount"', 1)[1].split("</key>", 1)[0]
+    unit = text.split('name="history-unit"', 1)[1].split("</key>", 1)[0]
+    assert "<default>true</default>" in history
+    assert "<default>1</default>" in amount
+    assert 'min="1"' in amount and 'max="999"' in amount
+    assert "<default>'years'</default>" in unit
+    for choice in ("hours", "days", "weeks", "months", "years"):
+        assert f'value="{choice}"' in unit
 
 
 def test_poll_interval_uses_a_saved_setting():
@@ -133,5 +161,9 @@ def test_compiled_schema_loads_the_defaults(tmp_path: Path):
     assert loaded.undo_seconds == 5
     assert loaded.muted_bots == frozenset()
     assert loaded.hidden_bots == frozenset()
+    assert loaded.history_enabled is True
+    assert loaded.history_amount == 1
+    assert loaded.history_unit == "years"
+    assert loaded.done_history_seconds == YEAR_SECONDS
     text = source.read_text(encoding="utf-8")
     assert "secret" not in text.lower()

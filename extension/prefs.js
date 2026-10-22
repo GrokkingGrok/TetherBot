@@ -17,8 +17,12 @@ import {
     UNDO_MAX,
     UNDO_MIN,
     botChoices,
+    HISTORY_UNIT_LABELS,
+    HISTORY_UNITS,
     effectivePollSeconds,
     effectiveUndoSeconds,
+    historyAmount,
+    historyUnit,
     resetFeedSettings,
     idList,
     keyButtonLabel,
@@ -61,7 +65,9 @@ export default class TetherBotPreferences extends ExtensionPreferences {
         }
         this._settings = settings;
         this._window = window;
+        this._applyingHistory = false;
         this._buildFeed(page, settings);
+        this._buildHistory(page, settings);
         this._keys = new Adw.PreferencesGroup({
             title: 'Keys',
             description: 'Keys stay in the desktop secret service. A stored key is never shown here.',
@@ -107,7 +113,7 @@ export default class TetherBotPreferences extends ExtensionPreferences {
         ));
         const reset = new Adw.ActionRow({
             title: 'Feed check and undo timer',
-            subtitle: 'Reset puts those two back to the defaults. Keys and bots stay as they are.',
+            subtitle: 'Reset puts those two back to the defaults. Completed-todo history, keys, and bots stay as they are.',
         });
         const button = new Gtk.Button({
             label: 'Reset to defaults',
@@ -118,6 +124,103 @@ export default class TetherBotPreferences extends ExtensionPreferences {
         reset.activatable_widget = button;
         group.add(reset);
         page.add(group);
+    }
+
+    _buildHistory(page, settings) {
+        const group = new Adw.PreferencesGroup({
+            title: 'Completed todos',
+            description: 'Show done lists a completed todo for this long, whether it was closed on the desktop or by the bot. Dropped items are not listed. Older ones are hidden here only. A bot feed file is not changed. A month is 30 days and a year is 365 days.',
+        });
+        const enabled = new Adw.SwitchRow({
+            title: 'Keep completed todos',
+            subtitle: 'When this is off, Show done lists no completed todos.',
+        });
+        const amount = this._historyAmount(settings);
+        const unit = this._historyUnit(settings);
+        const applyEnabled = () => {
+            const on = settings.get_boolean('history-enabled');
+            this._applyingHistory = true;
+            enabled.active = on;
+            amount.set_sensitive(on);
+            unit.set_sensitive(on);
+            this._applyingHistory = false;
+        };
+        enabled.connect('notify::active', () => {
+            if (this._applyingHistory)
+                return;
+            if (settings.get_boolean('history-enabled') !== enabled.active)
+                settings.set_boolean('history-enabled', enabled.active);
+            amount.set_sensitive(enabled.active);
+            unit.set_sensitive(enabled.active);
+        });
+        settings.connect('changed::history-enabled', applyEnabled);
+        applyEnabled();
+        group.add(enabled);
+        group.add(amount);
+        group.add(unit);
+        page.add(group);
+    }
+
+    _historyAmount(settings) {
+        const adjustment = new Gtk.Adjustment({
+            lower: 1,
+            upper: 999,
+            step_increment: 1,
+            page_increment: 10,
+        });
+        adjustment.lower = 1;
+        adjustment.upper = 999;
+        adjustment.step_increment = 1;
+        const shown = historyAmount(settings.get_int('history-amount'));
+        adjustment.value = shown;
+        const row = new Adw.SpinRow({
+            title: 'How many',
+            subtitle: 'How long to keep a completed todo. 1 to 999. The default is 1.',
+            adjustment,
+            css_classes: ['tetherbot-seconds'],
+        });
+        if (typeof row.set_digits === 'function')
+            row.set_digits(0);
+        this._widenSpin(row);
+        this._showSpin(row, shown);
+        row.adjustment.connect('value-changed', () => {
+            if (this._showingSpin)
+                return;
+            const value = historyAmount(row.adjustment.value);
+            if (settings.get_int('history-amount') !== value)
+                settings.set_int('history-amount', value);
+        });
+        return row;
+    }
+
+    _historyUnit(settings) {
+        const model = new Gtk.StringList();
+        for (const label of HISTORY_UNIT_LABELS)
+            model.append(label);
+        const row = new Adw.ComboRow({
+            title: 'Unit',
+            subtitle: 'Hours, days, weeks, months, or years.',
+            model,
+        });
+        const apply = () => {
+            const index = HISTORY_UNITS.indexOf(historyUnit(settings.get_string('history-unit')));
+            this._applyingHistory = true;
+            row.selected = index < 0 ? HISTORY_UNITS.indexOf('years') : index;
+            this._applyingHistory = false;
+        };
+        row.connect('notify::selected', () => {
+            if (this._applyingHistory)
+                return;
+            const index = row.selected;
+            if (index < 0 || index >= HISTORY_UNITS.length)
+                return;
+            const unit = HISTORY_UNITS[index];
+            if (settings.get_string('history-unit') !== unit)
+                settings.set_string('history-unit', unit);
+        });
+        settings.connect('changed::history-unit', apply);
+        apply();
+        return row;
     }
 
     _resetFeed(settings) {

@@ -13,9 +13,12 @@ import {
     UNDO_DEFAULT,
     UNDO_MAX,
     UNDO_MIN,
+    FEED_RESET_KEYS,
+    HISTORY_UNITS,
     botChoices,
     effectivePollSeconds,
     effectiveUndoSeconds,
+    historySeconds,
     resetFeedSettings,
     idList,
     keyButtonLabel,
@@ -75,6 +78,16 @@ assert(effectiveUndoSeconds(null) === 5, 'undo default');
 assert(effectiveUndoSeconds(1) === 2, 'undo clamps up');
 assert(effectiveUndoSeconds(12) === 12, 'a saved undo is shown');
 assert(effectiveUndoSeconds(90) === 30, 'undo clamps down');
+assert(historySeconds(true, 1, 'years') === 365 * 86400, 'one year is 365 days');
+assert(historySeconds(false, 1, 'years') === null, 'history off keeps nothing');
+assert(historySeconds(true, 2, 'hours') === 7200, 'two hours');
+assert(historySeconds(true, 2, 'months') === 60 * 86400, 'a month is 30 days');
+assert(historySeconds(true, 0, 'days') === 86400, 'a zero amount is one');
+assert(historySeconds(true, 1, 'nope') === 365 * 86400, 'an unknown unit is years');
+assert(HISTORY_UNITS.join(',') === 'hours,days,weeks,months,years', 'history units');
+assert(!FEED_RESET_KEYS.includes('history-enabled'), 'reset does not clear history');
+assert(!FEED_RESET_KEYS.includes('history-amount'), 'reset does not clear the amount');
+assert(!FEED_RESET_KEYS.includes('history-unit'), 'reset does not clear the unit');
 
 const kept = {
     hidden: ['notes'],
@@ -118,5 +131,8 @@ assert(prefsSource.includes('sameBotList'), 'prefs keeps an unchanged bot list')
 assert(prefsSource.includes('rememberExpansion'), 'prefs remembers which bot is expanded');
 assert(prefsSource.includes('effectivePollSeconds'), 'prefs shows the effective poll');
 assert(prefsSource.includes('effectiveUndoSeconds'), 'prefs shows the effective undo');
+assert(prefsSource.includes('Keep completed todos'), 'prefs has the history toggle');
+assert(prefsSource.includes('history-unit'), 'prefs stores the history unit');
+assert(prefsSource.includes('Completed todos'), 'prefs has a completed-todo group');
 
 console.log('prefs checks ok');

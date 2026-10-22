@@ -55,8 +55,9 @@ TetherBot is pre-alpha. Check items off as they land. Design detail is in [SPEC.
 - [x] Manual checks M65–M68 passed on the desktop: the face takes the shell accent, both eyes stay visible, Done sends when the shared bar ends, and one menu sends one batch.
 - [ ] Manual checks M69–M73 for the settings screen: key handoff, poll interval, undo length, notifications per bot, and hidden bots. The steps are in [MANUAL-CHECKS.md](MANUAL-CHECKS.md). They have not been run on the desktop yet.
 - [x] Manual checks M74–M77 passed on the desktop: reset to defaults, the corner badge with blue for asks confirmed, one notification per new item, and popup Done sending when the undo bar ends.
-- [ ] Manual checks M78 and M79: editing a todo's tracked total and deleting a time record, and an amber bots summary for needs attention with red kept for an error or a bridge failure. The steps are in [MANUAL-CHECKS.md](MANUAL-CHECKS.md). They have not been run on the desktop yet.
-- [ ] Manual checks M80 and M81: Stop timer on the open todo, and copy icons for the title and the body plus Copy Todo. The steps are in [MANUAL-CHECKS.md](MANUAL-CHECKS.md). They have not been run on the desktop yet.
+- [x] Manual checks M78 and M79 passed on the desktop: editing a todo's tracked total and deleting a time record, and an amber bots summary for needs attention with red kept for an error or a bridge failure.
+- [x] Manual checks M80 and M81 passed on the desktop: Stop timer on the open todo, and copy icons for the title and the body plus Copy Todo.
+- [ ] Manual check M82: completed todos stay in Show done for the history window, and dropped items do not. The steps are in [MANUAL-CHECKS.md](MANUAL-CHECKS.md). It has not been run on the desktop yet.
 
 ## v0.2 — early adopters
 
@@ -67,7 +68,6 @@ TetherBot is pre-alpha. Check items off as they land. Design detail is in [SPEC.
 - [ ] Review the two prompts in `docs/prompts/` against the running app
 - [x] `docs/privacy.md` (session-bus trust boundary, what leaves the machine). Draft.
 - [x] GTK4 key dialog owned by the bridge process
-- [ ] Webhook-only mode copy in the popup
 - [x] Extension prefs (gsettings, UI only) and a "Set up keys..." button
 - [ ] COPR RPM — interest is **TBD, verify**
 - [ ] Feedback from a handful of users
@@ -108,6 +108,18 @@ TetherBot is pre-alpha. Check items off as they land. Design detail is in [SPEC.
 
 - [ ] Start the stopwatch when the user logs in. The bridge already starts with the graphical session. Starting the timer itself on login is not built.
 - [ ] Money and watch section. Todo filters cover the need for now. A visual money overview is a possible future teaser, not part of v0.2.
+- [ ] Webhook-only mode copy in the popup. Webhook-only mode is not being pursued.
+
+## Clipboard history
+
+Not built. Text only, on this machine. A clipboard entry is never written to the feed repository, to `desktop/*`, or into a log. It is not sent to a bot unless a later phase's send button is pressed. This is the stand-in for a separate clipboard-history extension. The toolbar icon shows no count. The timer text stays the only number in the toolbar. Direct paste into the active window is out of the plan. The reason is [CLIPBOARD.md](CLIPBOARD.md).
+
+Today the extension does not read the clipboard. [privacy.md](privacy.md) says so. Building phase 1 has to update that sentence. The text still stays on this machine except for the phase 4 buttons.
+
+- [ ] Phase 1. Capture text. Its own toolbar icon opens a clipboard view, and the TetherBot window has the same view. Store the entries in local state, not in the feed clone. Skip an entry the clipboard marks sensitive for a password manager (the target `x-kde-passwordManagerHint`). Skip a copy taken while the focused window's class is on a per-app exclude list. A setting chooses how many entries to keep.
+- [ ] Phase 2. Item actions: Delete, Tag, Paste, Pin, Edit, and Preview. Paste puts the text on the clipboard. It does not type into another window.
+- [ ] Phase 3. Web search. Searching an entry opens a new tab in the default browser and uses that browser's default search engine. No search host is hard-coded. If the desktop cannot name the engine, this phase does not pick one.
+- [ ] Phase 4. Three send-to-bot buttons, each a webhook note answered in the bot chat: "make a new todo", "make a new todo and search my bot and TetherBot data for context", and "tell me more". The text leaves the machine only when one of those is pressed. The send goes through the bridge. The extension does not open a socket.
 
 ## Resolved
 

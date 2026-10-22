@@ -143,7 +143,14 @@ def _exercise_window(app, fake, opened, holder, gdk, glib, gtk, render, apply_ru
             window.search.set_text("@home due:today")
             assert fake.specs[-1]["query"] == "@home due:today"
             window.show_done.set_active(True)
-            assert fake.specs[-1]["include_done_days"] == 7
+            from tetherbot.ui_settings import resolve_ui_settings
+
+            seconds = resolve_ui_settings(None).done_history_seconds
+            if seconds:
+                assert fake.specs[-1]["include_done_seconds"] == seconds
+            else:
+                assert "include_done_seconds" not in fake.specs[-1]
+            assert "include_done_days" not in fake.specs[-1]
             assert "status" not in fake.specs[-1]
             window._on_key(None, gdk.KEY_f, 0, gdk.ModifierType.CONTROL_MASK)
             focus = window.get_focus()

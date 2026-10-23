@@ -1194,7 +1194,8 @@ def test_clipboard_tag_filter_stops_after_one_rebuild():
     try:
         gi.require_version("Gtk", "4.0")
         gi.require_version("Adw", "1")
-        from gi.repository import GLib
+        gi.require_version("Pango", "1.0")
+        from gi.repository import GLib, Pango
     except ValueError as exc:
         pytest.skip(str(exc))
     if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
@@ -1272,14 +1273,43 @@ def test_clipboard_tag_filter_stops_after_one_rebuild():
             rows = _clip_rows(window)
             masked = next(row for row in rows if row.clip_masked)
             plain = next(row for row in rows if row.clip_text == "alpha line")
-            assert _button(masked, "Unpin").get_sensitive()
-            assert not _button(masked, "Tag").get_sensitive()
-            assert not _button(masked, "Edit").get_sensitive()
-            assert not _button(masked, "Search the web").get_sensitive()
-            assert _button(plain, "Tag").get_sensitive()
-            assert _button(plain, "Search the web").get_sensitive()
-            labels = [button.get_label() or "" for button in _buttons(masked)]
-            assert all("hidden-secret" not in label for label in labels)
+            order = [
+                "document-edit-symbolic",
+                "view-pin-symbolic",
+                "tag-symbolic",
+                "edit-copy-symbolic",
+                "system-search-symbolic",
+                "edit-delete-symbolic",
+            ]
+            assert [button.get_icon_name() for button in _icon_buttons(plain)] == order
+            assert [button.get_icon_name() for button in _icon_buttons(masked)] == order
+            assert _icon(masked, "view-pin-symbolic").get_sensitive()
+            assert "tether-pin-on" in _icon(masked, "view-pin-symbolic").get_css_classes()
+            assert "tether-pin-on" not in _icon(plain, "view-pin-symbolic").get_css_classes()
+            assert not _icon(masked, "tag-symbolic").get_sensitive()
+            assert not _icon(masked, "document-edit-symbolic").get_sensitive()
+            assert not _icon(masked, "system-search-symbolic").get_sensitive()
+            assert _icon(masked, "edit-copy-symbolic").get_sensitive()
+            assert _icon(masked, "edit-delete-symbolic").get_sensitive()
+            assert _icon(plain, "tag-symbolic").get_sensitive()
+            assert _icon(plain, "document-edit-symbolic").get_sensitive()
+            assert _icon(plain, "system-search-symbolic").get_sensitive()
+            assert _css_count(plain, "tether-clip-sep") == 5
+            assert _css_count(masked, "tether-clip-sep") == 5
+            shown_label = _label_text(plain, "alpha line")
+            assert shown_label is not None
+            assert shown_label.get_ellipsize() == Pango.EllipsizeMode.END
+            assert shown_label.get_wrap() is False
+            later = _tooltip(plain, "Later")
+            assert later is not None
+            tips = [button.get_tooltip_text() or "" for button in _icon_buttons(masked)]
+            assert all("hidden-secret" not in tip for tip in tips)
+            assert _icon(masked, "tag-symbolic").get_tooltip_text() == (
+                "Hidden passwords are not tagged"
+            )
+            assert _icon(masked, "system-search-symbolic").get_tooltip_text() == (
+                "Hidden passwords are not searched"
+            )
             holder["ok"] = True
         except Exception as exc:
             holder["error"] = exc
@@ -1309,21 +1339,63 @@ def _clip_rows(window) -> list:
         index += 1
 
 
-def _buttons(widget):
+def _icon_buttons(widget):
     found = []
     child = widget.get_first_child() if hasattr(widget, "get_first_child") else None
     while child is not None:
-        if hasattr(child, "get_label") and child.get_label():
+        classes = child.get_css_classes() if hasattr(child, "get_css_classes") else []
+        if "tether-clip-action" in classes:
             found.append(child)
-        found.extend(_buttons(child))
+        found.extend(_icon_buttons(child))
         child = child.get_next_sibling()
     return found
 
 
-def _button(widget, label: str):
-    match = next((button for button in _buttons(widget) if button.get_label() == label), None)
-    assert match is not None, label
+def _icon(widget, name: str):
+    match = next(
+        (button for button in _icon_buttons(widget) if button.get_icon_name() == name),
+        None,
+    )
+    assert match is not None, name
     return match
+
+
+def _css_count(widget, name: str) -> int:
+    count = 0
+    child = widget.get_first_child() if hasattr(widget, "get_first_child") else None
+    while child is not None:
+        classes = child.get_css_classes() if hasattr(child, "get_css_classes") else []
+        if name in classes:
+            count += 1
+        count += _css_count(child, name)
+        child = child.get_next_sibling()
+    return count
+
+
+def _label_text(widget, text: str):
+    child = widget.get_first_child() if hasattr(widget, "get_first_child") else None
+    while child is not None:
+        label = child.get_label() if hasattr(child, "get_label") else None
+        if label == text and hasattr(child, "get_ellipsize"):
+            return child
+        found = _label_text(child, text)
+        if found is not None:
+            return found
+        child = child.get_next_sibling()
+    return None
+
+
+def _tooltip(widget, text: str):
+    child = widget.get_first_child() if hasattr(widget, "get_first_child") else None
+    while child is not None:
+        tip = child.get_tooltip_text() if hasattr(child, "get_tooltip_text") else None
+        if tip == text:
+            return child
+        found = _tooltip(child, text)
+        if found is not None:
+            return found
+        child = child.get_next_sibling()
+    return None
 
 
 def _bot_labels(window) -> list[str]:

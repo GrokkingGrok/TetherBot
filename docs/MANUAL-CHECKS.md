@@ -2,7 +2,7 @@
 
 Run these on one Fedora 44 desktop with GNOME Shell 50 on Wayland, after you can log in as a normal user. The project is unofficial and not affiliated with xAI.
 
-**Out of scope here:** M9 (webhook-only popup copy), M15 and M16 (a legacy todo sink outside this repository), and M17 (the full uninstall acceptance check). Uninstall is still documented in [SETUP.md](SETUP.md) and is the reset for M1. M18–M24 are the rich-todo checks later in this file. M25 checks that a new login starts the bridge. M26 checks that a todo click opens the window quickly. M27–M42 check the stopwatch. M43–M47 check more than one bot, display names, the compact Bots section, and the popup order. M48–M54 check an optional webhook slot, Sync now, the timer chip, toolbar colors, summary contrast, the bot-row dot and summary, and local dates. M55–M57 check the timer chip on the left, the top-bar width, and a window that updates while it stays open. M47 and M55–M68 passed on the desktop. M58 and M62 are the panel icon size and `primary` staying first. M59–M61 are replaced by M65–M68: a face in the shell's status-icon color, eyes that stay visible, Done sending when the shared bar ends, and one batch per menu. M74 passed on the desktop: reset to defaults restores the feed check and the undo timer. M75 passed on the desktop: the corner badge is in place, and blue for asks was confirmed. M76 passed on the desktop: one new item raises one notification, including after a bridge restart. M77 passed on the desktop: popup Done sends when the undo bar ends, and closing the menu early does not send it. M63 and M64 are a shared webhook slot and a missing secret on one bot. M69–M73 check the settings screen. M78 passed on the desktop: editing a todo's tracked total and deleting a time record. M79 passed on the desktop: the bots summary is amber for needs attention and red for an error or a bridge failure. M80 passed on the desktop: Stop timer on the open todo. M81 passed on the desktop: the title copy icon, the body copy icon, and Copy Todo. M82 passed on the desktop: completed todos stay in Show done for the history window, and Reset to defaults leaves that setting alone. M83–M117 are still open. M96 is even detail-button spacing. M97–M104 are clipboard history phase 1. M105–M108 check a Chrome password copy, the password-like rule, hiding one for 30 seconds, and the local debug command. M109–M113 check pin, tags, edit, preview, and Search the web. M114–M116 check the tag filter, Chrome's search engine, and tags on a hidden password. M117 checks that Settings opens and the search fallback hint is visible. Do not treat M9, M15, M16, or M17 as part of the v0.1 runbook.
+**Out of scope here:** M9 (webhook-only popup copy), M15 and M16 (a legacy todo sink outside this repository), and M17 (the full uninstall acceptance check). Uninstall is still documented in [SETUP.md](SETUP.md) and is the reset for M1. M18–M24 are the rich-todo checks later in this file. M25 checks that a new login starts the bridge. M26 checks that a todo click opens the window quickly. M27–M42 check the stopwatch. M43–M47 check more than one bot, display names, the compact Bots section, and the popup order. M48–M54 check an optional webhook slot, Sync now, the timer chip, toolbar colors, summary contrast, the bot-row dot and summary, and local dates. M55–M57 check the timer chip on the left, the top-bar width, and a window that updates while it stays open. M47 and M55–M68 passed on the desktop. M58 and M62 are the panel icon size and `primary` staying first. M59–M61 are replaced by M65–M68: a face in the shell's status-icon color, eyes that stay visible, Done sending when the shared bar ends, and one batch per menu. M74 passed on the desktop: reset to defaults restores the feed check and the undo timer. M75 passed on the desktop: the corner badge is in place, and blue for asks was confirmed. M76 passed on the desktop: one new item raises one notification, including after a bridge restart. M77 passed on the desktop: popup Done sends when the undo bar ends, and closing the menu early does not send it. M63 and M64 are a shared webhook slot and a missing secret on one bot. M69–M73 check the settings screen. M78 passed on the desktop: editing a todo's tracked total and deleting a time record. M79 passed on the desktop: the bots summary is amber for needs attention and red for an error or a bridge failure. M80 passed on the desktop: Stop timer on the open todo. M81 passed on the desktop: the title copy icon, the body copy icon, and Copy Todo. M82 passed on the desktop: completed todos stay in Show done for the history window, and Reset to defaults leaves that setting alone. M83–M119 are still open. M96 is even detail-button spacing. M97–M104 are clipboard history phase 1. M105–M108 check a Chrome password copy, the password-like rule, hiding one for 30 seconds, and the local debug command. M109–M113 check pin, tags, edit, preview, and Search the web. M114–M116 check the tag filter, Chrome's search engine, and tags on a hidden password. M117 checks that Settings opens and the search fallback hint is visible. M118 and M119 check the single-line clipboard icon row on the page and in the menu. Do not treat M9, M15, M16, or M17 as part of the v0.1 runbook.
 
 Examples use the bot id `primary`. Yours can be any lowercase id of letters, digits, and hyphens. Use the same id in the bot's feed file, in `config.toml`, and in the commands below.
 
@@ -10,7 +10,7 @@ Nothing in these steps belongs in a chat, in `config.toml`, or in this repositor
 
 ## Suggested order
 
-M1, M2, then the extension install in M14 (log out and back in once), then M3. Do M10 before M4 if the popup has no ask yet. Then M4, M10a, M5, M11, M6, M7, M8, M12, M13. After a rich todo is in the feed, M18 through M24. M25 is the next login after the unit is installed. M26 is a todo click after that. M27 through M42 need a running timer. M43 through M47 need this version installed and a log out, then a second feed file. M48 through M54 need that same login. M47 and M55 through M68 passed on the desktop. M74 through M77 passed on the desktop. M69 through M73 need the settings install and a log out, so the prefs window and the schema load. M78 through M82 passed on the desktop. M83 needs a running or paused timer. M84 needs an open todo. M85 needs the settings screen. M86 through M95 need the TetherBot window. M88 and M91 use the extension that places the window. M93 also uses the toolbar menu's undo bar, so that needs a log out if the extension has not reloaded since this version was installed. M89, M90, M92, M94, and M95 do not need a log out. Reopen the window after the old window process exits. M96 reopens the window after the old window process exits. M97 through M116 need a log out and back in, so the clipboard icon, the settings schema, and the bridge load. M109 through M116 also need the window process started after that login. M117 reopens Settings after this version is installed.
+M1, M2, then the extension install in M14 (log out and back in once), then M3. Do M10 before M4 if the popup has no ask yet. Then M4, M10a, M5, M11, M6, M7, M8, M12, M13. After a rich todo is in the feed, M18 through M24. M25 is the next login after the unit is installed. M26 is a todo click after that. M27 through M42 need a running timer. M43 through M47 need this version installed and a log out, then a second feed file. M48 through M54 need that same login. M47 and M55 through M68 passed on the desktop. M74 through M77 passed on the desktop. M69 through M73 need the settings install and a log out, so the prefs window and the schema load. M78 through M82 passed on the desktop. M83 needs a running or paused timer. M84 needs an open todo. M85 needs the settings screen. M86 through M95 need the TetherBot window. M88 and M91 use the extension that places the window. M93 also uses the toolbar menu's undo bar, so that needs a log out if the extension has not reloaded since this version was installed. M89, M90, M92, M94, and M95 do not need a log out. Reopen the window after the old window process exits. M96 reopens the window after the old window process exits. M97 through M116 need a log out and back in, so the clipboard icon, the settings schema, and the bridge load. M109 through M116 also need the window process started after that login. M117 reopens Settings after this version is installed. M118 reopens the window after the old window process exits. M119 needs a log out and back in, so the clipboard menu loads.
 
 You can stop after any check. Later checks say what they need.
 
@@ -1856,6 +1856,40 @@ journalctl --user -b /usr/bin/gnome-shell --no-pager | tail -n 80
 - Close Settings. The Clipboard page is unchanged.
 
 **Reset.** None.
+
+## M118. Clipboard rows stay one line
+
+**Preconditions.** M112. The window process was started after this version was installed. At least one ordinary line is long enough to fill the text column. One line has a tag. One Hidden password row is on the page, or set Password-like copies to Hide for 30 seconds and copy a made-up password-like line.
+
+**Look for.**
+
+- Each entry is one row. The text is one line and ends with … when it does not fit. It does not wrap under the icons.
+- The icons sit in columns, in this order: Edit, Pin, Tag, Copy, Search the web, Delete. Each icon has a tooltip with that name. Search the web may instead say it uses the search fallback from Settings, or that no default search engine is set.
+- A thin faint line separates each icon column. The columns line up from row to row.
+- A tag is a small colored dot in the text area, not a second line of text. The icon columns do not move when a row has a tag.
+- Pin is the ordinary foreground color. After pinning, that pin uses the accent color. Unpinning returns it to the ordinary color. The row stays one line either way.
+- On a Hidden password row, Edit, Tag, and Search the web are dimmed and stay in place. Pin, Copy, and Delete stay available. The columns do not shift. The row does not show the hidden text.
+- Click the text of an ordinary row. Preview still shows the full text, with line breaks kept.
+- Press Search the web on an ordinary row only when you mean to. Nothing opens until that press.
+
+**Reset.** Set Password-like copies back to Skip. Delete the hidden row if it is still there, or wait 30 seconds.
+
+## M119. The clipboard menu rows stay one line
+
+**Preconditions.** Log out and back in after this version is installed, then open the clipboard menu. M118. One pinned line, one tagged line, and one ordinary line are in the history. A Hidden password row is present, or repeat the Hide for 30 seconds step from M118.
+
+**Look for.**
+
+- Each menu row is one line. Pinning and unpinning does not wrap the row onto a second line.
+- The same icon columns are there, with the same tooltips and faint separators. Tag dots sit in the text area.
+- An unpinned pin is the ordinary foreground color, not faded. A pinned pin uses the accent color.
+- On a Hidden password row, Edit, Tag, and Search the web are dimmed and the columns do not shift. The row says Hidden password.
+- Pressing an icon does not also copy the line.
+- Copy puts that line back on the clipboard.
+- Delete removes that row, including a pinned one.
+- Edit, Tag, and Search the web open the Clipboard page. They do not open a browser. Search the web on the page is unchanged: nothing opens until that page's button is pressed.
+
+**Reset.** Set Password-like copies back to Skip. Leave the history as you want it.
 
 ## When you are finished
 

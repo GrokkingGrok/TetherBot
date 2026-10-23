@@ -101,6 +101,28 @@ _CSS = """
   color: #deddda;
   background-color: alpha(#deddda, 0.12);
 }
+.tether-clip-dot {
+  background-color: transparent;
+  padding: 0;
+  font-size: 8px;
+}
+.tether-dark .tether-clip-dot {
+  background-color: transparent;
+}
+.tether-clip-action {
+  padding: 4px;
+  min-width: 28px;
+  min-height: 28px;
+}
+.tether-pin-on {
+  color: @accent_color;
+}
+separator.tether-clip-sep {
+  min-width: 1px;
+  margin-top: 6px;
+  margin-bottom: 6px;
+  opacity: 0.35;
+}
 .tether-row-done { opacity: 0.7; }
 .tether-source { opacity: 0.75; }
 .tether-dot { font-size: 0.85em; }
@@ -2523,60 +2545,64 @@ class TodoWindow(Adw.ApplicationWindow):
         ident = str(entry.get("id") or "")
         pinned = entry.get("pinned") is True
         preview = "Hidden password" if masked else (list_preview(text) or "Empty")
-        label = Gtk.Label(label=preview, xalign=0, hexpand=True, wrap=True)
-        label.set_max_width_chars(48)
-        label.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
-        chips = Gtk.Box(spacing=4)
+        label = Gtk.Label(label=preview, xalign=0, hexpand=True)
+        label.set_ellipsize(Pango.EllipsizeMode.END)
+        label.set_wrap(False)
+        label.set_valign(Gtk.Align.CENTER)
+        label.set_halign(Gtk.Align.START)
+        dots = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        dots.set_valign(Gtk.Align.CENTER)
         for tag in entry.get("tags") or []:
             if not isinstance(tag, dict) or not isinstance(tag.get("name"), str):
                 continue
             color = tag.get("color") if isinstance(tag.get("color"), str) else "gray"
-            chips.append(_chip(tag["name"], color))
-        pin = Gtk.Button(label="Unpin" if pinned else "Pin")
+            dots.append(_clip_dot(tag["name"], color))
+        text_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        text_box.add_css_class("tether-clip-text")
+        text_box.set_hexpand(True)
+        text_box.set_size_request(260, -1)
+        text_box.set_valign(Gtk.Align.CENTER)
+        text_box.append(label)
+        if dots.get_first_child() is not None:
+            text_box.append(dots)
+        pin_tip = "Unpin" if pinned else "Pin"
+        pin = _clip_icon("view-pin-symbolic", pin_tip)
+        if pinned:
+            pin.add_css_class("tether-pin-on")
         pin.connect("clicked", self._on_pin_clip, entry)
-        tag_button = Gtk.Button(label="Tag")
-        tag_button.set_sensitive(not masked)
-        if masked:
-            tag_button.set_tooltip_text("Hidden passwords are not tagged")
+        tag_tip = "Hidden passwords are not tagged" if masked else "Tag"
+        tag_button = _clip_icon("tag-symbolic", tag_tip, not masked)
         tag_button.connect("clicked", self._on_tag_clip, entry)
-        edit = Gtk.Button(label="Edit")
-        edit.set_sensitive(not masked)
+        edit = _clip_icon("document-edit-symbolic", "Edit", not masked)
         edit.connect("clicked", self._on_edit_clip, entry)
-        copy = Gtk.Button(label="Copy")
+        copy = _clip_icon("edit-copy-symbolic", "Copy")
         copy.connect("clicked", self._on_copy_clip, text)
-        web = Gtk.Button(label="Search the web")
         template = self._search_template()
-        web.set_sensitive(not masked and template is not None)
         if masked:
-            web.set_tooltip_text("Hidden passwords are not searched")
+            web_tip = "Hidden passwords are not searched"
         elif self._clip_search_kind == "fallback":
-            web.set_tooltip_text("Uses the search fallback from Settings")
+            web_tip = "Uses the search fallback from Settings"
         elif template is None:
-            web.set_tooltip_text("No default search engine is set")
-        web.connect("clicked", self._on_search_clip, entry)
-        delete = Gtk.Button(label="Delete")
-        delete.connect("clicked", self._on_delete_clip, ident)
-        actions = Gtk.FlowBox(
-            selection_mode=Gtk.SelectionMode.NONE,
-            homogeneous=False,
-            column_spacing=6,
-            row_spacing=6,
+            web_tip = "No default search engine is set"
+        else:
+            web_tip = "Search the web"
+        web = _clip_icon(
+            "system-search-symbolic",
+            web_tip,
+            not masked and template is not None,
         )
-        actions.set_max_children_per_line(6)
-        for button in (pin, tag_button, edit, copy, web, delete):
-            actions.append(button)
-        column = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4, hexpand=True)
-        column.append(label)
-        if chips.get_first_child() is not None:
-            column.append(chips)
-        column.append(actions)
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        box.set_margin_top(6)
-        box.set_margin_bottom(6)
-        box.set_margin_start(8)
-        box.set_margin_end(8)
-        box.append(column)
-        row = Gtk.ListBoxRow(child=box)
+        web.connect("clicked", self._on_search_clip, entry)
+        delete = _clip_icon("edit-delete-symbolic", "Delete")
+        delete.connect("clicked", self._on_delete_clip, ident)
+        actions = _clip_actions([edit, pin, tag_button, copy, web, delete])
+        line = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        line.set_margin_top(4)
+        line.set_margin_bottom(4)
+        line.set_margin_start(8)
+        line.set_margin_end(4)
+        line.append(text_box)
+        line.append(actions)
+        row = Gtk.ListBoxRow(child=line)
         row.clip_id = ident
         row.clip_text = text
         row.clip_masked = masked
@@ -3430,6 +3456,45 @@ def _copy_icon(label: str) -> Gtk.Button:
     button.set_tooltip_text(label)
     button.update_property([Gtk.AccessibleProperty.LABEL], [label])
     return button
+
+
+_CLIP_TONES = frozenset(
+    {"red", "orange", "yellow", "green", "teal", "blue", "purple", "pink", "gray"}
+)
+
+
+def _clip_icon(icon_name: str, tooltip: str, sensitive: bool = True) -> Gtk.Button:
+    button = Gtk.Button(icon_name=icon_name)
+    button.add_css_class("flat")
+    button.add_css_class("tether-clip-action")
+    button.set_tooltip_text(tooltip)
+    button.set_sensitive(sensitive)
+    button.set_valign(Gtk.Align.CENTER)
+    button.set_size_request(28, 28)
+    button.update_property([Gtk.AccessibleProperty.LABEL], [tooltip])
+    return button
+
+
+def _clip_dot(name: str, color: str) -> Gtk.Label:
+    tone = color if color in _CLIP_TONES else "gray"
+    dot = Gtk.Label(label="●")
+    dot.add_css_class("tether-clip-dot")
+    dot.add_css_class(f"tone-{tone}")
+    dot.set_tooltip_text(name)
+    dot.set_valign(Gtk.Align.CENTER)
+    return dot
+
+
+def _clip_actions(buttons: list[Gtk.Button]) -> Gtk.Box:
+    box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
+    box.set_valign(Gtk.Align.CENTER)
+    for index, button in enumerate(buttons):
+        if index:
+            sep = Gtk.Separator(orientation=Gtk.Orientation.VERTICAL)
+            sep.add_css_class("tether-clip-sep")
+            box.append(sep)
+        box.append(button)
+    return box
 
 
 def _clip_tag_names(entry: dict[str, Any]) -> list[str]:

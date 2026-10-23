@@ -4,7 +4,9 @@
 import json
 import shutil
 import stat
+import struct
 import subprocess
+import zlib
 from io import StringIO
 from pathlib import Path
 
@@ -13,9 +15,14 @@ import pytest
 from tests.helpers import NOW
 from tetherbot.clipboard_policy import (
     DEFAULT_EXCLUDED_APPS,
+    IMAGE_COUNT_MAX,
+    IMAGE_MAX_BYTES,
     classify_clipboard,
+    classify_image,
     format_clipboard_debug,
+    image_label,
     looks_like_password,
+    pick_image_mime,
 )
 from tetherbot.clipboard_store import ClipboardHistory
 from tetherbot.daemon import BridgeDaemon
@@ -375,6 +382,7 @@ def test_old_clipboard_file_loads_and_a_hidden_password_is_not_edited(tmp_path: 
     assert rows[1]["tags"] == []
     kept = next(row for row in history.entries if row["text"] == "kept line")
     assert "extra" not in kept
+    assert "kind" not in kept
     assert "extra" in path.read_text(encoding="utf-8")
     assert history.edit_text(rows[0]["id"], "changed") is False
     assert history.list_entries()[0]["text"] == LOOKALIKE
@@ -432,6 +440,244 @@ def test_service_pin_edit_and_tags_do_not_log_text(tmp_path: Path):
     assert "alpha line" not in stream.getvalue()
     with pytest.raises(ServiceError):
         daemon.api.call("SetClipboardTags", (ident, LOOKALIKE))
+
+
+def _png_chunk(tag: bytes, data: bytes) -> bytes:
+    crc = zlib.crc32(tag + data) & 0xFFFFFFFF
+    return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", crc)
+
+
+def tiny_png(red: int = 255, green: int = 0, blue: int = 0, note: bytes = b"") -> bytes:
+    """A 1x1 PNG. ``note`` is stored in a text chunk so tests can spot a leak."""
+
+    signature = b"\x89PNG\r\n\x1a\n"
+    header = struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0)
+    pixels = zlib.compress(bytes((0, red, green, blue)))
+    parts = [signature, _png_chunk(b"IHDR", header)]
+    if note:
+        parts.append(_png_chunk(b"tEXt", b"Comment\x00" + note))
+    parts.append(_png_chunk(b"IDAT", pixels))
+    parts.append(_png_chunk(b"IEND", b""))
+    return b"".join(parts)
+
+
+def test_pick_image_mime_lets_plain_text_win():
+    assert pick_image_mime(["image/png"]) == "image/png"
+    assert pick_image_mime(["image/jpeg", "image/png"]) == "image/png"
+    assert pick_image_mime(["text/html", "image/jpeg"]) == "image/jpeg"
+    assert pick_image_mime(["text/plain", "image/png"]) is None
+    assert pick_image_mime(["UTF8_STRING", "image/webp"]) is None
+    assert pick_image_mime(["image/jpg"]) == "image/jpeg"
+    assert image_label("image/png", 1_258_291) == "Image · PNG · 1.2 MB"
+    assert (
+        classify_image(
+            ["image/png", "x-kde-passwordManagerHint"],
+            "gedit",
+            "image/png",
+            12,
+            enabled=True,
+            images=True,
+            excluded=DEFAULT_EXCLUDED_APPS,
+        )
+        == "skipped-sensitive"
+    )
+    assert (
+        classify_image(
+            ["image/png"],
+            "org.keepassxc.KeePassXC",
+            "image/png",
+            12,
+            enabled=True,
+            images=True,
+            excluded=DEFAULT_EXCLUDED_APPS,
+        )
+        == "skipped-app"
+    )
+    assert (
+        classify_image(
+            ["image/png"],
+            "gedit",
+            "image/png",
+            12,
+            enabled=True,
+            images=False,
+            excluded=(),
+        )
+        == "skipped-images-off"
+    )
+
+
+def test_an_image_is_stored_once_with_a_private_file(tmp_path: Path):
+    history = _history(tmp_path)
+    blob = tiny_png(note=b"marker-not-searched")
+    meta_mimes = ["image/png"]
+    assert history.offer_image(blob, meta_mimes, "gedit", "image/png") == "stored"
+    assert history.offer_image(blob, meta_mimes, "gedit", "image/png") == "stored"
+    listed = history.list_entries()
+    assert len(listed) == 1
+    row = listed[0]
+    assert row["kind"] == "image"
+    assert row["mime"] == "image/png"
+    assert row["size"] == len(blob)
+    assert row["width"] == 1
+    assert row["height"] == 1
+    assert row["text"] == ""
+    path = Path(row["path"])
+    assert path.is_file()
+    assert path.read_bytes() == blob
+    assert path.stat().st_mode & 0o777 == stat.S_IRUSR | stat.S_IWUSR
+    assert history.image_dir.stat().st_mode & 0o777 == 0o700
+    images = [
+        item
+        for item in history.image_dir.iterdir()
+        if item.suffix == ".png" and ".thumb." not in item.name
+    ]
+    assert images == [path]
+    saved = history.path.read_text(encoding="utf-8")
+    assert '"kind":"image"' in saved
+    assert '"mime":"image/png"' in saved
+    assert "clipboard-images" not in saved
+    assert "marker-not-searched" not in saved
+    assert blob not in history.path.read_bytes()
+    assert history.list_entries("image")[0]["id"] == row["id"]
+    assert history.list_entries("marker-not-searched") == []
+    assert history.list_entries("png")[0]["id"] == row["id"]
+
+
+def test_bad_images_are_rejected_without_a_file(tmp_path: Path):
+    history = _history(tmp_path)
+    blob = tiny_png()
+    assert history.offer_image(b"hello", ["text/plain"], "gedit", "text/plain") == "skipped-binary"
+    assert history.offer_image(blob, ["text/plain", "image/png"], "gedit", "image/png") == (
+        "skipped-binary"
+    )
+    huge = b"\x89PNG\r\n\x1a\n" + b"\x00" * IMAGE_MAX_BYTES
+    assert history.offer_image(huge, ["image/png"], "gedit", "image/png") == "skipped-image-large"
+    wide = _png_chunk(b"IHDR", struct.pack(">IIBBBBB", 9000, 1, 8, 2, 0, 0, 0))
+    wide_png = b"\x89PNG\r\n\x1a\n" + wide + _png_chunk(b"IEND", b"")
+    assert history.offer_image(wide_png, ["image/png"], "gedit", "image/png") == (
+        "skipped-image-large"
+    )
+    corrupt = tiny_png()[:24] + _png_chunk(b"IDAT", b"not-zlib") + _png_chunk(b"IEND", b"")
+    assert history.offer_image(corrupt, ["image/png"], "gedit", "image/png") == "skipped-image-bad"
+    hint = ["image/png", "x-kde-passwordManagerHint"]
+    assert history.offer_image(blob, hint, "gedit", "image/png") == "skipped-sensitive"
+    assert history.offer_image(blob, ["image/png"], "1Password", "image/png") == "skipped-app"
+    assert history.list_entries() == []
+    assert not history.image_dir.exists()
+    report = format_clipboard_debug(json.loads(history.path.read_text(encoding="utf-8")))
+    assert "result: skipped-app" in report
+    assert "reason: excluded app" in report
+    assert "image/png" in report
+    assert "clipboard-images" not in report
+    quiet = _history(tmp_path / "off", images=False)
+    assert quiet.offer_image(blob, ["image/png"], "gedit", "image/png") == "skipped-images-off"
+    assert quiet.offer("still text", ["text/plain"], "gedit") == "stored"
+    assert not quiet.image_dir.exists()
+    off = format_clipboard_debug(json.loads(quiet.path.read_text(encoding="utf-8")))
+    assert "reason: images-off" not in off
+    quiet.offer_image(blob, ["image/png"], "gedit", "image/png")
+    off = format_clipboard_debug(json.loads(quiet.path.read_text(encoding="utf-8")))
+    assert "result: skipped-images-off" in off
+    assert "reason: images-off" in off
+
+
+def test_image_caps_unlink_files_and_a_pin_survives(tmp_path: Path):
+    limited = _history(tmp_path / "limit", limit=2)
+    first = tiny_png(1, 0, 0)
+    assert limited.offer_image(first, ["image/png"], "gedit", "image/png") == "stored"
+    oldest = Path(limited.list_entries()[0]["path"])
+    assert limited.offer_image(tiny_png(2, 0, 0), ["image/png"], "gedit", "image/png") == "stored"
+    assert limited.offer_image(tiny_png(3, 0, 0), ["image/png"], "gedit", "image/png") == "stored"
+    assert len(limited.list_entries()) == 2
+    assert not oldest.exists()
+
+    history = _history(tmp_path / "count", limit=500)
+    blobs = [tiny_png(index, 2, 3) for index in range(IMAGE_COUNT_MAX + 1)]
+    for blob in blobs:
+        assert history.offer_image(blob, ["image/png"], "gedit", "image/png") == "stored"
+    assert len(history.list_entries()) == IMAGE_COUNT_MAX
+    names = {path.name for path in history.image_dir.iterdir() if ".thumb." not in path.name}
+    assert len(names) == IMAGE_COUNT_MAX
+    pinned_blob = tiny_png(9, 9, 9)
+    assert history.offer_image(pinned_blob, ["image/png"], "gedit", "image/png") == "stored"
+    pinned = history.list_entries()[0]
+    pinned_path = Path(pinned["path"])
+    assert history.set_pinned(pinned["id"], True) is True
+    assert history.set_tags(pinned["id"], [{"name": "Shot", "color": "nope"}]) is True
+    assert history.edit_text(pinned["id"], "nope") is False
+    for index in range(IMAGE_COUNT_MAX):
+        assert history.offer_image(tiny_png(index, 4, 5), ["image/png"], "gedit", "image/png") == (
+            "stored"
+        )
+    kept = history.list_entries()
+    assert kept[0]["id"] == pinned["id"]
+    assert kept[0]["pinned"] is True
+    assert kept[0]["tags"][0]["name"] == "Shot"
+    assert pinned_path.is_file()
+    assert history.clear() is True
+    left = history.list_entries()
+    assert [row["id"] for row in left] == [pinned["id"]]
+    assert pinned_path.is_file()
+    assert history.delete(pinned["id"]) is True
+    assert not pinned_path.is_file()
+    assert history.list_entries() == []
+    thumbs = list(history.image_dir.glob("*.thumb.png")) if history.image_dir.exists() else []
+    assert thumbs == []
+
+
+def test_load_drops_a_missing_image_and_deletes_orphans(tmp_path: Path):
+    history = _history(tmp_path)
+    blob = tiny_png(4, 5, 6)
+    assert history.offer_image(blob, ["image/png"], "gedit", "image/png") == "stored"
+    path = Path(history.list_entries()[0]["path"])
+    orphan = history.image_dir / "c-abcdef01.png"
+    orphan.write_bytes(b"orphan-bytes")
+    missing = history.image_dir / "c-abcdef02.png"
+    path.rename(missing)
+    reloaded = ClipboardHistory(history.path, clock=lambda: 1_700_000_000)
+    assert reloaded.list_entries() == []
+    assert not orphan.exists()
+    assert not missing.exists()
+    assert history.offer("kept line", ["text/plain"], "gedit") == "stored"
+    text_only = ClipboardHistory(history.path, clock=lambda: 1_700_000_000)
+    assert [row["text"] for row in text_only.list_entries()] == ["kept line"]
+    assert "kind" not in text_only.entries[0]
+
+
+def test_an_image_offer_does_not_log_bytes_or_the_path(tmp_path: Path):
+    stream = StringIO()
+    feed = tmp_path / "feed"
+    desktop = tmp_path / "desktop"
+    feed.mkdir()
+    desktop.mkdir()
+    daemon = BridgeDaemon(
+        config_path=tmp_path / "config.toml",
+        state_dir=tmp_path / "state",
+        log_stream=stream,
+        clock=lambda: NOW,
+    )
+    daemon.start()
+    assert daemon.clipboard is not None
+    blob = tiny_png(note=b"marker-not-logged")
+    assert daemon.clipboard.offer_image(blob, ["image/png"], "gedit", "image/png") == "stored"
+    logged = stream.getvalue()
+    log_path = tmp_path / "state" / "bridge.log"
+    disk = log_path.read_text(encoding="utf-8") if log_path.is_file() else ""
+    assert "marker-not-logged" not in logged
+    assert "clipboard-images" not in logged
+    assert "marker-not-logged" not in disk
+    assert "clipboard-images" not in disk
+    assert blob not in logged.encode()
+    hits = [
+        path.name
+        for path in tmp_path.rglob("*")
+        if path.is_file() and blob in path.read_bytes()
+    ]
+    assert hits
+    assert all(name.endswith(".png") and ".thumb." not in name for name in hits)
+    assert list(feed.iterdir()) == []
+    assert list(desktop.iterdir()) == []
 
 
 def test_javascript_filter_matches_the_bridge():

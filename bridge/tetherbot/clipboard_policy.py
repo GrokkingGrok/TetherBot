@@ -1,10 +1,14 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 """Decide whether a clipboard offer may be stored.
 
-Plain text only. A sensitive target, an excluded app, or a password
-lookalike is skipped. Chrome and Chromium on Linux offer ordinary text
-targets for a password copy. They do not set ``x-kde-passwordManagerHint``
+Plain text is the default. A sensitive target, an excluded app, or a
+password lookalike is skipped. Chrome and Chromium on Linux offer ordinary
+text targets for a password copy. They do not set ``x-kde-passwordManagerHint``
 or a concealed type. The lookalike rule is what skips that copy.
+
+An image is a separate offer. A real plain-text target wins over an image.
+``text/html`` alone does not. Images are not password lookalikes. A
+sensitive hint or an excluded app still skips them.
 
 This module does not read the clipboard, open a socket, or write a file.
 """
@@ -18,6 +22,19 @@ CLIPBOARD_LIMIT_MIN = 1
 CLIPBOARD_LIMIT_MAX = 500
 CLIPBOARD_TEXT_MAX = 1_000_000
 CLIPBOARD_APP_MAX = 64
+IMAGE_MAX_BYTES = 10 * 1024 * 1024
+IMAGE_COUNT_MAX = 20
+IMAGE_MAX_EDGE = 8192
+IMAGE_MAX_PIXELS = 16_777_216
+IMAGE_MIME_ORDER = (
+    "image/png",
+    "image/jpeg",
+    "image/webp",
+    "image/bmp",
+    "image/gif",
+    "image/tiff",
+    "image/svg+xml",
+)
 LOOKALIKE_SKIP = "skip"
 LOOKALIKE_MASK = "mask"
 LOOKALIKE_MODES = (LOOKALIKE_SKIP, LOOKALIKE_MASK)
@@ -34,6 +51,9 @@ OFFER_RESULTS = (
     "skipped-binary",
     "skipped-huge",
     "skipped-lookalike",
+    "skipped-images-off",
+    "skipped-image-large",
+    "skipped-image-bad",
 )
 OFFER_REASONS = {
     "stored": "kept",
@@ -45,6 +65,27 @@ OFFER_REASONS = {
     "skipped-binary": "not plain text",
     "skipped-huge": "too large",
     "skipped-lookalike": "password lookalike",
+    "skipped-images-off": "images-off",
+    "skipped-image-large": "image-too-large",
+    "skipped-image-bad": "image-unreadable",
+}
+_IMAGE_EXT = {
+    "image/png": "png",
+    "image/jpeg": "jpg",
+    "image/webp": "webp",
+    "image/bmp": "bmp",
+    "image/gif": "gif",
+    "image/tiff": "tiff",
+    "image/svg+xml": "svg",
+}
+_IMAGE_NAMES = {
+    "image/png": "PNG",
+    "image/jpeg": "JPEG",
+    "image/webp": "WEBP",
+    "image/bmp": "BMP",
+    "image/gif": "GIF",
+    "image/tiff": "TIFF",
+    "image/svg+xml": "SVG",
 }
 
 DEFAULT_EXCLUDED_APPS: tuple[str, ...] = (
@@ -281,6 +322,122 @@ def _text_mime(mime: str) -> bool:
     if folded in _TEXT_MIMES:
         return True
     return folded.split(";", 1)[0].strip() in _TEXT_MIMES
+
+
+def canonical_image_mime(mime: object) -> str | None:
+    """An allowed image type, or none. ``image/jpg`` is JPEG."""
+
+    if not isinstance(mime, str):
+        return None
+    folded = mime.casefold().split(";", 1)[0].strip()
+    if folded == "image/jpg":
+        folded = "image/jpeg"
+    if folded in _IMAGE_EXT:
+        return folded
+    return None
+
+
+def image_extension(mime: object) -> str | None:
+    """The file suffix for an allowed image type."""
+
+    canonical = canonical_image_mime(mime)
+    if canonical is None:
+        return None
+    return _IMAGE_EXT[canonical]
+
+
+def pick_image_mime(mimes: object) -> str | None:
+    """The image type to keep, or none when plain text wins.
+
+    ``image/png`` wins over the other image types. A plain-text target,
+    including ``UTF8_STRING``, keeps the text. ``text/html`` does not.
+    """
+
+    types = _mimes(mimes)
+    if any(_text_mime(mime) for mime in types):
+        return None
+    found = [canonical for mime in types if (canonical := canonical_image_mime(mime))]
+    if "image/png" in found:
+        return "image/png"
+    for mime in IMAGE_MIME_ORDER:
+        if mime in found:
+            return mime
+    return None
+
+
+def dimensions_ok(width: object, height: object) -> bool:
+    """True when both sides are unknown, or both are inside the pixel cap."""
+
+    if width is None and height is None:
+        return True
+    if isinstance(width, bool) or isinstance(height, bool):
+        return False
+    if not isinstance(width, int) or not isinstance(height, int):
+        return False
+    if width <= 0 or height <= 0:
+        return False
+    if width > IMAGE_MAX_EDGE or height > IMAGE_MAX_EDGE:
+        return False
+    return width * height <= IMAGE_MAX_PIXELS
+
+
+def image_label(mime: object, size: object) -> str:
+    """One line such as ``Image · PNG · 1.2 MB``. The bytes are not included."""
+
+    canonical = canonical_image_mime(mime)
+    name = _IMAGE_NAMES.get(canonical or "", "Image")
+    return f"Image · {name} · {_format_size(size)}"
+
+
+def classify_image(
+    mimes: object,
+    wm_class: object,
+    mime: object,
+    size: object,
+    *,
+    enabled: bool,
+    images: bool,
+    excluded: object,
+) -> str:
+    """``stored`` when an image offer may be kept. Otherwise a skip reason.
+
+    Sensitive targets and excluded apps are decided before the size cap.
+    A plain-text target means the text offer wins, so this offer is not
+    an image. The bytes are not read here.
+    """
+
+    if enabled is not True:
+        return "skipped-disabled"
+    if images is not True:
+        return "skipped-images-off"
+    types = _mimes(mimes)
+    chosen = canonical_image_mime(mime)
+    checked = types if chosen is None else (*types, chosen)
+    if any(_sensitive(item) for item in checked):
+        return "skipped-sensitive"
+    if _app_excluded(wm_class, excluded):
+        return "skipped-app"
+    if any(_text_mime(item) for item in types):
+        return "skipped-binary"
+    if chosen is None:
+        return "skipped-binary"
+    if isinstance(size, bool) or not isinstance(size, int) or size < 0:
+        return "skipped-image-bad"
+    if size == 0:
+        return "skipped-empty"
+    if size > IMAGE_MAX_BYTES:
+        return "skipped-image-large"
+    return "stored"
+
+
+def _format_size(size: object) -> str:
+    if isinstance(size, bool) or not isinstance(size, int) or size < 0:
+        return "0 B"
+    if size < 1024:
+        return f"{size} B"
+    if size < 1024 * 1024:
+        return f"{size / 1024:.1f} KB"
+    return f"{size / (1024 * 1024):.1f} MB"
 
 
 def _app_excluded(wm_class: object, excluded: object) -> bool:

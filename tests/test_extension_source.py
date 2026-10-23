@@ -257,6 +257,23 @@ def test_clipboard_capture_filters_before_it_reads_text():
     assert "launch_default_for_uri" not in text
 
 
+def test_the_panel_menu_loads_tetherbot_icons_from_the_extension():
+    text = (EXTENSION / "extension.js").read_text(encoding="utf-8")
+    helper = text.split("    _menuIcon(", 1)[1].split("\n    _", 1)[0]
+    assert "startsWith('tetherbot-')" in helper
+    assert "icons/hicolor/scalable/actions/" in helper
+    assert "Gio.FileIcon.new" in helper
+    assert "query_exists" in helper
+    assert "icon_name: iconName" in helper
+    button = text.split("    _clipIconButton(", 1)[1].split("\n    _", 1)[0]
+    assert "_menuIcon(" in button
+    assert "icon_size: 16" not in button
+    filled = text.split("    _fillClipboardMenu() {", 1)[1].split("\n    _", 1)[0]
+    assert "tetherbot-tag-symbolic" in filled
+    assert "_clipIconButton(" in filled
+    assert "view-pin-symbolic" in filled
+
+
 def test_the_menu_undo_bar_is_centered():
     extension = (EXTENSION / "extension.js").read_text(encoding="utf-8")
     needle = (

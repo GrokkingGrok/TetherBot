@@ -69,6 +69,7 @@ TetherBot is pre-alpha. Check items off as they land. Design detail is in [SPEC.
 - [ ] Manual checks M120–M126: clipboard images. A copied screenshot is kept, the row stays one line, Preview and Copy restore the original type, pin and tag work, delete and clear remove the files, and an excluded app or Remember copied images off leaves a new image out. The steps are in [MANUAL-CHECKS.md](MANUAL-CHECKS.md). They have not been run on the desktop yet. They need a log out so the extension and the schema load.
 - [ ] Manual checks M127–M130: clipboard menu icons stay fully visible, the todo-list Start timer icon stays fully visible, Remember copied images matches Remember copied text, and the tag icon is a monochrome symbol. The steps are in [MANUAL-CHECKS.md](MANUAL-CHECKS.md). They have not been run on the desktop yet. They need a log out so the extension, the schema, and the window load.
 - [ ] Manual checks M131 and M132: the tag icon in the panel clipboard menu and on the window Clipboard page is a monochrome tilted tag, the same size and color as the pencil and the pin, and tagging still works. The steps are in [MANUAL-CHECKS.md](MANUAL-CHECKS.md). They have not been run on the desktop yet. M131 needs a log out so the menu loads. M132 reopens the window.
+- [ ] Manual check M133: after logout, the panel clipboard menu shows the Lucide tag icon, matching the window. The steps are in [MANUAL-CHECKS.md](MANUAL-CHECKS.md). It has not been run on the desktop yet. It needs a log out so the menu loads.
 
 ## v0.2 — early adopters
 

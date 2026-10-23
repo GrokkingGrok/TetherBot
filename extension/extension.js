@@ -2383,12 +2383,35 @@ export default class TetherBotExtension extends Extension {
         textBox.style = `max-width: ${textMax}px;`;
     }
 
-    _clipIconButton(iconName, name, enabled, accent) {
-        const icon = new St.Icon({
+    _menuIcon(iconName, styleClass) {
+        // The shell looks up icon names in its own theme, not the GTK search
+        // path the window uses. Our files end in -symbolic.svg, so St still
+        // recolors them.
+        const style_class = styleClass || '';
+        if (typeof iconName === 'string' && iconName.startsWith('tetherbot-')) {
+            try {
+                const file = this.dir.get_child(
+                    `icons/hicolor/scalable/actions/${iconName}.svg`);
+                if (file.query_exists(null)) {
+                    return new St.Icon({
+                        gicon: Gio.FileIcon.new(file),
+                        icon_size: 16,
+                        style_class,
+                    });
+                }
+            } catch (error) {
+                console.debug('TetherBot: menu icon file was not used');
+            }
+        }
+        return new St.Icon({
             icon_name: iconName,
             icon_size: 16,
-            style_class: accent ? 'tetherbot-clip-pin-on' : '',
+            style_class,
         });
+    }
+
+    _clipIconButton(iconName, name, enabled, accent) {
+        const icon = this._menuIcon(iconName, accent ? 'tetherbot-clip-pin-on' : '');
         const button = new St.Button({
             style_class: enabled
                 ? 'popup-menu-item-button tetherbot-clip-action'

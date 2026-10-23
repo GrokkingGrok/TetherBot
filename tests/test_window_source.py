@@ -82,3 +82,15 @@ def test_window_sources_do_not_touch_the_network_or_secrets():
     assert "Clear history" in window
     assert "Search clipboard" in window
     assert "Hidden password" in window
+    assert "Search the web" in window
+    assert '"Preview"' in window
+    assert 'label="Edit"' in window
+    assert 'label="Tag"' in window
+    assert 'label="Pin"' in window or '"Unpin"' in window
+    assert "editable=False" in window
+    assert "Hidden passwords are not searched" in window
+    search = (ROOT / "bridge" / "tetherbot" / "clipboard_search.py").read_text(encoding="utf-8")
+    assert "google.com" not in search
+    assert "duckduckgo.com" not in search
+    assert "google.com" not in window
+    assert "duckduckgo.com" not in window

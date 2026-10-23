@@ -12,6 +12,7 @@ import json
 import sys
 import time
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 import gi
@@ -22,7 +23,10 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Pango", "1.0")
 from gi.repository import Adw, Gdk, Gio, GLib, Graphene, Gsk, Gtk, Pango  # noqa: E402
 
+from tetherbot.clipboard_policy import list_preview  # noqa: E402
+from tetherbot.clipboard_search import discover_search_template, search_target  # noqa: E402
 from tetherbot.markdown import Run, render  # noqa: E402
+from tetherbot.todos import PALETTE  # noqa: E402
 from tetherbot.window_launch import APP_ID  # noqa: E402
 from tetherbot.window_query import (  # noqa: E402
     MIN_WINDOW_HEIGHT,
@@ -250,6 +254,18 @@ class BridgeClient:
 
     def clear_clipboard(self) -> bool:
         raw = self._call("ClearClipboard", "()", ())
+        return bool(raw and raw[0])
+
+    def pin_clipboard(self, entry_id: str, pinned: bool) -> bool:
+        raw = self._call("PinClipboard", "(sb)", (entry_id, pinned))
+        return bool(raw and raw[0])
+
+    def set_clipboard_tags(self, entry_id: str, tags: list[dict[str, str]]) -> bool:
+        raw = self._call("SetClipboardTags", "(ss)", (entry_id, json.dumps(tags)))
+        return bool(raw and raw[0])
+
+    def edit_clipboard(self, entry_id: str, text: str) -> bool:
+        raw = self._call("EditClipboard", "(ss)", (entry_id, text))
         return bool(raw and raw[0])
 
     def load_clipboard(
@@ -526,6 +542,9 @@ class TodoWindow(Adw.ApplicationWindow):
         self._view = "all"
         self._page = "todos"
         self._clip_query = ""
+        self._clip_tag = ""
+        self._clip_search_ready = False
+        self._clip_search_template: str | None = None
         self._clip_entries: list[dict[str, Any]] = []
         self._clip_dialog: Adw.AlertDialog | None = None
         self._sort = "due"
@@ -621,14 +640,17 @@ class TodoWindow(Adw.ApplicationWindow):
         self.bot_search = Gtk.SearchEntry(placeholder_text="Filter bots by name")
         self.bot_search.set_visible(False)
         self.bot_search.connect("changed", self._on_bot_search)
-        self.clip_search = Gtk.SearchEntry(placeholder_text="Search clipboard")
+        self.clip_search = Gtk.SearchEntry(placeholder_text="Search clipboard and tags")
         self.clip_search.set_visible(True)
         self.clip_search.connect("search-changed", self._on_clip_search)
+        self.clip_tag = Gtk.DropDown.new_from_strings(["All tags"])
+        self.clip_tag.connect("notify::selected", self._on_clip_tag)
         self.clip_clear = Gtk.Button(label="Clear history")
         self.clip_clear.connect("clicked", lambda _button: self._confirm_clear_clipboard())
         self._clip_controls = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         self._clip_controls.set_visible(False)
         self._clip_controls.append(self.clip_search)
+        self._clip_controls.append(self.clip_tag)
         self._clip_controls.append(self.clip_clear)
         self.sort_drop = Gtk.DropDown.new_from_strings(list(_SORT_LABELS))
         self.sort_drop.connect("notify::selected", self._on_sort)
@@ -2297,6 +2319,7 @@ class TodoWindow(Adw.ApplicationWindow):
 
     def _on_row_activated(self, _box: Gtk.ListBox, row: Gtk.ListBoxRow) -> None:
         if self._page == "clipboard":
+            self._preview_clipboard(row)
             return
         if self._page == "bots":
             bot_id = getattr(row, "bot_id", "")
@@ -2415,25 +2438,33 @@ class TodoWindow(Adw.ApplicationWindow):
         self._fill_clipboard_rows()
 
     def _fill_clipboard_rows(self) -> None:
+        self._sync_clip_tags()
         query = self._clip_query.casefold().strip()
+        tag_filter = self._clip_tag
         rows: list[Gtk.ListBoxRow] = []
         for entry in self._clip_entries:
             text = entry.get("text")
             ident = entry.get("id")
             masked = entry.get("masked") is True
-            if not isinstance(ident, str):
+            if not isinstance(ident, str) or not isinstance(entry, dict):
                 continue
             if not isinstance(text, str):
                 text = ""
             if not masked and not text:
                 continue
-            if query and masked and query not in "hidden password":
+            names = _clip_tag_names(entry)
+            if tag_filter and tag_filter not in names:
                 continue
-            if query and not masked and query not in text.casefold():
-                continue
-            rows.append(self._make_clip_row(ident, text, masked))
+            if query:
+                tag_hit = any(query in name.casefold() for name in names)
+                if masked:
+                    if not tag_hit and query not in "hidden password":
+                        continue
+                elif not tag_hit and query not in text.casefold():
+                    continue
+            rows.append(self._make_clip_row(entry, text, masked))
         if not rows:
-            empty_text = "No matches" if query else "Nothing copied yet"
+            empty_text = "No matches" if query or tag_filter else "Nothing copied yet"
             empty = Gtk.Label(label=empty_text, xalign=0)
             empty.add_css_class("dim-label")
             empty.set_margin_top(8)
@@ -2445,37 +2476,304 @@ class TodoWindow(Adw.ApplicationWindow):
             rows.append(row)
         self._install_rows(rows, "", clear_missing=False)
 
-    def _make_clip_row(self, ident: str, text: str, masked: bool = False) -> Gtk.ListBoxRow:
-        if masked:
-            preview = "Hidden password"
-        else:
-            preview = " ".join(text.split())
-            if len(preview) > 180:
-                preview = preview[:179] + "…"
-        label = Gtk.Label(label=preview or "Empty", xalign=0, hexpand=True, wrap=True)
+    def _sync_clip_tags(self) -> None:
+        names: list[str] = []
+        for entry in self._clip_entries:
+            for name in _clip_tag_names(entry):
+                if name not in names:
+                    names.append(name)
+        labels = ["All tags", *names]
+        current = self._clip_tag if self._clip_tag in names else ""
+        self._filling = True
+        self.clip_tag.set_model(Gtk.StringList.new(labels))
+        self.clip_tag.set_selected(0 if not current else labels.index(current))
+        self._clip_tag = current
+        self._filling = False
+
+    def _on_clip_tag(self, drop: Gtk.DropDown, _pspec: Any) -> None:
+        if self._filling:
+            return
+        item = drop.get_selected_item()
+        raw = item.get_string() if item is not None and hasattr(item, "get_string") else ""
+        self._clip_tag = "" if not isinstance(raw, str) or raw == "All tags" else raw
+        self._fill_clipboard_rows()
+
+    def _make_clip_row(self, entry: dict[str, Any], text: str, masked: bool) -> Gtk.ListBoxRow:
+        ident = str(entry.get("id") or "")
+        pinned = entry.get("pinned") is True
+        preview = "Hidden password" if masked else (list_preview(text) or "Empty")
+        label = Gtk.Label(label=preview, xalign=0, hexpand=True, wrap=True)
         label.set_max_width_chars(48)
         label.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+        chips = Gtk.Box(spacing=4)
+        for tag in entry.get("tags") or []:
+            if not isinstance(tag, dict) or not isinstance(tag.get("name"), str):
+                continue
+            color = tag.get("color") if isinstance(tag.get("color"), str) else "gray"
+            chips.append(_chip(tag["name"], color))
+        pin = Gtk.Button(label="Unpin" if pinned else "Pin")
+        pin.connect("clicked", self._on_pin_clip, entry)
+        tag_button = Gtk.Button(label="Tag")
+        tag_button.connect("clicked", self._on_tag_clip, entry)
+        edit = Gtk.Button(label="Edit")
+        edit.set_sensitive(not masked)
+        edit.connect("clicked", self._on_edit_clip, entry)
         copy = Gtk.Button(label="Copy")
         copy.connect("clicked", self._on_copy_clip, text)
+        web = Gtk.Button(label="Search the web")
+        template = self._search_template()
+        web.set_sensitive(not masked and template is not None)
+        if masked:
+            web.set_tooltip_text("Hidden passwords are not searched")
+        elif template is None:
+            web.set_tooltip_text("No default search engine is set")
+        web.connect("clicked", self._on_search_clip, entry)
         delete = Gtk.Button(label="Delete")
         delete.connect("clicked", self._on_delete_clip, ident)
-        actions = Gtk.Box(spacing=6)
-        actions.append(copy)
-        actions.append(delete)
-        box = Gtk.Box(spacing=8)
+        actions = Gtk.FlowBox(
+            selection_mode=Gtk.SelectionMode.NONE,
+            homogeneous=False,
+            column_spacing=6,
+            row_spacing=6,
+        )
+        actions.set_max_children_per_line(6)
+        for button in (pin, tag_button, edit, copy, web, delete):
+            actions.append(button)
+        column = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4, hexpand=True)
+        column.append(label)
+        if chips.get_first_child() is not None:
+            column.append(chips)
+        column.append(actions)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         box.set_margin_top(6)
         box.set_margin_bottom(6)
         box.set_margin_start(8)
         box.set_margin_end(8)
-        box.append(label)
-        box.append(actions)
+        box.append(column)
         row = Gtk.ListBoxRow(child=box)
         row.clip_id = ident
+        row.clip_text = text
+        row.clip_masked = masked
+        row.clip_entry = entry
         return row
 
     def _on_copy_clip(self, _button: Gtk.Button, text: str) -> None:
         self.get_clipboard().set(text)
         self._toast("Copied")
+
+    def _on_pin_clip(self, _button: Gtk.Button, entry: dict[str, Any]) -> None:
+        ident = entry.get("id")
+        if not isinstance(ident, str) or not hasattr(self.client, "pin_clipboard"):
+            return
+        try:
+            self.client.pin_clipboard(ident, entry.get("pinned") is not True)
+        except BridgeError as exc:
+            self._toast(str(exc))
+            return
+        self._reload_clip_now()
+
+    def _on_edit_clip(self, _button: Gtk.Button, entry: dict[str, Any]) -> None:
+        if entry.get("masked") is True:
+            return
+        ident = entry.get("id")
+        text = entry.get("text") if isinstance(entry.get("text"), str) else ""
+        if not isinstance(ident, str):
+            return
+        self._show_clip_text("Edit", text, editable=True, entry_id=ident)
+
+    def _on_tag_clip(self, _button: Gtk.Button, entry: dict[str, Any]) -> None:
+        ident = entry.get("id")
+        if not isinstance(ident, str):
+            return
+        tags = [
+            {"name": tag["name"], "color": tag.get("color", "gray")}
+            for tag in entry.get("tags") or []
+            if isinstance(tag, dict) and isinstance(tag.get("name"), str)
+        ]
+        self._show_clip_tags(ident, tags)
+
+    def _on_search_clip(self, _button: Gtk.Button, entry: dict[str, Any]) -> None:
+        if entry.get("masked") is True:
+            return
+        url = search_target(entry.get("text"), self._search_template())
+        if url is None:
+            self._toast("No default search engine")
+            return
+        try:
+            Gio.AppInfo.launch_default_for_uri(url, None)
+        except Exception:
+            self._toast("Could not open the browser")
+
+    def _preview_clipboard(self, row: Gtk.ListBoxRow) -> None:
+        if getattr(row, "clip_masked", False) is True:
+            return
+        text = getattr(row, "clip_text", None)
+        if not isinstance(text, str):
+            return
+        self._show_clip_text("Preview", text, editable=False, entry_id=None)
+
+    def _show_clip_text(
+        self,
+        title: str,
+        text: str,
+        *,
+        editable: bool,
+        entry_id: str | None,
+    ) -> None:
+        window = Gtk.Window(transient_for=self, modal=True, title=title)
+        window.set_default_size(640, 480)
+        view = Gtk.TextView(
+            editable=editable,
+            cursor_visible=editable,
+            wrap_mode=Gtk.WrapMode.WORD_CHAR,
+            vexpand=True,
+        )
+        view.get_buffer().set_text(text)
+        scrolled = Gtk.ScrolledWindow(child=view, vexpand=True)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        box.set_margin_top(12)
+        box.set_margin_bottom(12)
+        box.set_margin_start(12)
+        box.set_margin_end(12)
+        box.append(scrolled)
+        if editable and entry_id is not None:
+            save = Gtk.Button(label="Save")
+            save.connect("clicked", self._on_save_clip_edit, window, view, entry_id)
+            box.append(save)
+        window.set_child(box)
+        self._clip_dialog = window
+        window.present()
+
+    def _on_save_clip_edit(
+        self,
+        _button: Gtk.Button,
+        window: Gtk.Window,
+        view: Gtk.TextView,
+        entry_id: str,
+    ) -> None:
+        if not hasattr(self.client, "edit_clipboard"):
+            return
+        buffer = view.get_buffer()
+        text = buffer.get_text(buffer.get_start_iter(), buffer.get_end_iter(), True)
+        try:
+            saved = self.client.edit_clipboard(entry_id, text)
+        except BridgeError as exc:
+            self._toast(str(exc))
+            return
+        if not saved:
+            self._toast("That line could not be edited")
+            return
+        window.close()
+        self._reload_clip_now()
+
+    def _show_clip_tags(self, entry_id: str, tags: list[dict[str, str]]) -> None:
+        window = Gtk.Window(transient_for=self, modal=True, title="Tags")
+        window.set_default_size(420, 360)
+        working = [dict(tag) for tag in tags]
+        rows = Gtk.ListBox()
+        name_row = Gtk.Entry(placeholder_text="Tag")
+        color_row = Gtk.DropDown.new_from_strings([name.title() for name in PALETTE])
+        add = Gtk.Button(label="Add")
+        save = Gtk.Button(label="Save")
+
+        def rebuild() -> None:
+            while (child := rows.get_first_child()) is not None:
+                rows.remove(child)
+            for index, tag in enumerate(working):
+                line = Gtk.Box(spacing=6)
+                line.set_margin_top(4)
+                line.set_margin_bottom(4)
+                line.set_margin_start(8)
+                line.set_margin_end(8)
+                line.append(_chip(tag["name"], tag.get("color") or "gray"))
+                remove = Gtk.Button(label="Remove")
+                remove.connect("clicked", lambda _button, item=index: drop(item))
+                line.append(remove)
+                rows.append(line)
+
+        def drop(index: int) -> None:
+            if 0 <= index < len(working):
+                working.pop(index)
+                rebuild()
+
+        def add_tag(_button: Gtk.Button) -> None:
+            name = " ".join(name_row.get_text().split())
+            if not name or len(name) > 40:
+                return
+            if any(tag["name"].casefold() == name.casefold() for tag in working):
+                return
+            selected = color_row.get_selected()
+            color = PALETTE[selected] if 0 <= selected < len(PALETTE) else PALETTE[0]
+            working.append({"name": name, "color": color})
+            name_row.set_text("")
+            rebuild()
+
+        def save_tags(_button: Gtk.Button) -> None:
+            if not hasattr(self.client, "set_clipboard_tags"):
+                return
+            try:
+                saved = self.client.set_clipboard_tags(entry_id, working)
+            except BridgeError as exc:
+                self._toast(str(exc))
+                return
+            if not saved:
+                self._toast("Tags could not be saved")
+                return
+            window.close()
+            self._reload_clip_now()
+
+        add.connect("clicked", add_tag)
+        save.connect("clicked", save_tags)
+        editor = Gtk.Box(spacing=6)
+        editor.append(name_row)
+        editor.append(color_row)
+        editor.append(add)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        box.set_margin_top(12)
+        box.set_margin_bottom(12)
+        box.set_margin_start(12)
+        box.set_margin_end(12)
+        box.append(rows)
+        box.append(editor)
+        box.append(save)
+        window.set_child(box)
+        rebuild()
+        self._clip_dialog = window
+        window.present()
+
+    def _reload_clip_now(self) -> None:
+        if hasattr(self.client, "get_clipboard"):
+            try:
+                self._clip_entries = self.client.get_clipboard()
+            except BridgeError as exc:
+                self._toast(str(exc))
+                return
+        self._fill_clipboard_rows()
+
+    def _search_template(self) -> str | None:
+        if self._clip_search_ready:
+            return self._clip_search_template
+        self._clip_search_ready = True
+        desktop = ""
+        setting = None
+        try:
+            info = Gio.AppInfo.get_default_for_uri_scheme("https")
+            if info is not None:
+                desktop = info.get_id() or ""
+        except Exception:
+            desktop = ""
+        try:
+            source = Gio.SettingsSchemaSource.get_default()
+            schema = None if source is None else source.lookup("org.gnome.Epiphany", True)
+            if schema is not None and schema.has_key("search-engine"):
+                setting = Gio.Settings.new("org.gnome.Epiphany").get_string("search-engine")
+        except Exception:
+            setting = None
+        try:
+            self._clip_search_template = discover_search_template(Path.home(), desktop, setting)
+        except Exception:
+            self._clip_search_template = None
+        return self._clip_search_template
 
     def _on_delete_clip(self, _button: Gtk.Button, entry_id: str) -> None:
         if not hasattr(self.client, "delete_clipboard"):
@@ -2493,7 +2791,10 @@ class TodoWindow(Adw.ApplicationWindow):
     def _confirm_clear_clipboard(self) -> None:
         dialog = Adw.AlertDialog(
             heading="Clear clipboard history?",
-            body="Copied text saved on this machine is removed. The feed is not changed.",
+            body=(
+                "Unpinned copies saved on this machine are removed. "
+                "Pinned items stay. The feed is not changed."
+            ),
         )
         dialog.add_response("cancel", "Cancel")
         dialog.add_response("clear", "Clear")
@@ -2512,7 +2813,9 @@ class TodoWindow(Adw.ApplicationWindow):
         except BridgeError as exc:
             self._toast(str(exc))
             return
-        self._clip_entries = []
+        self._clip_entries = [
+            entry for entry in self._clip_entries if entry.get("pinned") is True
+        ]
         self._fill_clipboard_rows()
         self._toast("Clipboard cleared")
 
@@ -3095,6 +3398,17 @@ def _copy_icon(label: str) -> Gtk.Button:
     button.set_tooltip_text(label)
     button.update_property([Gtk.AccessibleProperty.LABEL], [label])
     return button
+
+
+def _clip_tag_names(entry: dict[str, Any]) -> list[str]:
+    tags = entry.get("tags")
+    if not isinstance(tags, list):
+        return []
+    names: list[str] = []
+    for tag in tags:
+        if isinstance(tag, dict) and isinstance(tag.get("name"), str):
+            names.append(tag["name"])
+    return names
 
 
 def _chip(label: str, tone: str) -> Gtk.Label:

@@ -1941,6 +1941,7 @@ export default class TetherBotExtension extends Extension {
 
     _buildClipboardIndicator() {
         this._clipEntries = [];
+        this._clipPinHold = false;
         this._clipIndicator = new PanelMenu.Button(0.0, 'Clipboard', false);
         this._clipIndicator.add_style_class_name('tetherbot-clipboard');
         const icon = new St.Icon({
@@ -2150,10 +2151,46 @@ export default class TetherBotExtension extends Extension {
             if (!entry || typeof entry.text !== 'string')
                 continue;
             const masked = entry.masked === true;
+            const pinned = entry.pinned === true;
             const item = new PopupMenu.PopupMenuItem(menuLabel(masked ? '' : entry.text, masked));
-            item.connect('activate', () => this._recopyClipboard(entry.text));
+            item.connect('activate', () => {
+                if (this._clipPinHold) {
+                    this._clipPinHold = false;
+                    return;
+                }
+                this._recopyClipboard(entry.text);
+            });
+            const pin = new St.Button({
+                style_class: 'popup-menu-item-button',
+                child: new St.Icon({
+                    icon_name: 'view-pin-symbolic',
+                    style: pinned ? '' : 'opacity: 0.45;',
+                }),
+                x_align: Clutter.ActorAlign.END,
+                can_focus: true,
+            });
+            pin.accessible_name = pinned ? 'Unpin' : 'Pin';
+            pin.connect('button-press-event', () => {
+                this._clipPinHold = true;
+                this._pinClipboard(entry.id, !pinned);
+                GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
+                    this._clipPinHold = false;
+                    return GLib.SOURCE_REMOVE;
+                });
+                return Clutter.EVENT_STOP;
+            });
+            item.add_child(pin);
             this._clipSection.addMenuItem(item);
         }
+    }
+
+    _pinClipboard(entryId, pinned) {
+        if (!entryId || !this._proxy || !this._proxy.PinClipboardRemote)
+            return;
+        this._proxy.PinClipboardRemote(entryId, pinned === true, () => {
+            if (this._enabled)
+                this._loadClipboard();
+        });
     }
 
     _recopyClipboard(text) {

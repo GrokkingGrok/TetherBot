@@ -106,6 +106,9 @@ METHOD_OUT: dict[str, str | None] = {
     "DeleteClipboard": "(b)",
     "ClearClipboard": "(b)",
     "NoteClipboard": "(b)",
+    "PinClipboard": "(b)",
+    "SetClipboardTags": "(b)",
+    "EditClipboard": "(b)",
 }
 
 PROPERTY_TYPES = {
@@ -780,8 +783,41 @@ class BridgeApi:
     def _clear_clipboard(self) -> tuple[bool]:
         history = self._clipboard_history()
         history.clear()
-        self._emit("ClipboardChanged", 0)
+        self._emit("ClipboardChanged", len(history.entries))
         return (True,)
+
+    def _pin_clipboard(self, entry_id: str, pinned: bool) -> tuple[bool]:
+        if not isinstance(entry_id, str) or not isinstance(pinned, bool):
+            raise ServiceError(INVALID_ARGS, "clipboard pin is invalid")
+        history = self._clipboard_history()
+        changed = history.set_pinned(entry_id, pinned)
+        if changed:
+            self._emit("ClipboardChanged", len(history.entries))
+        return (changed,)
+
+    def _set_clipboard_tags(self, entry_id: str, tags_json: str) -> tuple[bool]:
+        if not isinstance(entry_id, str) or not isinstance(tags_json, str):
+            raise ServiceError(INVALID_ARGS, "clipboard tags are invalid")
+        try:
+            payload = json.loads(tags_json)
+        except json.JSONDecodeError as exc:
+            raise ServiceError(INVALID_ARGS, "clipboard tags are invalid") from exc
+        if not isinstance(payload, list):
+            raise ServiceError(INVALID_ARGS, "clipboard tags are invalid")
+        history = self._clipboard_history()
+        changed = history.set_tags(entry_id, payload)
+        if changed:
+            self._emit("ClipboardChanged", len(history.entries))
+        return (changed,)
+
+    def _edit_clipboard(self, entry_id: str, text: str) -> tuple[bool]:
+        if not isinstance(entry_id, str) or not isinstance(text, str):
+            raise ServiceError(INVALID_ARGS, "clipboard edit is invalid")
+        history = self._clipboard_history()
+        changed = history.edit_text(entry_id, text)
+        if changed:
+            self._emit("ClipboardChanged", len(history.entries))
+        return (changed,)
 
     def _clipboard_history(self) -> ClipboardHistory:
         history = getattr(self._daemon, "clipboard", None)

@@ -50,6 +50,15 @@
       <summary>Apps left out of clipboard history</summary>
       <description>Window classes whose copies are not saved. The default list is common password managers. Matching ignores case.</description>
     </key>
+    <key name="clipboard-lookalike" type="s">
+      <choices>
+        <choice value="skip"/>
+        <choice value="mask"/>
+      </choices>
+      <default>'skip'</default>
+      <summary>Password-like copies</summary>
+      <description>Skip drops a single-line copy that looks like a password. Mask keeps that copy on this machine for 30 seconds and hides the text. The default is skip.</description>
+    </key>
     <key name="history-unit" type="s">
       <choices>
         <choice value="hours"/>

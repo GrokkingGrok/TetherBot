@@ -163,6 +163,10 @@
     <method name="ClearClipboard">
       <arg name="cleared" type="b" direction="out"/>
     </method>
+    <method name="NoteClipboard">
+      <arg name="meta_json" type="s" direction="in"/>
+      <arg name="noted" type="b" direction="out"/>
+    </method>
 
     <signal name="ItemsChanged">
       <arg name="added" type="as"/>

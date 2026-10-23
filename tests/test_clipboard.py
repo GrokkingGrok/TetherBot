@@ -14,6 +14,8 @@ from tests.helpers import NOW
 from tetherbot.clipboard_policy import (
     DEFAULT_EXCLUDED_APPS,
     classify_clipboard,
+    format_clipboard_debug,
+    looks_like_password,
 )
 from tetherbot.clipboard_store import ClipboardHistory
 from tetherbot.daemon import BridgeDaemon
@@ -23,13 +25,23 @@ from tetherbot.ui_settings import UiSettings
 ROOT = Path(__file__).resolve().parents[1]
 SAMPLE = "sample clipboard line"
 META = json.dumps({"mimes": ["text/plain"], "wm_class": "gedit"})
+LOOKALIKE = "aB3!xxxx"
+CHROME_MIMES = [
+    "text/plain",
+    "text/plain;charset=utf-8",
+    "UTF8_STRING",
+    "STRING",
+    "TEXT",
+    "chromium/x-source-url",
+]
 
 
 def _history(tmp_path: Path, **kwargs: object) -> ClipboardHistory:
+    clock = kwargs.pop("clock", lambda: 1_700_000_000)
     return ClipboardHistory(
         tmp_path / "state" / "clipboard.json",
-        clock=lambda: 1_700_000_000,
-        **kwargs,
+        clock=clock,  # type: ignore[arg-type]
+        **kwargs,  # type: ignore[arg-type]
     )
 
 
@@ -172,6 +184,133 @@ def test_service_offer_filters_and_does_not_log_the_text(tmp_path: Path):
     assert "not-stored" not in stream.getvalue()
     with pytest.raises(ServiceError):
         daemon.api.call("OfferClipboard", (SAMPLE, "not-json"))
+
+
+def test_a_password_lookalike_is_skipped_and_not_written(tmp_path: Path):
+    history = _history(tmp_path)
+    assert looks_like_password(LOOKALIKE) is True
+    assert looks_like_password("C0rrect-Horse") is True
+    assert looks_like_password("Password1") is True
+    assert looks_like_password("hello world") is False
+    assert looks_like_password("https://example.com/notes") is False
+    assert looks_like_password("/home/user/notes") is False
+    assert looks_like_password("12345678") is False
+    assert looks_like_password("hello") is False
+    assert looks_like_password("HelloWorld") is False
+    assert looks_like_password("README.md") is False
+    assert looks_like_password("User@example.com") is False
+    assert looks_like_password("password1") is False
+    assert looks_like_password("550e8400-e29b-41d4-a716-446655440000") is False
+    assert looks_like_password(LOOKALIKE + "\n") is True
+    assert (
+        classify_clipboard(
+            None,
+            CHROME_MIMES,
+            "google-chrome",
+            enabled=True,
+            excluded=(),
+        )
+        == "needs-text"
+    )
+    assert (
+        classify_clipboard(
+            None,
+            [*CHROME_MIMES, "application/x-chromium-password-sensitive"],
+            "google-chrome",
+            enabled=True,
+            excluded=(),
+        )
+        == "skipped-sensitive"
+    )
+    assert (
+        classify_clipboard(
+            LOOKALIKE,
+            CHROME_MIMES,
+            "Google-Chrome",
+            enabled=True,
+            excluded=(),
+        )
+        == "skipped-lookalike"
+    )
+    assert history.offer(LOOKALIKE, CHROME_MIMES, "google-chrome") == "skipped-lookalike"
+    assert history.offer("hello world", CHROME_MIMES, "chromium") == "stored"
+    blob = history.path.read_text(encoding="utf-8")
+    assert LOOKALIKE not in blob
+    report = format_clipboard_debug(json.loads(blob))
+    assert report.startswith("result: stored\n")
+    assert "text/plain" in report
+    assert "chromium/x-source-url" in report
+    assert LOOKALIKE not in report
+    history.offer(LOOKALIKE, CHROME_MIMES, "Google-Chrome")
+    report = format_clipboard_debug(json.loads(history.path.read_text(encoding="utf-8")))
+    assert "result: skipped-lookalike" in report
+    assert "reason: password lookalike" in report
+    assert "Google-Chrome" in report
+    assert LOOKALIKE not in report
+    assert "hello world" not in report
+
+
+def test_mask_mode_hides_a_lookalike_and_drops_it_after_30_seconds(tmp_path: Path):
+    now = {"t": 1_700_000_000}
+    history = _history(tmp_path, lookalike="mask", clock=lambda: now["t"])
+    assert history.offer(LOOKALIKE, CHROME_MIMES, "google-chrome") == "stored-masked"
+    listed = history.list_entries()
+    assert listed[0]["masked"] is True
+    assert listed[0]["text"] == LOOKALIKE
+    assert history.list_entries(LOOKALIKE) == []
+    report = format_clipboard_debug(json.loads(history.path.read_text(encoding="utf-8")))
+    assert "result: stored-masked" in report
+    assert "reason: hidden for 30 seconds" in report
+    assert LOOKALIKE not in report
+    now["t"] += 29
+    assert history.list_entries()[0]["text"] == LOOKALIKE
+    now["t"] += 1
+    assert history.list_entries() == []
+    assert LOOKALIKE not in history.path.read_text(encoding="utf-8")
+    assert history.offer(LOOKALIKE, ["text/plain"], "gedit") == "stored-masked"
+    history.configure(enabled=True, limit=50, excluded=(), lookalike="skip")
+    assert history.list_entries() == []
+    assert LOOKALIKE not in history.path.read_text(encoding="utf-8")
+
+
+def test_note_records_mimes_without_the_text(tmp_path: Path):
+    stream = StringIO()
+    daemon = BridgeDaemon(
+        config_path=tmp_path / "config.toml",
+        state_dir=tmp_path / "state",
+        log_stream=stream,
+        clock=lambda: NOW,
+    )
+    daemon.start()
+    assert daemon.api is not None
+    note = json.dumps(
+        {
+            "mimes": CHROME_MIMES,
+            "wm_class": "google-chrome",
+            "result": "skipped-lookalike",
+            "text": LOOKALIKE,
+        }
+    )
+    assert daemon.api.call("NoteClipboard", (note,)) == (True,)
+    blob = (tmp_path / "state" / "clipboard.json").read_text(encoding="utf-8")
+    assert LOOKALIKE not in blob
+    assert LOOKALIKE not in stream.getvalue()
+    report = format_clipboard_debug(json.loads(blob))
+    assert "skipped-lookalike" in report
+    assert "text/plain" in report
+    assert "google-chrome" in report
+    with pytest.raises(ServiceError):
+        daemon.api.call(
+            "NoteClipboard",
+            (json.dumps({"mimes": ["text/plain"], "wm_class": "gedit", "result": LOOKALIKE}),),
+        )
+    assert LOOKALIKE not in stream.getvalue()
+    daemon.ui_settings = UiSettings(clipboard_lookalike="mask")
+    assert daemon.api.call("OfferClipboard", (LOOKALIKE, META)) == ("stored-masked",)
+    listed = json.loads(daemon.api.call("GetClipboard", ("",))[0])
+    assert listed[0]["masked"] is True
+    assert json.loads(daemon.api.call("GetClipboard", (LOOKALIKE,))[0]) == []
+    assert LOOKALIKE not in stream.getvalue()
 
 
 def test_javascript_filter_matches_the_bridge():

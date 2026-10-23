@@ -81,6 +81,7 @@ export const PROXY_METHODS = [
     'GetClipboardRemote',
     'DeleteClipboardRemote',
     'ClearClipboardRemote',
+    'NoteClipboardRemote',
 ];
 
 export const PROXY_SIGNALS = [

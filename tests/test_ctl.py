@@ -331,6 +331,43 @@ def test_cancelled_prompt(tmp_path: Path):
     assert context.stderr.getvalue().strip() == "cancelled"
 
 
+def test_clipboard_debug_prints_types_and_not_the_text(tmp_path: Path):
+    secret = "aB3!xxxx"
+    state = tmp_path / "state"
+    state.mkdir()
+    (state / "clipboard.json").write_text(
+        json.dumps(
+            {
+                "kind": "clipboard",
+                "entries": [{"id": "c-1234abcd", "text": secret, "at": 1}],
+                "last_offer": {
+                    "at": 1,
+                    "mimes": ["text/plain", "UTF8_STRING", "chromium/x-source-url"],
+                    "result": "skipped-lookalike",
+                    "wm_class": "google-chrome",
+                    "text": secret,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    context = _context(tmp_path, state_dir=state)
+    assert main(["clipboard-debug"], context) == 0
+    output = context.stdout.getvalue()
+    assert "result: skipped-lookalike" in output
+    assert "reason: password lookalike" in output
+    assert "text/plain" in output
+    assert "UTF8_STRING" in output
+    assert "chromium/x-source-url" in output
+    assert "wm_class: google-chrome" in output
+    assert secret not in output
+    assert "entries" not in output
+    missing = _context(tmp_path, state_dir=tmp_path / "empty")
+    assert main(["clipboard-debug"], missing) == 0
+    assert "result: none" in missing.stdout.getvalue()
+    assert secret not in missing.stdout.getvalue()
+
+
 def test_import_does_not_load_gi():
     env = os.environ.copy()
     env["PYTHONPATH"] = str(ROOT / "bridge")

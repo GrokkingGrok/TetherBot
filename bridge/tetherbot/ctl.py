@@ -23,8 +23,9 @@ from typing import TextIO
 from urllib.parse import urlsplit
 
 from tetherbot.adapters.webhook_sender import ping_body
+from tetherbot.clipboard_policy import format_clipboard_debug
 from tetherbot.config import ConfigError, action_slots, load_config, save_adapter_enabled
-from tetherbot.daemon import default_config_path
+from tetherbot.daemon import default_config_path, default_state_dir
 from tetherbot.dbus_service import BUS_NAME, INTERFACE, OBJECT_PATH
 from tetherbot.secrets import SecretError, SecretStore, open_secret_store
 
@@ -53,6 +54,7 @@ class CtlContext:
     resume: Callable[[str], None] | None = None
     queue: Callable[[], list[Mapping[str, object]] | None] | None = None
     call_method: Callable[[str, str, tuple[object, ...]], object] | None = None
+    state_dir: Path | None = None
 
 
 def main(argv: list[str] | None = None, context: CtlContext | None = None) -> int:
@@ -251,6 +253,8 @@ def _dispatch(args: argparse.Namespace, context: CtlContext) -> int:
         return _webhook_test(args.bot, context)
     if args.command == "timer":
         return _timer(args, context)
+    if args.command == "clipboard-debug":
+        return _clipboard_debug(context)
     raise CtlError("unknown command")
 
 
@@ -438,6 +442,21 @@ def _dbus_timer(method: str, signature: str, args: tuple[object, ...]) -> str:
     return str(unpacked)
 
 
+def _clipboard_debug(context: CtlContext) -> int:
+    """Print the last offer's types and decision. The text is not read aloud."""
+
+    directory = context.state_dir if context.state_dir is not None else default_state_dir()
+    path = directory / "clipboard.json"
+    payload: object = None
+    if path.is_file():
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError, UnicodeError):
+            payload = None
+    print(format_clipboard_debug(payload), file=context.stdout, end="")
+    return 0
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="tetherbotctl")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -462,6 +481,7 @@ def _parser() -> argparse.ArgumentParser:
     timer_commands.add_parser("pause")
     timer_commands.add_parser("resume")
     timer_commands.add_parser("stop")
+    commands.add_parser("clipboard-debug")
     return parser
 
 

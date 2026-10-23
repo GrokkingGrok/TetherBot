@@ -188,6 +188,9 @@ def test_clipboard_capture_filters_before_it_reads_text():
     assert capture.index("classifyClipboard") < capture.index("get_text")
     assert capture.index("get_text") < capture.index("OfferClipboardRemote")
     assert "needs-text" in capture
+    assert "_noteClipboard" in capture
+    assert "stored-masked" in capture
+    assert "NoteClipboardRemote" in text
     menu = text.split("    _buildClipboardIndicator() {", 1)[1].split("\n    _", 1)[0]
     assert "edit-copy-symbolic" in menu
     assert "accessible_name = 'Clipboard'" in menu

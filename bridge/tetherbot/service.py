@@ -105,6 +105,7 @@ METHOD_OUT: dict[str, str | None] = {
     "GetClipboard": "(s)",
     "DeleteClipboard": "(b)",
     "ClearClipboard": "(b)",
+    "NoteClipboard": "(b)",
 }
 
 PROPERTY_TYPES = {
@@ -741,15 +742,31 @@ class BridgeApi:
         mimes, wm_class = _clipboard_meta(meta_json)
         history = self._clipboard_history()
         result = history.offer(text, mimes, wm_class)
-        if result == "stored":
+        if result in {"stored", "stored-masked"}:
             self._emit("ClipboardChanged", len(history.entries))
+        if result == "stored-masked":
+            self._schedule_clipboard_mask()
         return (result,)
+
+    def _note_clipboard(self, meta_json: str) -> tuple[bool]:
+        """Record MIME types and a decision. The copied text is not accepted."""
+
+        if not isinstance(meta_json, str):
+            raise ServiceError(INVALID_ARGS, "clipboard note is invalid")
+        mimes, wm_class, result = _clipboard_note(meta_json)
+        history = self._clipboard_history()
+        history.note(mimes, wm_class, result)
+        return (True,)
 
     def _get_clipboard(self, query: str) -> tuple[str]:
         if not isinstance(query, str):
             raise ServiceError(INVALID_ARGS, "query is invalid")
         history = self._clipboard_history()
-        return (_dumps(history.list_entries(query)),)
+        before = len(history.entries)
+        rows = history.list_entries(query)
+        if len(history.entries) != before:
+            self._emit("ClipboardChanged", len(history.entries))
+        return (_dumps(rows),)
 
     def _delete_clipboard(self, entry_id: str) -> tuple[bool]:
         if not isinstance(entry_id, str):
@@ -779,7 +796,38 @@ class BridgeApi:
             enabled=ui.clipboard_enabled,
             limit=ui.clipboard_limit,
             excluded=ui.clipboard_excluded,
+            lookalike=ui.clipboard_lookalike,
         )
+
+    def arm_clipboard_masks(self) -> None:
+        """Expire a hidden password on the running loop. No text is logged."""
+
+        self._schedule_clipboard_mask()
+
+    def _schedule_clipboard_mask(self) -> None:
+        history = getattr(self._daemon, "clipboard", None)
+        loop = getattr(self._daemon, "_loop", None)
+        if not isinstance(history, ClipboardHistory) or loop is None:
+            return
+        if not hasattr(loop, "timeout_add"):
+            return
+        delay = history.mask_wait()
+        if delay is None:
+            return
+        token = getattr(self, "_mask_token", 0) + 1
+        self._mask_token = token
+
+        def _fire() -> None:
+            if getattr(self, "_mask_token", 0) != token:
+                return
+            current = getattr(self._daemon, "clipboard", None)
+            if not isinstance(current, ClipboardHistory):
+                return
+            if current.purge():
+                self._emit("ClipboardChanged", len(current.entries))
+            self._schedule_clipboard_mask()
+
+        loop.timeout_add(delay, _fire)
 
     def _ui(self):
         return resolve_ui_settings(self._daemon)
@@ -1065,6 +1113,34 @@ def _chip_zone(now: datetime):
     if now.tzinfo is None:
         raise ServiceError(FAILED, "clock must be timezone-aware")
     return display_zone()
+
+
+def _clipboard_note(raw: str) -> tuple[list[str], str, str]:
+    """MIME types, window class, and a known result. A text field is dropped."""
+
+    if raw == "":
+        raise ServiceError(INVALID_ARGS, "meta_json is invalid")
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ServiceError(INVALID_ARGS, "meta_json is invalid") from exc
+    if not isinstance(payload, dict):
+        raise ServiceError(INVALID_ARGS, "meta_json is invalid")
+    mimes, wm_class = _clipboard_meta(raw)
+    result = payload.get("result")
+    if not isinstance(result, str) or result not in {
+        "stored",
+        "stored-masked",
+        "skipped-sensitive",
+        "skipped-app",
+        "skipped-disabled",
+        "skipped-empty",
+        "skipped-binary",
+        "skipped-huge",
+        "skipped-lookalike",
+    }:
+        raise ServiceError(INVALID_ARGS, "meta_json is invalid")
+    return mimes, wm_class, result
 
 
 def _clipboard_meta(raw: str) -> tuple[list[str], str]:

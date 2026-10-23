@@ -2420,11 +2420,18 @@ class TodoWindow(Adw.ApplicationWindow):
         for entry in self._clip_entries:
             text = entry.get("text")
             ident = entry.get("id")
-            if not isinstance(text, str) or not isinstance(ident, str):
+            masked = entry.get("masked") is True
+            if not isinstance(ident, str):
                 continue
-            if query and query not in text.casefold():
+            if not isinstance(text, str):
+                text = ""
+            if not masked and not text:
                 continue
-            rows.append(self._make_clip_row(ident, text))
+            if query and masked and query not in "hidden password":
+                continue
+            if query and not masked and query not in text.casefold():
+                continue
+            rows.append(self._make_clip_row(ident, text, masked))
         if not rows:
             empty_text = "No matches" if query else "Nothing copied yet"
             empty = Gtk.Label(label=empty_text, xalign=0)
@@ -2438,10 +2445,13 @@ class TodoWindow(Adw.ApplicationWindow):
             rows.append(row)
         self._install_rows(rows, "", clear_missing=False)
 
-    def _make_clip_row(self, ident: str, text: str) -> Gtk.ListBoxRow:
-        preview = " ".join(text.split())
-        if len(preview) > 180:
-            preview = preview[:179] + "…"
+    def _make_clip_row(self, ident: str, text: str, masked: bool = False) -> Gtk.ListBoxRow:
+        if masked:
+            preview = "Hidden password"
+        else:
+            preview = " ".join(text.split())
+            if len(preview) > 180:
+                preview = preview[:179] + "…"
         label = Gtk.Label(label=preview or "Empty", xalign=0, hexpand=True, wrap=True)
         label.set_max_width_chars(48)
         label.set_wrap_mode(Pango.WrapMode.WORD_CHAR)

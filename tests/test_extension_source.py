@@ -199,8 +199,19 @@ def test_clipboard_capture_filters_before_it_reads_text():
     filled = text.split("    _fillClipboardMenu() {", 1)[1].split("\n    _", 1)[0]
     assert "Unpin" in filled
     assert "view-pin-symbolic" in filled
+    assert "document-edit-symbolic" in filled
+    assert "tag-symbolic" in filled
+    assert "edit-copy-symbolic" in filled
+    assert "system-search-symbolic" in filled
+    assert "edit-delete-symbolic" in filled
+    assert "EllipsizeMode.END" in filled
+    assert "tetherbot-clip-sep" in filled
+    assert "line_wrap = false" in filled
+    assert "opacity: 0.45" not in filled
     assert "Clutter.EVENT_STOP" in filled
     assert "PinClipboardRemote" in text
+    assert "DeleteClipboardRemote" in text
+    assert "launch_default_for_uri" not in text
 
 
 def test_the_menu_undo_bar_is_centered():

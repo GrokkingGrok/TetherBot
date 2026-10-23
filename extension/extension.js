@@ -2152,7 +2152,64 @@ export default class TetherBotExtension extends Extension {
                 continue;
             const masked = entry.masked === true;
             const pinned = entry.pinned === true;
-            const item = new PopupMenu.PopupMenuItem(menuLabel(masked ? '' : entry.text, masked));
+            const item = new PopupMenu.PopupBaseMenuItem();
+            item.track_hover = true;
+            const row = new St.BoxLayout({
+                style_class: 'tetherbot-clip-row',
+                y_align: Clutter.ActorAlign.CENTER,
+                x_expand: true,
+            });
+            const textBox = new St.BoxLayout({
+                style_class: 'tetherbot-clip-text',
+                y_align: Clutter.ActorAlign.CENTER,
+            });
+            const label = new St.Label({
+                text: menuLabel(masked ? '' : entry.text, masked),
+                x_expand: true,
+                y_align: Clutter.ActorAlign.CENTER,
+            });
+            if (label.clutter_text) {
+                label.clutter_text.ellipsize = Pango.EllipsizeMode.END;
+                label.clutter_text.line_wrap = false;
+            }
+            textBox.add_child(label);
+            const dots = clipDots(entry.tags);
+            if (dots.get_n_children() > 0)
+                textBox.add_child(dots);
+            row.add_child(textBox);
+            const tagTip = masked ? 'Hidden passwords are not tagged' : 'Tag';
+            const searchTip = masked ? 'Hidden passwords are not searched' : 'Search the web';
+            const columns = [
+                ['document-edit-symbolic', 'Edit', !masked, false, () => this._openClipboardWindow()],
+                ['view-pin-symbolic', pinned ? 'Unpin' : 'Pin', true, pinned, () => {
+                    this._pinClipboard(entry.id, !pinned);
+                }],
+                ['tag-symbolic', tagTip, !masked, false, () => this._openClipboardWindow()],
+                ['edit-copy-symbolic', 'Copy', true, false, () => this._recopyClipboard(entry.text)],
+                ['system-search-symbolic', searchTip, !masked, false, () => this._openClipboardWindow()],
+                ['edit-delete-symbolic', 'Delete', true, false, () => this._deleteClipboard(entry.id)],
+            ];
+            columns.forEach(([iconName, tip, enabled, accent, onPress], index) => {
+                if (index > 0) {
+                    row.add_child(new St.Widget({
+                        style_class: 'tetherbot-clip-sep',
+                        y_align: Clutter.ActorAlign.CENTER,
+                    }));
+                }
+                const button = this._clipIconButton(iconName, tip, enabled, accent);
+                button.connect('button-press-event', () => {
+                    this._clipPinHold = true;
+                    GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
+                        this._clipPinHold = false;
+                        return GLib.SOURCE_REMOVE;
+                    });
+                    if (enabled)
+                        onPress();
+                    return Clutter.EVENT_STOP;
+                });
+                row.add_child(button);
+            });
+            item.add_child(row);
             item.connect('activate', () => {
                 if (this._clipPinHold) {
                     this._clipPinHold = false;
@@ -2160,34 +2217,44 @@ export default class TetherBotExtension extends Extension {
                 }
                 this._recopyClipboard(entry.text);
             });
-            const pin = new St.Button({
-                style_class: 'popup-menu-item-button',
-                child: new St.Icon({
-                    icon_name: 'view-pin-symbolic',
-                    style: pinned ? '' : 'opacity: 0.45;',
-                }),
-                x_align: Clutter.ActorAlign.END,
-                can_focus: true,
-            });
-            pin.accessible_name = pinned ? 'Unpin' : 'Pin';
-            pin.connect('button-press-event', () => {
-                this._clipPinHold = true;
-                this._pinClipboard(entry.id, !pinned);
-                GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
-                    this._clipPinHold = false;
-                    return GLib.SOURCE_REMOVE;
-                });
-                return Clutter.EVENT_STOP;
-            });
-            item.add_child(pin);
             this._clipSection.addMenuItem(item);
         }
+    }
+
+    _clipIconButton(iconName, name, enabled, accent) {
+        const icon = new St.Icon({
+            icon_name: iconName,
+            icon_size: 16,
+            style_class: accent ? 'tetherbot-clip-pin-on' : '',
+        });
+        const button = new St.Button({
+            style_class: enabled
+                ? 'popup-menu-item-button tetherbot-clip-action'
+                : 'popup-menu-item-button tetherbot-clip-action tetherbot-dimmed',
+            child: icon,
+            can_focus: true,
+            reactive: true,
+            track_hover: enabled,
+            y_align: Clutter.ActorAlign.CENTER,
+        });
+        button.accessible_name = name;
+        button.tooltip_text = name;
+        return button;
     }
 
     _pinClipboard(entryId, pinned) {
         if (!entryId || !this._proxy || !this._proxy.PinClipboardRemote)
             return;
         this._proxy.PinClipboardRemote(entryId, pinned === true, () => {
+            if (this._enabled)
+                this._loadClipboard();
+        });
+    }
+
+    _deleteClipboard(entryId) {
+        if (!entryId || !this._proxy || !this._proxy.DeleteClipboardRemote)
+            return;
+        this._proxy.DeleteClipboardRemote(entryId, () => {
             if (this._enabled)
                 this._loadClipboard();
         });
@@ -2242,6 +2309,39 @@ function chipLabel(text, tone) {
         text,
         style_class: `tetherbot-chip tetherbot-tone-${tone || 'neutral'}`,
     });
+}
+
+const CLIP_DOT_TONES = {
+    red: true,
+    orange: true,
+    yellow: true,
+    green: true,
+    teal: true,
+    blue: true,
+    purple: true,
+    pink: true,
+    gray: true,
+};
+
+function clipDots(tags) {
+    const box = new St.BoxLayout({
+        y_align: Clutter.ActorAlign.CENTER,
+        style_class: 'tetherbot-clip-dots',
+    });
+    const list = Array.isArray(tags) ? tags : [];
+    for (const tag of list) {
+        if (!tag || typeof tag.name !== 'string' || !tag.name)
+            continue;
+        const tone = CLIP_DOT_TONES[tag.color] ? tag.color : 'gray';
+        const dot = new St.Widget({
+            style_class: `tetherbot-clip-dot tetherbot-clip-dot-${tone}`,
+            y_align: Clutter.ActorAlign.CENTER,
+            accessible_name: tag.name,
+        });
+        dot.tooltip_text = tag.name;
+        box.add_child(dot);
+    }
+    return box;
 }
 
 function unpackCounts(value) {

@@ -214,3 +214,41 @@
 .tetherbot-tone-pink { color: #f7b2d8; background-color: rgba(247, 178, 216, 0.16); }
 .tetherbot-tone-gray,
 .tetherbot-tone-neutral { color: #deddda; background-color: rgba(222, 221, 218, 0.12); }
+
+.tetherbot-clip-text {
+    width: 220px;
+    spacing: 6px;
+}
+
+.tetherbot-clip-action {
+    padding: 2px;
+}
+
+.tetherbot-clip-sep {
+    width: 1px;
+    height: 16px;
+    margin-left: 2px;
+    margin-right: 2px;
+    background-color: rgba(255, 255, 255, 0.18);
+}
+
+.tetherbot-clip-pin-on {
+    color: -st-accent-color;
+}
+
+.tetherbot-clip-dot {
+    width: 8px;
+    height: 8px;
+    margin-left: 4px;
+    border-radius: 8px;
+}
+
+.tetherbot-clip-dot-red { background-color: #ff8b8b; }
+.tetherbot-clip-dot-orange { background-color: #ffb07a; }
+.tetherbot-clip-dot-yellow { background-color: #f9e07a; }
+.tetherbot-clip-dot-green { background-color: #8ff0a4; }
+.tetherbot-clip-dot-teal { background-color: #93ddd6; }
+.tetherbot-clip-dot-blue { background-color: #99c1f1; }
+.tetherbot-clip-dot-purple { background-color: #d7b4f3; }
+.tetherbot-clip-dot-pink { background-color: #f7b2d8; }
+.tetherbot-clip-dot-gray { background-color: #deddda; }

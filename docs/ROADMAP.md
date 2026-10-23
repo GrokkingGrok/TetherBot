@@ -64,6 +64,7 @@ TetherBot is pre-alpha. Check items off as they land. Design detail is in [SPEC.
 - [ ] Manual checks M109–M113: pin survives the cap and Clear, tags and the tag filter, edit keeps the pin and the tags, preview keeps line breaks, and Search the web uses the desktop engine only when pressed. The steps are in [MANUAL-CHECKS.md](MANUAL-CHECKS.md). They have not been run on the desktop yet. They need a log out so the extension and the bridge load.
 - [ ] Manual checks M114–M116: the tag filter does not freeze the window, Search the web follows Chrome's engine or the Settings fallback, and a hidden password can be pinned but not tagged. The steps are in [MANUAL-CHECKS.md](MANUAL-CHECKS.md). They have not been run on the desktop yet. They need a log out so the extension, the schema, and the window load.
 - [ ] Manual check M117: Settings opens without an error, and the Clipboard search fallback row shows its hint. The steps are in [MANUAL-CHECKS.md](MANUAL-CHECKS.md). Close Settings and open it again after this version is installed.
+- [ ] Manual checks M118 and M119: the Clipboard page and the panel menu use one icon row per entry, the text stays one line, and a pin uses the accent color. The steps are in [MANUAL-CHECKS.md](MANUAL-CHECKS.md). They have not been run on the desktop yet. M118 reopens the window. M119 needs a log out so the menu loads.
 
 ## v0.2 — early adopters
 

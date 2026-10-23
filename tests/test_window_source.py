@@ -84,9 +84,18 @@ def test_window_sources_do_not_touch_the_network_or_secrets():
     assert "Hidden password" in window
     assert "Search the web" in window
     assert '"Preview"' in window
-    assert 'label="Edit"' in window
-    assert 'label="Tag"' in window
-    assert 'label="Pin"' in window or '"Unpin"' in window
+    assert "document-edit-symbolic" in window
+    assert "tag-symbolic" in window
+    assert "view-pin-symbolic" in window
+    assert "edit-copy-symbolic" in window
+    assert "system-search-symbolic" in window
+    assert "edit-delete-symbolic" in window
+    assert '"Edit"' in window
+    assert '"Unpin" if pinned else "Pin"' in window
+    assert "tether-pin-on" in window
+    assert "tether-clip-sep" in window
+    assert "EllipsizeMode.END" in window
+    assert "set_max_children_per_line(6)" not in window
     assert "editable=False" in window
     assert "Hidden passwords are not searched" in window
     assert "Hidden passwords are not tagged" in window

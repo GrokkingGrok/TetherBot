@@ -236,7 +236,7 @@ def test_clipboard_capture_filters_before_it_reads_text():
     send = text.split("    _sendClipboard(", 1)[1].split("\n    _", 1)[0]
     assert "SendClipboardRemote" in send
     assert "entry.text" not in send
-    assert "entryId, action" in send
+    assert "entryId, action, 'primary'" in send
     view = (EXTENSION / "view.js").read_text(encoding="utf-8")
     assert "SendClipboardRemote" in view
     assert "tetherbot-clip-thumb" in text
@@ -281,18 +281,25 @@ def test_the_panel_menu_loads_tetherbot_icons_from_the_extension():
     assert "icon_name: iconName" in helper
     button = text.split("    _clipIconButton(", 1)[1].split("\n    _", 1)[0]
     assert "_menuIcon(" in button
+    assert "_accentPinIcon(" in button
     assert "icon_size: 16" not in button
     assert "if (accent)" in button
-    assert "color: -st-accent-color" in button
-    assert button.index("if (accent)") < button.index("color: -st-accent-color")
-    assert "tetherbot-clip-pin-on" in button
+    assert "color: -st-accent-color" not in button
+    accent = text.split("    _accentPinIcon(", 1)[1].split("\n    _", 1)[0]
+    assert "accentPinFile()" in accent
+    assert "Gio.FileIcon.new" in accent
+    assert "icon_size: 16" in accent
+    assert "-st-icon-style: regular" in accent
+    painter = text.split("function accentPinFile()", 1)[1].split("\nfunction ", 1)[0]
+    assert "get_accent_color" in painter
+    assert "pin-accent-${hex}.svg" in painter
+    assert "pin-accent-${hex}-symbolic.svg" not in painter
     filled = text.split("    _fillClipboardMenu() {", 1)[1].split("\n    _", 1)[0]
     assert "tetherbot-tag-symbolic" in filled
     assert "_clipIconButton(" in filled
     assert "view-pin-symbolic" in filled
     css = (EXTENSION / "stylesheet.css").read_text(encoding="utf-8")
-    assert ".tetherbot-clip-pin-on StIcon" in css
-    assert "color: -st-accent-color" in css
+    assert ".tetherbot-clip-pin-on StIcon" not in css
 
 
 def test_clipboard_send_icons_are_filled_and_credited():

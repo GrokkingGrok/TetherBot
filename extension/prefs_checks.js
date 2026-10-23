@@ -96,6 +96,7 @@ assert(!FEED_RESET_KEYS.includes('clipboard-excluded-apps'), 'reset does not cle
 assert(!FEED_RESET_KEYS.includes('clipboard-lookalike'), 'reset does not clear password-like copies');
 assert(!FEED_RESET_KEYS.includes('clipboard-search-fallback'), 'reset does not clear the search fallback');
 assert(!FEED_RESET_KEYS.includes('clipboard-images'), 'reset does not clear copied images');
+assert(!FEED_RESET_KEYS.includes('context-effort'), 'reset does not clear context effort');
 assert(searchFallback(SEARCH_FALLBACK_DEFAULT) === SEARCH_FALLBACK_DEFAULT, 'the search fallback default is https');
 assert(searchFallback('http://example.test/?q={searchTerms}') === null, 'the search fallback rejects http');
 assert(searchFallback('https://example.test/search') === null, 'the search fallback needs a placeholder');
@@ -164,6 +165,14 @@ assert(prefsSource.includes('Password-like copies'), 'prefs has the password-lik
 assert(prefsSource.includes('clipboard-lookalike'), 'prefs stores the password-like choice');
 assert(prefsSource.includes('Search fallback'), 'prefs shows the search fallback');
 assert(prefsSource.includes('clipboard-search-fallback'), 'prefs stores the search fallback');
+assert(prefsSource.includes('Context effort'), 'prefs has the context effort row');
+assert(prefsSource.includes('context-effort'), 'prefs stores the context effort');
+assert(prefsSource.includes('The bot checks only its own context.'), 'low effort is one line');
+assert(prefsSource.includes('The bot also asks the other bots.'), 'medium effort is one line');
+assert(
+    prefsSource.includes('The bot also searches connectors (email, Drive, finance).'),
+    'high effort is one line',
+);
 const searchFn = prefsSource.split('_clipboardSearch(group, settings) {')[1].split('_clipboardApps')[0];
 assert(searchFn.includes('new Adw.ActionRow'), 'the search hint is its own row');
 assert(searchFn.includes('subtitle: hint'), 'the search fallback row shows the hint');

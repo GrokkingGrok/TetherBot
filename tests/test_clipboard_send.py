@@ -11,6 +11,7 @@ import pytest
 from tests.helpers import NOW
 from tests.test_clipboard import LOOKALIKE, tiny_png
 from tetherbot.adapters.webhook_sender import HttpOutcome, clip_envelope
+from tetherbot.config import BotConfig
 from tetherbot.daemon import BridgeDaemon
 from tetherbot.model import ENVELOPE_ACTIONS
 from tetherbot.secrets import MemoryBackend, SecretStore
@@ -85,7 +86,9 @@ def test_clip_envelope_omits_an_unknown_app_and_keeps_names_only():
     assert row["action"] == "clip-ask"
     assert row["item"] == "clipboard/c-abc12345"
     assert row["args"] == {}
-    assert set(row["clip"]) == {"text", "tags", "copied_at"}
+    assert set(row["clip"]) == {"text", "tags", "copied_at", "effort", "target_bot"}
+    assert row["clip"]["effort"] == "low"
+    assert row["clip"]["target_bot"] == "primary"
     assert row["clip"]["tags"] == ["Later"]
     named = json.loads(
         clip_envelope(
@@ -135,7 +138,9 @@ def test_a_text_entry_is_posted_once_and_not_stored_again(tmp_path: Path):
     assert row["item"] == f"clipboard/{ident}"
     assert row["args"] == {}
     clip = row["clip"]
-    assert set(clip) <= {"text", "tags", "source_app", "copied_at"}
+    assert set(clip) <= {"text", "tags", "source_app", "copied_at", "effort", "target_bot"}
+    assert clip["effort"] == "low"
+    assert clip["target_bot"] == "primary"
     assert clip["text"] == SAMPLE
     assert clip["tags"] == ["Later"]
     assert clip["source_app"] == "gedit"
@@ -162,6 +167,39 @@ def test_a_text_entry_is_posted_once_and_not_stored_again(tmp_path: Path):
     _assert_text_stays_in_history(tmp_path, SAMPLE)
     routes = tmp_path / "state" / "webhook-routes.json"
     assert not routes.exists()
+
+
+def test_effort_comes_from_settings_and_the_post_stays_on_primary(tmp_path: Path):
+    script = Script([200, 200, 200])
+    daemon, clock, _seen, log = _boot(tmp_path, script)
+    assert daemon.config is not None
+    daemon.config.bots["notes"] = BotConfig(webhook_slot="")
+    daemon.ui_settings = UiSettings(context_effort="high")
+    ident = _offer(daemon, SAMPLE)
+    assert daemon.api is not None
+    assert daemon.api.call("SendClipboard", (ident, "clip-todo", "notes")) == ("sent",)
+    url, _key, body = script.calls[0]
+    clip = body["actions"][0]["clip"]
+    assert url == WEBHOOK_URL
+    assert clip["effort"] == "high"
+    assert clip["target_bot"] == "notes"
+    assert clip["text"] == SAMPLE
+    leaked = "notes\nnot-a-bot"
+    clock.moment = NOW + timedelta(seconds=5)
+    assert daemon.api.call("SendClipboard", (ident, "clip-ask", leaked)) == ("sent",)
+    second = script.calls[1][2]["actions"][0]["clip"]
+    assert second["target_bot"] == "primary"
+    assert second["effort"] == "high"
+    assert script.calls[1][0] == WEBHOOK_URL
+    assert leaked not in _logged(tmp_path, log)
+    assert SAMPLE not in _logged(tmp_path, log)
+    daemon.ui_settings = UiSettings(context_effort="nope")
+    clock.moment = NOW + timedelta(seconds=10)
+    assert daemon.api.call("SendClipboard", (ident, "clip-todo-context", "")) == ("sent",)
+    third = script.calls[2][2]["actions"][0]["clip"]
+    assert third["effort"] == "low"
+    assert third["target_bot"] == "primary"
+    assert script.calls[2][2]["actions"][0]["action"] == "clip-todo-context"
 
 
 def test_a_missing_secret_is_not_queued(tmp_path: Path):

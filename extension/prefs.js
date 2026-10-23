@@ -35,6 +35,18 @@ import {
 import {clipboardLimit, excludedApps, LOOKALIKE_LABELS, LOOKALIKE_MODES, lookalikeMode} from './clipboard.js';
 import {BUS_NAME, OBJECT_PATH, startServiceCall} from './view.js';
 
+const EFFORT_MODES = ['low', 'medium', 'high'];
+const EFFORT_LABELS = ['Low', 'Medium', 'High'];
+const EFFORT_SUBTITLES = [
+    'The bot checks only its own context.',
+    'The bot also asks the other bots.',
+    'The bot also searches connectors (email, Drive, finance).',
+];
+
+function contextEffort(value) {
+    return EFFORT_MODES.includes(value) ? value : 'low';
+}
+
 export default class TetherBotPreferences extends ExtensionPreferences {
     fillPreferencesWindow(window) {
         this._sizeWindow(window);
@@ -72,6 +84,7 @@ export default class TetherBotPreferences extends ExtensionPreferences {
         this._applyingClipboard = false;
         this._showingClipboard = false;
         this._buildFeed(page, settings);
+        this._buildContext(page, settings);
         this._buildHistory(page, settings);
         this._buildClipboard(page, settings);
         this._keys = new Adw.PreferencesGroup({
@@ -130,6 +143,48 @@ export default class TetherBotPreferences extends ExtensionPreferences {
         reset.activatable_widget = button;
         group.add(reset);
         page.add(group);
+    }
+
+    _buildContext(page, settings) {
+        const group = new Adw.PreferencesGroup({
+            title: 'Context',
+        });
+        group.add(this._contextEffort(settings));
+        page.add(group);
+    }
+
+    _contextEffort(settings) {
+        const model = new Gtk.StringList();
+        for (const label of EFFORT_LABELS)
+            model.append(label);
+        const row = new Adw.ComboRow({
+            title: 'Context effort',
+            subtitle: EFFORT_SUBTITLES[0],
+            model,
+        });
+        const apply = () => {
+            const stored = contextEffort(settings.get_string('context-effort'));
+            const index = EFFORT_MODES.indexOf(stored);
+            const chosen = index < 0 ? 0 : index;
+            this._applyingEffort = true;
+            row.selected = chosen;
+            row.subtitle = EFFORT_SUBTITLES[chosen];
+            this._applyingEffort = false;
+        };
+        row.connect('notify::selected', () => {
+            if (this._applyingEffort)
+                return;
+            const index = row.selected;
+            if (index < 0 || index >= EFFORT_MODES.length)
+                return;
+            const mode = EFFORT_MODES[index];
+            row.subtitle = EFFORT_SUBTITLES[index];
+            if (settings.get_string('context-effort') !== mode)
+                settings.set_string('context-effort', mode);
+        });
+        settings.connect('changed::context-effort', apply);
+        apply();
+        return row;
     }
 
     _buildHistory(page, settings) {

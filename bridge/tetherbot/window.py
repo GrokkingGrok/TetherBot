@@ -122,6 +122,9 @@ _CSS = """
 .tether-pin-on {
   color: @accent_color;
 }
+.tether-effort-low { color: @success_color; }
+.tether-effort-medium { color: @warning_color; }
+.tether-effort-high { color: @error_color; }
 separator.tether-clip-sep {
   min-width: 1px;
   margin-top: 6px;
@@ -178,6 +181,17 @@ _DOT_STATES = frozenset(
         "error",
     }
 )
+
+
+def _bot_id(value: object) -> str:
+    """A feed bot id, or empty when the value is not one."""
+
+    if not isinstance(value, str) or not value or len(value) > 64:
+        return ""
+    allowed = "abcdefghijklmnopqrstuvwxyz0123456789-"
+    if any(char not in allowed for char in value):
+        return ""
+    return value
 
 
 class BridgeError(Exception):
@@ -296,8 +310,9 @@ class BridgeClient:
         raw = self._call("EditClipboard", "(ss)", (entry_id, text))
         return bool(raw and raw[0])
 
-    def send_clipboard(self, entry_id: str, action: str) -> str:
-        raw = self._call("SendClipboard", "(ss)", (entry_id, action))
+    def send_clipboard(self, entry_id: str, action: str, target_bot: str = "primary") -> str:
+        bot = target_bot if isinstance(target_bot, str) and target_bot else "primary"
+        raw = self._call("SendClipboard", "(sss)", (entry_id, action, bot))
         if not raw or not isinstance(raw[0], str):
             raise BridgeError("Not sent")
         return raw[0]
@@ -2656,7 +2671,10 @@ class TodoWindow(Adw.ApplicationWindow):
 
         def send_button(icon_name: str, name: str, action: str) -> Gtk.Button:
             button = _clip_icon(icon_name, send_blocked or name, sendable)
-            button.connect("clicked", self._on_send_clip, entry, action, label)
+            if action == "clip-todo-context":
+                button.connect("clicked", self._on_context_clip, entry, label)
+            else:
+                button.connect("clicked", self._on_send_clip, entry, action, label)
             return button
 
         make_todo = send_button("tetherbot-check-symbolic", "Make a todo", "clip-todo")
@@ -2693,14 +2711,34 @@ class TodoWindow(Adw.ApplicationWindow):
         action: str,
         label: Gtk.Label,
     ) -> None:
+        self._send_clip_now(entry, action, label, "primary")
+
+    def _on_context_clip(
+        self,
+        _button: Gtk.Button,
+        entry: dict[str, Any],
+        label: Gtk.Label,
+    ) -> None:
+        if entry.get("kind") == "image" or entry.get("masked") is True:
+            return
+        self._prompt_clip_context(entry, label)
+
+    def _send_clip_now(
+        self,
+        entry: dict[str, Any],
+        action: str,
+        label: Gtk.Label,
+        target_bot: str,
+    ) -> None:
         if entry.get("kind") == "image" or entry.get("masked") is True:
             return
         ident = entry.get("id")
         if not isinstance(ident, str) or not hasattr(self.client, "send_clipboard"):
             self._flash_clip_label(label, "Not sent: Bridge not running")
             return
+        bot = target_bot if isinstance(target_bot, str) and target_bot else "primary"
         try:
-            result = self.client.send_clipboard(ident, action)
+            result = self.client.send_clipboard(ident, action, bot)
         except BridgeError as exc:
             reason = str(exc).strip() or "Could not send"
             self._flash_clip_label(label, f"Not sent: {reason}")
@@ -2709,6 +2747,115 @@ class TodoWindow(Adw.ApplicationWindow):
             self._flash_clip_label(label, "Sent")
             return
         self._flash_clip_label(label, "Not sent")
+
+    def _context_effort(self) -> str:
+        try:
+            effort = load_ui_settings().context_effort
+        except Exception:
+            return "low"
+        if effort in {"low", "medium", "high"}:
+            return effort
+        return "low"
+
+    def _context_bots(self) -> list[str]:
+        """Primary, then bot ids already known from the feed."""
+
+        names: list[str] = []
+        seen: set[str] = set()
+
+        def add(name: object) -> None:
+            if _bot_id(name) and name not in seen:
+                seen.add(str(name))
+                names.append(str(name))
+
+        add("primary")
+        for bot in self._known_bots:
+            if isinstance(bot, dict):
+                add(bot.get("name"))
+        if hasattr(self.client, "bots"):
+            try:
+                fresh = self.client.bots()
+            except Exception:
+                fresh = []
+            if isinstance(fresh, list):
+                for bot in fresh:
+                    if isinstance(bot, dict):
+                        add(bot.get("name"))
+        for item in self._items:
+            if not isinstance(item, dict):
+                continue
+            source = item.get("source")
+            if isinstance(source, dict):
+                add(source.get("bot"))
+            key = item.get("key")
+            if isinstance(key, str) and "/" in key:
+                add(key.split("/", 1)[0])
+        rest = sorted(name for name in names if name != "primary")
+        return ["primary", *rest]
+
+    def _prompt_clip_context(self, entry: dict[str, Any], label: Gtk.Label) -> None:
+        effort = self._context_effort()
+        if effort not in {"low", "medium", "high"}:
+            effort = "low"
+        titles = {"low": "Low", "medium": "Medium", "high": "High"}
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        effort_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        effort_row.set_halign(Gtk.Align.START)
+        prefix = Gtk.Label(label="Effort:")
+        level = Gtk.Label(label=titles[effort])
+        level.add_css_class(f"tether-effort-{effort}")
+        level.set_halign(Gtk.Align.START)
+        effort_row.append(prefix)
+        effort_row.append(level)
+        box.append(effort_row)
+        bots = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        leader = None
+        buttons: list[Gtk.CheckButton] = []
+        for name in self._context_bots():
+            choice = Gtk.CheckButton(label=name)
+            if leader is None:
+                leader = choice
+                choice.set_active(True)
+            else:
+                choice.set_group(leader)
+            bots.append(choice)
+            buttons.append(choice)
+        scroller = Gtk.ScrolledWindow()
+        scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scroller.set_propagate_natural_height(True)
+        scroller.set_max_content_height(240)
+        scroller.set_child(bots)
+        box.append(scroller)
+        dialog = Adw.AlertDialog(heading="Make a todo with context")
+        dialog.set_extra_child(box)
+        dialog.effort_level = level
+        dialog.bot_buttons = buttons
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("send", "Send")
+        dialog.set_response_appearance("send", Adw.ResponseAppearance.SUGGESTED)
+        dialog.set_default_response("send")
+        dialog.set_close_response("cancel")
+        dialog.connect("response", self._on_context_response, entry, label)
+        self._clip_context_dialog = dialog
+        dialog.present(self)
+
+    def _on_context_response(
+        self,
+        dialog: Adw.AlertDialog,
+        response: str,
+        entry: dict[str, Any],
+        label: Gtk.Label,
+    ) -> None:
+        if response != "send":
+            return
+        target = "primary"
+        for button in getattr(dialog, "bot_buttons", ()):
+            if button.get_active():
+                chosen = button.get_label()
+                if isinstance(chosen, str) and chosen:
+                    target = chosen
+                break
+        self._send_clip_now(entry, "clip-todo-context", label, target)
 
     def _flash_clip_label(self, label: Gtk.Label, message: str) -> None:
         previous = label.get_label()

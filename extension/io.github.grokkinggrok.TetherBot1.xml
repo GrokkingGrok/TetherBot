@@ -195,6 +195,7 @@
     <method name="SendClipboard">
       <arg name="entry_id" type="s" direction="in"/>
       <arg name="action" type="s" direction="in"/>
+      <arg name="target_bot" type="s" direction="in"/>
       <arg name="result" type="s" direction="out"/>
     </method>
 

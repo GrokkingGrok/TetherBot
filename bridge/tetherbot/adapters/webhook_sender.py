@@ -638,6 +638,21 @@ def _counted_retry(outcome: HttpOutcome) -> bool:
     return status == 400 or status in {301, 302, 303, 307, 308, 408, 429} or status >= 500
 
 
+def _clip_effort(value: str) -> str:
+    if value in {"low", "medium", "high"}:
+        return value
+    return "low"
+
+
+def _clip_bot(value: str) -> str:
+    if not value or len(value) > 64:
+        return "primary"
+    for char in value:
+        if char not in "abcdefghijklmnopqrstuvwxyz0123456789-":
+            return "primary"
+    return value
+
+
 def clip_envelope(
     *,
     action: str,
@@ -649,12 +664,16 @@ def clip_envelope(
     tags: list[str],
     copied_at: str,
     source_app: str = "",
+    effort: str = "low",
+    target_bot: str = "primary",
 ) -> bytes:
     """One action batch for a clipboard send. No path, key, or image bytes."""
 
     clip: dict[str, Any] = {
         "copied_at": copied_at,
+        "effort": _clip_effort(effort),
         "tags": list(tags),
+        "target_bot": _clip_bot(target_bot),
         "text": text,
     }
     if source_app:

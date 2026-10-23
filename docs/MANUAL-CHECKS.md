@@ -2097,11 +2097,11 @@ journalctl --user -b /usr/bin/gnome-shell --no-pager | tail -n 80
 
 ## M137. Make a todo with context sends the text
 
-**Preconditions.** Same webhook as M136. The routine knows `clip-todo-context`.
+**Preconditions.** Same webhook as M136. The routine knows `clip-todo-context`. Use the panel menu for this check. The window picker is M140.
 
 **Look for.**
 
-- Press Make a todo with context. The row shows Sent.
+- Press Make a todo with context once. No picker opens. The row shows Sent.
 - The bot creates a todo that adds context it found.
 
 **Reset.** None. Remove the todo in the bot if you do not want to keep it.
@@ -2116,6 +2116,49 @@ journalctl --user -b /usr/bin/gnome-shell --no-pager | tail -n 80
 - The bot replies about that text in chat.
 
 **Reset.** None.
+
+## M139. Context effort is in Settings
+
+**Preconditions.** Open Settings after this version is installed.
+
+**Look for.**
+
+- A Context effort row offers Low, Medium, and High.
+- Low is selected until you change it.
+- Low's subtitle is "The bot checks only its own context."
+- Medium's subtitle is "The bot also asks the other bots."
+- High's subtitle is "The bot also searches connectors (email, Drive, finance)."
+- Close Settings and open it again. The choice is still the one you set.
+
+**Reset.** Set Context effort back to Low.
+
+## M140. The window asks which bot gets a context todo
+
+**Preconditions.** Reopen the TetherBot window. The Clipboard page has a text entry. If the feed has another bot, its id should appear in the dialog. Set Context effort to Medium or High so the color is easy to see.
+
+**Look for.**
+
+- Make a todo with context opens a small dialog.
+- Primary is selected. Any other rows are bot ids from the feed.
+- The effort line names the Settings choice. Low is green, Medium is yellow, and High is red. Check it in a light theme and a dark theme.
+- Cancel closes the dialog and the row does not say Sent.
+- Send closes the dialog and the row says Sent.
+- Make a todo and Tell me more still send on one click and do not open the dialog.
+- In the panel menu, Make a todo with context still sends on one click and does not open a dialog.
+
+**Reset.** Set Context effort back to Low if you changed it.
+
+## M141. The bot hears the effort and the target bot
+
+**Preconditions.** Same webhook as M136. Paste prompt A again so the routine knows `clip.effort` and `clip.target_bot`. Set Context effort to High. The window lists another bot.
+
+**Look for.**
+
+- Choose that other bot and press Send.
+- The answer shows up in the primary bot's chat.
+- The bot treats the work as High effort and as work for the bot you chose.
+
+**Reset.** Set Context effort back to Low. Remove the todo in the bot if you do not want to keep it.
 
 ## When you are finished
 

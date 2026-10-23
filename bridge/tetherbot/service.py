@@ -66,6 +66,8 @@ _CLIP_ACTIONS = frozenset({"clip-todo", "clip-todo-context", "clip-ask"})
 _CLIP_TEXT_MAX = 8000
 _CLIP_GAP_SECONDS = 5
 _CLIP_ID = re.compile(r"^c-[0-9a-f]{8}$")
+_BOT_ID = re.compile(r"^[a-z0-9-]{1,64}$")
+_CLIP_EFFORTS = frozenset({"low", "medium", "high"})
 _LOG = logging.getLogger("tetherbot")
 _KNOWN_ADAPTERS = ("github-poller", "official", "webhook-sender")
 _WINDOW_TARGETS = frozenset({"bots", "clipboard"})
@@ -856,7 +858,12 @@ class BridgeApi:
             self._emit("ClipboardChanged", len(history.entries))
         return (changed,)
 
-    def _send_clipboard(self, entry_id: str, action: str) -> tuple[str]:
+    def _send_clipboard(
+        self,
+        entry_id: str,
+        action: str,
+        target_bot: str = "",
+    ) -> tuple[str]:
         """Post one clipboard entry to the primary bot. The text is not queued."""
 
         if not isinstance(entry_id, str) or not isinstance(action, str):
@@ -922,6 +929,8 @@ class BridgeApi:
             tags=list(row.get("tags") or []),
             copied_at=copied_at,
             source_app=source,
+            effort=self._clip_effort(),
+            target_bot=self._clip_target(target_bot),
         )
         outcome = sender.post_primary(body)
         if _clip_accepted(outcome):
@@ -929,6 +938,42 @@ class BridgeApi:
             return ("sent",)
         self._log_clip_send(action, row["id"], "not-sent")
         raise ServiceError(FAILED, _clip_failure(outcome))
+
+    def _clip_effort(self) -> str:
+        """The Settings value. A caller cannot choose a different effort."""
+
+        effort = resolve_ui_settings(self._daemon).context_effort
+        if effort in _CLIP_EFFORTS:
+            return effort
+        return "low"
+
+    def _clip_target(self, raw: object) -> str:
+        """A known bot id, or primary. The post still uses the primary webhook."""
+
+        if not isinstance(raw, str) or raw in {"", "primary"}:
+            return "primary"
+        if _BOT_ID.fullmatch(raw) and raw in self._known_clip_bots():
+            return raw
+        return "primary"
+
+    def _known_clip_bots(self) -> set[str]:
+        names = {"primary"}
+        config = getattr(self._daemon, "config", None)
+        bots = getattr(config, "bots", None)
+        if isinstance(bots, Mapping):
+            for name in bots:
+                if isinstance(name, str):
+                    names.add(name)
+        store = getattr(self._daemon, "store", None)
+        items = store.items() if store is not None and hasattr(store, "items") else ()
+        for item in items:
+            key = getattr(item, "key", "")
+            if isinstance(key, str) and "/" in key:
+                names.add(key.split("/", 1)[0])
+            bot = getattr(item, "bot", "")
+            if isinstance(bot, str) and bot:
+                names.add(bot)
+        return {name for name in names if _BOT_ID.fullmatch(name)}
 
     def _log_clip_send(self, action: str, entry_id: str, result: str) -> None:
         """Log the action, the entry id, and the result. Never the text."""

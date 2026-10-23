@@ -165,5 +165,12 @@ def test_compiled_schema_loads_the_defaults(tmp_path: Path):
     assert loaded.history_amount == 1
     assert loaded.history_unit == "years"
     assert loaded.done_history_seconds == YEAR_SECONDS
+    assert loaded.clipboard_enabled is True
+    assert loaded.clipboard_limit == 50
+    assert "keepassxc" in {name.casefold() for name in loaded.clipboard_excluded}
     text = source.read_text(encoding="utf-8")
-    assert "secret" not in text.lower()
+    folded = text.lower()
+    assert "webhook" not in folded
+    assert "token" not in folded
+    assert "ghp_" not in folded
+    assert 'name="clipboard-excluded-apps"' in text

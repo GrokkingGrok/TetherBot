@@ -18,6 +18,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol, TextIO
 
+from tetherbot.clipboard_store import ClipboardHistory
 from tetherbot.config import BridgeConfig, ConfigError, QueueConfig, load_config
 from tetherbot.dbus_service import STATES
 from tetherbot.files import ensure_private_dir
@@ -267,6 +268,7 @@ class BridgeDaemon:
             )
         )
         self.timer = TimerStore(self.state_dir)
+        self.clipboard = ClipboardHistory(self.state_dir / "clipboard.json")
         self.api = BridgeApi(self)
         self._sync_webhook()
         self._sync_poller()

@@ -77,6 +77,10 @@ export const PROXY_METHODS = [
     'SetTimerStartRemote',
     'AssignTimerRemote',
     'DismissTimerRemote',
+    'OfferClipboardRemote',
+    'GetClipboardRemote',
+    'DeleteClipboardRemote',
+    'ClearClipboardRemote',
 ];
 
 export const PROXY_SIGNALS = [
@@ -85,6 +89,7 @@ export const PROXY_SIGNALS = [
     'ActionResult',
     'StateChanged',
     'TimerChanged',
+    'ClipboardChanged',
 ];
 
 export const TODO_LIMIT = 8;

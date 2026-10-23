@@ -30,6 +30,7 @@ import {
     sameBotList,
     setupSlots,
 } from './prefs_model.js';
+import {clipboardLimit, excludedApps} from './clipboard.js';
 import {BUS_NAME, OBJECT_PATH, startServiceCall} from './view.js';
 
 export default class TetherBotPreferences extends ExtensionPreferences {
@@ -66,8 +67,11 @@ export default class TetherBotPreferences extends ExtensionPreferences {
         this._settings = settings;
         this._window = window;
         this._applyingHistory = false;
+        this._applyingClipboard = false;
+        this._showingClipboard = false;
         this._buildFeed(page, settings);
         this._buildHistory(page, settings);
+        this._buildClipboard(page, settings);
         this._keys = new Adw.PreferencesGroup({
             title: 'Keys',
             description: 'Keys stay in the desktop secret service. A stored key is never shown here.',
@@ -113,7 +117,7 @@ export default class TetherBotPreferences extends ExtensionPreferences {
         ));
         const reset = new Adw.ActionRow({
             title: 'Feed check and undo timer',
-            subtitle: 'Reset puts those two back to the defaults. Completed-todo history, keys, and bots stay as they are.',
+            subtitle: 'Reset puts those two back to the defaults. Completed-todo history, clipboard history, keys, and bots stay as they are.',
         });
         const button = new Gtk.Button({
             label: 'Reset to defaults',
@@ -220,6 +224,99 @@ export default class TetherBotPreferences extends ExtensionPreferences {
         });
         settings.connect('changed::history-unit', apply);
         apply();
+        return row;
+    }
+
+    _buildClipboard(page, settings) {
+        const group = new Adw.PreferencesGroup({
+            title: 'Clipboard',
+            description: 'Copied text stays on this machine. It is not written to the feed and it is not sent to a bot.',
+        });
+        const enabled = new Adw.SwitchRow({
+            title: 'Remember copied text',
+            subtitle: 'When this is off, new copies are not saved. Clear history removes what is already saved.',
+        });
+        const applyEnabled = () => {
+            this._applyingClipboard = true;
+            enabled.active = settings.get_boolean('clipboard-enabled');
+            this._applyingClipboard = false;
+        };
+        enabled.connect('notify::active', () => {
+            if (this._applyingClipboard)
+                return;
+            if (settings.get_boolean('clipboard-enabled') !== enabled.active)
+                settings.set_boolean('clipboard-enabled', enabled.active);
+        });
+        settings.connect('changed::clipboard-enabled', applyEnabled);
+        applyEnabled();
+        group.add(enabled);
+        group.add(this._clipboardLimit(settings));
+        group.add(this._clipboardApps(settings));
+        page.add(group);
+    }
+
+    _clipboardLimit(settings) {
+        const adjustment = new Gtk.Adjustment({
+            lower: 1,
+            upper: 500,
+            step_increment: 1,
+            page_increment: 10,
+        });
+        adjustment.lower = 1;
+        adjustment.upper = 500;
+        adjustment.step_increment = 1;
+        const shown = clipboardLimit(settings.get_int('clipboard-limit'));
+        adjustment.value = shown;
+        const row = new Adw.SpinRow({
+            title: 'How many entries',
+            subtitle: 'Plain text only. 1 to 500. The default is 50.',
+            adjustment,
+            css_classes: ['tetherbot-seconds'],
+        });
+        if (typeof row.set_digits === 'function')
+            row.set_digits(0);
+        this._widenSpin(row);
+        this._showSpin(row, shown);
+        row.adjustment.connect('value-changed', () => {
+            if (this._showingSpin)
+                return;
+            const value = clipboardLimit(row.adjustment.value);
+            if (settings.get_int('clipboard-limit') !== value)
+                settings.set_int('clipboard-limit', value);
+        });
+        settings.connect('changed::clipboard-limit', () => {
+            const value = clipboardLimit(settings.get_int('clipboard-limit'));
+            this._showSpin(row, value);
+        });
+        return row;
+    }
+
+    _clipboardApps(settings) {
+        const row = new Adw.EntryRow({
+            title: 'Skip these apps',
+        });
+        const show = () => {
+            const text = settings.get_strv('clipboard-excluded-apps').join(', ');
+            this._showingClipboard = true;
+            if (row.get_text() !== text)
+                row.set_text(text);
+            this._showingClipboard = false;
+        };
+        const save = () => {
+            if (this._showingClipboard)
+                return;
+            const apps = excludedApps(row.get_text().split(','));
+            const current = settings.get_strv('clipboard-excluded-apps');
+            if (apps.join('\n') !== current.join('\n'))
+                settings.set_strv('clipboard-excluded-apps', apps);
+            show();
+        };
+        row.connect('apply', save);
+        const focus = new Gtk.EventControllerFocus();
+        focus.connect('leave', save);
+        row.add_controller(focus);
+        settings.connect('changed::clipboard-excluded-apps', show);
+        show();
         return row;
     }
 

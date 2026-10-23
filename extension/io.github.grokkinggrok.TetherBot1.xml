@@ -147,6 +147,22 @@
       <arg name="record_id" type="s" direction="in"/>
       <arg name="time_json" type="s" direction="out"/>
     </method>
+    <method name="OfferClipboard">
+      <arg name="text" type="s" direction="in"/>
+      <arg name="meta_json" type="s" direction="in"/>
+      <arg name="result" type="s" direction="out"/>
+    </method>
+    <method name="GetClipboard">
+      <arg name="query" type="s" direction="in"/>
+      <arg name="entries_json" type="s" direction="out"/>
+    </method>
+    <method name="DeleteClipboard">
+      <arg name="entry_id" type="s" direction="in"/>
+      <arg name="removed" type="b" direction="out"/>
+    </method>
+    <method name="ClearClipboard">
+      <arg name="cleared" type="b" direction="out"/>
+    </method>
 
     <signal name="ItemsChanged">
       <arg name="added" type="as"/>
@@ -168,6 +184,9 @@
     </signal>
     <signal name="TimerChanged">
       <arg name="timer_json" type="s"/>
+    </signal>
+    <signal name="ClipboardChanged">
+      <arg name="count" type="u"/>
     </signal>
   </interface>
 </node>

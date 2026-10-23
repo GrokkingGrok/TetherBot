@@ -14,6 +14,7 @@ from datetime import datetime
 from typing import Any
 
 from tetherbot import SCHEMA_VERSION, __version__
+from tetherbot.clipboard_store import ClipboardHistory
 from tetherbot.config import ConfigError, action_slots, save_adapter_enabled
 from tetherbot.dbus_service import INTERFACE
 from tetherbot.model import ENVELOPE_ACTIONS, looks_like_secret, mask_secrets, parse_iso8601
@@ -58,7 +59,7 @@ _FILTER_KEYS = frozenset(
 )
 _ITEM_OUTBOUND = frozenset({"approve", "veto", "done"})
 _KNOWN_ADAPTERS = ("github-poller", "official", "webhook-sender")
-_WINDOW_TARGETS = frozenset({"bots"})
+_WINDOW_TARGETS = frozenset({"bots", "clipboard"})
 _BRIDGE_BOT_STATE = frozenset(
     {"degraded", "offline", "failed_closed", "unconfigured", "paused"}
 )
@@ -100,6 +101,10 @@ METHOD_OUT: dict[str, str | None] = {
     "GetItemTime": "(s)",
     "SetTrackedTotal": "(s)",
     "DeleteTimeRecord": "(s)",
+    "OfferClipboard": "(s)",
+    "GetClipboard": "(s)",
+    "DeleteClipboard": "(b)",
+    "ClearClipboard": "(b)",
 }
 
 PROPERTY_TYPES = {
@@ -120,6 +125,7 @@ SIGNAL_SIGNATURES = {
     "ActionResult": "(sss)",
     "StateChanged": "(ss)",
     "TimerChanged": "(s)",
+    "ClipboardChanged": "(u)",
 }
 
 
@@ -721,7 +727,59 @@ class BridgeApi:
 
         self.note_bots()
         self._emit_properties("Counts")
+        history = getattr(self._daemon, "clipboard", None)
+        if isinstance(history, ClipboardHistory):
+            before = len(history.entries)
+            self._sync_clipboard(history)
+            if len(history.entries) != before:
+                self._emit("ClipboardChanged", len(history.entries))
         return None
+
+    def _offer_clipboard(self, text: str, meta_json: str) -> tuple[str]:
+        if not isinstance(text, str) or not isinstance(meta_json, str):
+            raise ServiceError(INVALID_ARGS, "clipboard offer is invalid")
+        mimes, wm_class = _clipboard_meta(meta_json)
+        history = self._clipboard_history()
+        result = history.offer(text, mimes, wm_class)
+        if result == "stored":
+            self._emit("ClipboardChanged", len(history.entries))
+        return (result,)
+
+    def _get_clipboard(self, query: str) -> tuple[str]:
+        if not isinstance(query, str):
+            raise ServiceError(INVALID_ARGS, "query is invalid")
+        history = self._clipboard_history()
+        return (_dumps(history.list_entries(query)),)
+
+    def _delete_clipboard(self, entry_id: str) -> tuple[bool]:
+        if not isinstance(entry_id, str):
+            raise ServiceError(INVALID_ARGS, "entry_id is invalid")
+        history = self._clipboard_history()
+        removed = history.delete(entry_id)
+        if removed:
+            self._emit("ClipboardChanged", len(history.entries))
+        return (removed,)
+
+    def _clear_clipboard(self) -> tuple[bool]:
+        history = self._clipboard_history()
+        history.clear()
+        self._emit("ClipboardChanged", 0)
+        return (True,)
+
+    def _clipboard_history(self) -> ClipboardHistory:
+        history = getattr(self._daemon, "clipboard", None)
+        if not isinstance(history, ClipboardHistory):
+            raise ServiceError(FAILED, "clipboard is not available")
+        self._sync_clipboard(history)
+        return history
+
+    def _sync_clipboard(self, history: ClipboardHistory) -> None:
+        ui = self._ui()
+        history.configure(
+            enabled=ui.clipboard_enabled,
+            limit=ui.clipboard_limit,
+            excluded=ui.clipboard_excluded,
+        )
 
     def _ui(self):
         return resolve_ui_settings(self._daemon)
@@ -1007,6 +1065,28 @@ def _chip_zone(now: datetime):
     if now.tzinfo is None:
         raise ServiceError(FAILED, "clock must be timezone-aware")
     return display_zone()
+
+
+def _clipboard_meta(raw: str) -> tuple[list[str], str]:
+    """MIME targets and the focused window class. The text is not in here."""
+
+    if raw == "":
+        return [], ""
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ServiceError(INVALID_ARGS, "meta_json is invalid") from exc
+    if not isinstance(payload, dict):
+        raise ServiceError(INVALID_ARGS, "meta_json is invalid")
+    mimes = payload.get("mimes", [])
+    if isinstance(mimes, str):
+        mimes = [mimes]
+    if not isinstance(mimes, list) or any(not isinstance(mime, str) for mime in mimes):
+        raise ServiceError(INVALID_ARGS, "meta_json is invalid")
+    wm_class = payload.get("wm_class", "")
+    if not isinstance(wm_class, str):
+        raise ServiceError(INVALID_ARGS, "meta_json is invalid")
+    return mimes, wm_class
 
 
 def _camel_to_snake(name: str) -> str:

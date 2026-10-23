@@ -88,6 +88,9 @@ assert(HISTORY_UNITS.join(',') === 'hours,days,weeks,months,years', 'history uni
 assert(!FEED_RESET_KEYS.includes('history-enabled'), 'reset does not clear history');
 assert(!FEED_RESET_KEYS.includes('history-amount'), 'reset does not clear the amount');
 assert(!FEED_RESET_KEYS.includes('history-unit'), 'reset does not clear the unit');
+assert(!FEED_RESET_KEYS.includes('clipboard-enabled'), 'reset does not clear clipboard');
+assert(!FEED_RESET_KEYS.includes('clipboard-limit'), 'reset does not clear the clipboard cap');
+assert(!FEED_RESET_KEYS.includes('clipboard-excluded-apps'), 'reset does not clear skipped apps');
 
 const kept = {
     hidden: ['notes'],
@@ -134,6 +137,8 @@ assert(prefsSource.includes('effectiveUndoSeconds'), 'prefs shows the effective 
 assert(prefsSource.includes('Keep completed todos'), 'prefs has the history toggle');
 assert(prefsSource.includes('history-unit'), 'prefs stores the history unit');
 assert(prefsSource.includes('Completed todos'), 'prefs has a completed-todo group');
+assert(prefsSource.includes('Remember copied text'), 'prefs has the clipboard toggle');
+assert(prefsSource.includes('clipboard-excluded-apps'), 'prefs stores skipped apps');
 assert(
     prefsSource.includes('1 month = 30 days, 1 year = 365 days'),
     'how many names a month and a year',

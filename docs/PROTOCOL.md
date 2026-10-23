@@ -144,6 +144,10 @@ This JSON is the webhook POST body. The key travels only in the `Authorization` 
 }
 ```
 
+## Clipboard history
+
+Clipboard text is not part of schema `tetherbot/1`. It is not a field on a feed item and it is not a field on a webhook action. The bridge stores it in `clipboard.json` under the XDG state directory. `OfferClipboard`, `GetClipboard`, `DeleteClipboard`, and `ClearClipboard` are session-bus methods. `ClipboardChanged` carries a count, not the text. A sensitive clipboard target is not stored.
+
 ## Legacy inbox
 
 Decided: a concrete legacy inbox format stays out of this public repository. It is not part of schema `tetherbot/1`. The sink in `bridge/tetherbot/sinks/legacy_todo.py` is a generic seam and does not define a field map. A private sink that implements the seam fails closed on an unknown legacy schema and does not publish that field map here.

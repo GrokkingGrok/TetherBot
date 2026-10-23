@@ -1,6 +1,6 @@
 # Clipboard paste on GNOME Wayland
 
-This note is an investigation, not a feature. Clipboard history is not built. The phased plan is in [ROADMAP.md](ROADMAP.md). The question here is whether TetherBot should paste straight into the active window, the way Clipboard Indicator's "Paste on select" does.
+This note is an investigation of paste-into-app. Clipboard history phase 1 is built. The phased plan is in [ROADMAP.md](ROADMAP.md). The question here is whether TetherBot should paste straight into the active window, the way Clipboard Indicator's "Paste on select" does. It does not.
 
 The source read for this note is [Clipboard Indicator](https://github.com/Tudmotu/gnome-shell-extension-clipboard-indicator) (`clipboard-indicator@tudmotu.com`), `extension.js` and `keyboard.js` on the default branch.
 
@@ -50,4 +50,4 @@ A Paste action in the clipboard plan should put the chosen text on the clipboard
 
 Do not add a Clutter virtual keyboard, and do not send Shift+Insert or Ctrl+V from the extension. A later phase can revisit this only if there is a Wayland path that means "paste" rather than "type a key", and even then it should be off by default. There is no such path in the mechanism above.
 
-Phase 1 of the plan also has to update [privacy.md](privacy.md). Today that note says the extension does not read the clipboard. Capturing history will. The captured text stays on this machine, and it is not written to the feed.
+Phase 1 reads the clipboard for local history. [privacy.md](privacy.md) describes that. The captured text stays on this machine, and it is not written to the feed.

@@ -296,6 +296,12 @@ class BridgeClient:
         raw = self._call("EditClipboard", "(ss)", (entry_id, text))
         return bool(raw and raw[0])
 
+    def send_clipboard(self, entry_id: str, action: str) -> str:
+        raw = self._call("SendClipboard", "(ss)", (entry_id, action))
+        if not raw or not isinstance(raw[0], str):
+            raise BridgeError("Not sent")
+        return raw[0]
+
     def get_clipboard_image(self, entry_id: str) -> tuple[str, bytes]:
         """Original image bytes for copy-back. A missing image has no path."""
 
@@ -2640,9 +2646,31 @@ class TodoWindow(Adw.ApplicationWindow):
             web_on,
         )
         web.connect("clicked", self._on_search_clip, entry)
+        if is_image:
+            send_blocked = "Images are not sent"
+        elif masked:
+            send_blocked = "Hidden passwords are not sent"
+        else:
+            send_blocked = ""
+        sendable = not send_blocked
+
+        def send_button(icon_name: str, name: str, action: str) -> Gtk.Button:
+            button = _clip_icon(icon_name, send_blocked or name, sendable)
+            button.connect("clicked", self._on_send_clip, entry, action, label)
+            return button
+
+        make_todo = send_button("tetherbot-check-symbolic", "Make a todo", "clip-todo")
+        make_context = send_button(
+            "tetherbot-square-check-symbolic",
+            "Make a todo with context",
+            "clip-todo-context",
+        )
+        tell_more = send_button("tetherbot-circle-help-symbolic", "Tell me more", "clip-ask")
         delete = _clip_icon("edit-delete-symbolic", "Delete")
         delete.connect("clicked", self._on_delete_clip, ident)
-        actions = _clip_actions([edit, pin, tag_button, copy, web, delete])
+        actions = _clip_actions(
+            [edit, pin, tag_button, copy, web, make_todo, make_context, tell_more, delete]
+        )
         line = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         line.set_margin_top(4)
         line.set_margin_bottom(4)
@@ -2657,6 +2685,44 @@ class TodoWindow(Adw.ApplicationWindow):
         row.clip_entry = entry
         row.clip_kind = "image" if is_image else "text"
         return row
+
+    def _on_send_clip(
+        self,
+        _button: Gtk.Button,
+        entry: dict[str, Any],
+        action: str,
+        label: Gtk.Label,
+    ) -> None:
+        if entry.get("kind") == "image" or entry.get("masked") is True:
+            return
+        ident = entry.get("id")
+        if not isinstance(ident, str) or not hasattr(self.client, "send_clipboard"):
+            self._flash_clip_label(label, "Not sent: Bridge not running")
+            return
+        try:
+            result = self.client.send_clipboard(ident, action)
+        except BridgeError as exc:
+            reason = str(exc).strip() or "Could not send"
+            self._flash_clip_label(label, f"Not sent: {reason}")
+            return
+        if result == "sent":
+            self._flash_clip_label(label, "Sent")
+            return
+        self._flash_clip_label(label, "Not sent")
+
+    def _flash_clip_label(self, label: Gtk.Label, message: str) -> None:
+        previous = label.get_label()
+        label.set_label(message)
+
+        def _restore() -> bool:
+            try:
+                if label.get_label() == message:
+                    label.set_label(previous)
+            except Exception:
+                return False
+            return False
+
+        GLib.timeout_add(2000, _restore)
 
     def _on_copy_clip(self, _button: Gtk.Button, entry: dict[str, Any] | str) -> None:
         if isinstance(entry, str):

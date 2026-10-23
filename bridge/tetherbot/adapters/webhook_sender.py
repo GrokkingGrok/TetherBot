@@ -269,6 +269,51 @@ class WebhookSender:
                 return secret
         return None
 
+    def primary_route(self) -> str:
+        """Whether the primary bot can take a clipboard send right now.
+
+        ``ok`` means a secret is stored. ``missing`` means there is no slot
+        or no secret. ``off`` means this sender is not running. Nothing is
+        written to the queue.
+        """
+
+        ctx = self._ctx
+        if not self._running or ctx is None:
+            return "off"
+        if not action_slots(ctx.config, "primary"):
+            return "missing"
+        try:
+            status = ctx.secrets.status()
+        except Exception:
+            return "locked"
+        if status != "available":
+            return "locked"
+        try:
+            secret = self._stored_secret(ctx, "primary")
+        except SecretLocked:
+            return "locked"
+        except SecretUnavailable:
+            return "locked"
+        except SecretError:
+            return "unreadable"
+        if secret is None:
+            return "missing"
+        return "ok"
+
+    def post_primary(self, body: bytes) -> HttpOutcome:
+        """POST one body for the primary bot. The queue is not used."""
+
+        ctx = self._ctx
+        if not self._running or ctx is None:
+            return HttpOutcome("off")
+        try:
+            secret = self._stored_secret(ctx, "primary")
+        except (SecretLocked, SecretUnavailable, SecretError):
+            return HttpOutcome("unreadable")
+        if secret is None:
+            return HttpOutcome("missing")
+        return self._call(secret.url, secret.key, body)
+
     def _note_missing_secret(self, ctx: Any, bot: str, slot: str) -> None:
         self._notify_once(
             bot,
@@ -591,6 +636,47 @@ def _counted_retry(outcome: HttpOutcome) -> bool:
     if status in {401, 403, 404, 410}:
         return False
     return status == 400 or status in {301, 302, 303, 307, 308, 408, 429} or status >= 500
+
+
+def clip_envelope(
+    *,
+    action: str,
+    action_id: str,
+    created: str,
+    sent_at: datetime,
+    entry_id: str,
+    text: str,
+    tags: list[str],
+    copied_at: str,
+    source_app: str = "",
+) -> bytes:
+    """One action batch for a clipboard send. No path, key, or image bytes."""
+
+    clip: dict[str, Any] = {
+        "copied_at": copied_at,
+        "tags": list(tags),
+        "text": text,
+    }
+    if source_app:
+        clip["source_app"] = source_app
+    payload = {
+        "schema": SCHEMA_VERSION,
+        "type": "actions",
+        "batch_id": f"b-{secrets.token_hex(4)}",
+        "sent_at": sent_at.isoformat(),
+        "client": client_info(),
+        "actions": [
+            {
+                "action": action,
+                "action_id": action_id,
+                "args": {},
+                "clip": clip,
+                "created": created,
+                "item": f"clipboard/{entry_id}",
+            }
+        ],
+    }
+    return json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
 
 
 def client_info() -> dict[str, str]:

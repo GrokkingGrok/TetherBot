@@ -2282,6 +2282,11 @@ export default class TetherBotExtension extends Extension {
             const searchTip = isImage
                 ? 'Images are not searched'
                 : (masked ? 'Hidden passwords are not searched' : 'Search the web');
+            const sendBlocked = isImage
+                ? 'Images are not sent'
+                : (masked ? 'Hidden passwords are not sent' : '');
+            const sendTip = (name) => (sendBlocked || name);
+            const canSend = !sendBlocked;
             const copyBack = () => {
                 if (isImage)
                     this._recopyImage(entry.id);
@@ -2299,6 +2304,15 @@ export default class TetherBotExtension extends Extension {
                 ['edit-copy-symbolic', 'Copy', true, false, copyBack],
                 ['system-search-symbolic', searchTip, !masked && !isImage, false, () => {
                     this._openClipboardWindow();
+                }],
+                ['tetherbot-check-symbolic', sendTip('Make a todo'), canSend, false, () => {
+                    this._sendClipboard(entry.id, 'clip-todo', label);
+                }],
+                ['tetherbot-square-check-symbolic', sendTip('Make a todo with context'), canSend, false, () => {
+                    this._sendClipboard(entry.id, 'clip-todo-context', label);
+                }],
+                ['tetherbot-circle-help-symbolic', sendTip('Tell me more'), canSend, false, () => {
+                    this._sendClipboard(entry.id, 'clip-ask', label);
                 }],
                 ['edit-delete-symbolic', 'Delete', true, false, () => this._deleteClipboard(entry.id)],
             ];
@@ -2411,11 +2425,19 @@ export default class TetherBotExtension extends Extension {
     }
 
     _clipIconButton(iconName, name, enabled, accent) {
-        const icon = this._menuIcon(iconName, accent ? 'tetherbot-clip-pin-on' : '');
+        const icon = this._menuIcon(iconName, '');
+        // Shell colors a symbolic icon from that icon's own color. A class on
+        // the icon alone keeps the menu color, so an active pin sets the
+        // accent on the icon and on the button.
+        if (accent)
+            icon.style = 'color: -st-accent-color;';
+        let style_class = 'popup-menu-item-button tetherbot-clip-action';
+        if (!enabled)
+            style_class += ' tetherbot-dimmed';
+        if (accent)
+            style_class += ' tetherbot-clip-pin-on';
         const button = new St.Button({
-            style_class: enabled
-                ? 'popup-menu-item-button tetherbot-clip-action'
-                : 'popup-menu-item-button tetherbot-clip-action tetherbot-dimmed',
+            style_class,
             child: icon,
             can_focus: true,
             reactive: true,
@@ -2426,6 +2448,44 @@ export default class TetherBotExtension extends Extension {
         button.accessible_name = name;
         button.tooltip_text = name;
         return button;
+    }
+
+    _sendClipboard(entryId, action, label) {
+        if (!entryId || !this._proxy || !this._proxy.SendClipboardRemote) {
+            this._showClipResult(label, 'Not sent: Bridge not running');
+            return;
+        }
+        this._proxy.SendClipboardRemote(entryId, action, (result, error) => {
+            if (!this._enabled)
+                return;
+            if (error) {
+                const reason = error.message ? String(error.message) : 'Could not send';
+                this._showClipResult(label, `Not sent: ${reason}`);
+                return;
+            }
+            const value = Array.isArray(result) ? result[0] : result;
+            if (value === 'sent')
+                this._showClipResult(label, 'Sent');
+            else
+                this._showClipResult(label, 'Not sent');
+        });
+    }
+
+    _showClipResult(label, message) {
+        if (!label)
+            return;
+        const previous = label.text;
+        label.text = message;
+        const source = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 2000, () => {
+            try {
+                if (label.text === message)
+                    label.text = previous;
+            } catch (error) {
+                // The row was rebuilt.
+            }
+            return GLib.SOURCE_REMOVE;
+        });
+        label._clipResultSource = source;
     }
 
     _clipThumb(entry) {

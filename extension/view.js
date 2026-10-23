@@ -85,6 +85,7 @@ export const PROXY_METHODS = [
     'ClearClipboardRemote',
     'NoteClipboardRemote',
     'PinClipboardRemote',
+    'SendClipboardRemote',
     'SetClipboardTagsRemote',
     'EditClipboardRemote',
 ];

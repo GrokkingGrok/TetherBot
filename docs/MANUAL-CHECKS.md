@@ -2058,6 +2058,65 @@ journalctl --user -b /usr/bin/gnome-shell --no-pager | tail -n 80
 
 **Reset.** None.
 
+## M134. An active pin in the panel menu uses the accent color
+
+**Preconditions.** Log out and back in after this version is installed. Open the panel clipboard menu. Pin one text entry and leave another unpinned.
+
+**Look for.**
+
+- The pinned row's pin icon uses the theme accent color.
+- The unpinned row's pin icon stays the normal icon color.
+- The two pins are the same shape and size.
+
+**Reset.** Unpin the entry you pinned.
+
+## M135. The three send icons match the other row icons
+
+**Preconditions.** Log out and back in after this version is installed, then open the panel clipboard menu. Also open the TetherBot window and its Clipboard page. Have one text entry, one image, and one hidden password if Hide for 30 seconds is on.
+
+**Look for.**
+
+- Text rows in the menu and in the window show Make a todo, Make a todo with context, and Tell me more.
+- The icons are the same size and color as the pencil, the pin, and the tag.
+- Make a todo is a check mark with no background. Make a todo with context is a check in a square. Tell me more is a circle with a question mark.
+- On an image row and on a hidden-password row, those three buttons are dimmed and do nothing.
+
+**Reset.** None.
+
+## M136. Make a todo sends the text
+
+**Preconditions.** The primary bot has a webhook secret, and webhook-sender is on. The Desktop actions routine knows `clip-todo` (paste prompt A again if it does not). The panel menu or the Clipboard page shows a short text entry.
+
+**Look for.**
+
+- Press Make a todo once. The row shows Sent.
+- The bot creates a todo for that text in chat.
+- A second press within a few seconds does not send it again.
+
+**Reset.** None. Remove the todo in the bot if you do not want to keep it.
+
+## M137. Make a todo with context sends the text
+
+**Preconditions.** Same webhook as M136. The routine knows `clip-todo-context`.
+
+**Look for.**
+
+- Press Make a todo with context. The row shows Sent.
+- The bot creates a todo that adds context it found.
+
+**Reset.** None. Remove the todo in the bot if you do not want to keep it.
+
+## M138. Tell me more sends the text
+
+**Preconditions.** Same webhook as M136. The routine knows `clip-ask`.
+
+**Look for.**
+
+- Press Tell me more. The row shows Sent.
+- The bot replies about that text in chat.
+
+**Reset.** None.
+
 ## When you are finished
 
 ```bash

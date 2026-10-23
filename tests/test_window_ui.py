@@ -1313,6 +1313,9 @@ def test_clipboard_tag_filter_stops_after_one_rebuild():
                 "tetherbot-tag-symbolic",
                 "edit-copy-symbolic",
                 "system-search-symbolic",
+                "tetherbot-check-symbolic",
+                "tetherbot-square-check-symbolic",
+                "tetherbot-circle-help-symbolic",
                 "edit-delete-symbolic",
             ]
             assert [button.get_icon_name() for button in _icon_buttons(plain)] == order
@@ -1328,8 +1331,25 @@ def test_clipboard_tag_filter_stops_after_one_rebuild():
             assert _icon(plain, "tetherbot-tag-symbolic").get_sensitive()
             assert _icon(plain, "document-edit-symbolic").get_sensitive()
             assert _icon(plain, "system-search-symbolic").get_sensitive()
-            assert _css_count(plain, "tether-clip-sep") == 5
-            assert _css_count(masked, "tether-clip-sep") == 5
+            assert _icon(plain, "tetherbot-check-symbolic").get_sensitive()
+            assert _icon(plain, "tetherbot-square-check-symbolic").get_sensitive()
+            assert _icon(plain, "tetherbot-circle-help-symbolic").get_sensitive()
+            assert _icon(plain, "tetherbot-check-symbolic").get_tooltip_text() == "Make a todo"
+            assert _icon(plain, "tetherbot-square-check-symbolic").get_tooltip_text() == (
+                "Make a todo with context"
+            )
+            assert _icon(plain, "tetherbot-circle-help-symbolic").get_tooltip_text() == (
+                "Tell me more"
+            )
+            for name in (
+                "tetherbot-check-symbolic",
+                "tetherbot-square-check-symbolic",
+                "tetherbot-circle-help-symbolic",
+            ):
+                assert not _icon(masked, name).get_sensitive()
+                assert _icon(masked, name).get_tooltip_text() == "Hidden passwords are not sent"
+            assert _css_count(plain, "tether-clip-sep") == 8
+            assert _css_count(masked, "tether-clip-sep") == 8
             shown_label = _label_text(plain, "alpha line")
             assert shown_label is not None
             assert shown_label.get_ellipsize() == Pango.EllipsizeMode.END
@@ -1354,7 +1374,14 @@ def test_clipboard_tag_filter_stops_after_one_rebuild():
             assert _icon(image, "edit-copy-symbolic").get_sensitive()
             assert _icon(image, "view-pin-symbolic").get_sensitive()
             assert _icon(image, "edit-delete-symbolic").get_sensitive()
-            assert _css_count(image, "tether-clip-sep") == 5
+            for name in (
+                "tetherbot-check-symbolic",
+                "tetherbot-square-check-symbolic",
+                "tetherbot-circle-help-symbolic",
+            ):
+                assert not _icon(image, name).get_sensitive()
+                assert _icon(image, name).get_tooltip_text() == "Images are not sent"
+            assert _css_count(image, "tether-clip-sep") == 8
             assert _icon(image, "document-edit-symbolic").get_tooltip_text() == (
                 "Images are not edited"
             )

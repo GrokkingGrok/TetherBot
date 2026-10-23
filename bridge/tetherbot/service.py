@@ -9,8 +9,11 @@ an error message, or a signal.
 from __future__ import annotations
 
 import json
+import logging
+import re
+import secrets
 from collections.abc import Callable, Mapping
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from tetherbot import SCHEMA_VERSION, __version__
@@ -59,6 +62,11 @@ _FILTER_KEYS = frozenset(
     }
 )
 _ITEM_OUTBOUND = frozenset({"approve", "veto", "done"})
+_CLIP_ACTIONS = frozenset({"clip-todo", "clip-todo-context", "clip-ask"})
+_CLIP_TEXT_MAX = 8000
+_CLIP_GAP_SECONDS = 5
+_CLIP_ID = re.compile(r"^c-[0-9a-f]{8}$")
+_LOG = logging.getLogger("tetherbot")
 _KNOWN_ADAPTERS = ("github-poller", "official", "webhook-sender")
 _WINDOW_TARGETS = frozenset({"bots", "clipboard"})
 _BRIDGE_BOT_STATE = frozenset(
@@ -112,6 +120,7 @@ METHOD_OUT: dict[str, str | None] = {
     "EditClipboard": "(b)",
     "OfferClipboardImage": "(s)",
     "GetClipboardImage": "(say)",
+    "SendClipboard": "(s)",
 }
 
 PROPERTY_TYPES = {
@@ -157,6 +166,7 @@ class BridgeApi:
         self._last_sync_request: datetime | None = None
         self._seen_state = (daemon.state, daemon.reason)
         self._bots_json = _dumps(self._bots())
+        self._clip_sent_at: dict[str, datetime] = {}
 
     def subscribe(self, listener: Listener) -> None:
         self._listeners.append(listener)
@@ -846,6 +856,96 @@ class BridgeApi:
             self._emit("ClipboardChanged", len(history.entries))
         return (changed,)
 
+    def _send_clipboard(self, entry_id: str, action: str) -> tuple[str]:
+        """Post one clipboard entry to the primary bot. The text is not queued."""
+
+        if not isinstance(entry_id, str) or not isinstance(action, str):
+            self._log_clip_send("invalid", "invalid", "not-sent")
+            raise ServiceError(INVALID_ARGS, "clipboard send is invalid")
+        if action not in _CLIP_ACTIONS:
+            self._log_clip_send("invalid", entry_id, "not-sent")
+            raise ServiceError(INVALID_ARGS, "action is not a clipboard send")
+        history = self._clipboard_history()
+        row = history.send_source(entry_id)
+        if row is None:
+            self._log_clip_send(action, entry_id, "not-sent")
+            raise ServiceError(NOT_FOUND, "Clipboard entry is not available")
+        if row["kind"] == "image":
+            self._log_clip_send(action, row["id"], "not-sent")
+            raise ServiceError(INVALID_ARGS, "Images are not sent")
+        if row["masked"]:
+            self._log_clip_send(action, row["id"], "not-sent")
+            raise ServiceError(INVALID_ARGS, "Hidden passwords are not sent")
+        text = row.get("text")
+        if not isinstance(text, str) or not text:
+            self._log_clip_send(action, row["id"], "not-sent")
+            raise ServiceError(INVALID_ARGS, "Nothing to send")
+        if len(text) > _CLIP_TEXT_MAX:
+            self._log_clip_send(action, row["id"], "not-sent")
+            raise ServiceError(
+                INVALID_ARGS,
+                "Clipboard text is longer than 8000 characters",
+            )
+        now = self._daemon.now()
+        previous = self._clip_sent_at.get(row["id"])
+        if previous is not None and (now - previous).total_seconds() < _CLIP_GAP_SECONDS:
+            self._log_clip_send(action, row["id"], "not-sent")
+            raise ServiceError(INVALID_ARGS, "Wait a few seconds")
+        sender = getattr(self._daemon, "webhook", None)
+        route = "off" if sender is None else sender.primary_route()
+        if route == "missing":
+            self._log_clip_send(action, row["id"], "not-sent")
+            raise ServiceError(FAILED, "No webhook set up")
+        if route == "locked":
+            self._log_clip_send(action, row["id"], "not-sent")
+            raise ServiceError(FAILED, "Keyring is locked")
+        if route == "unreadable":
+            self._log_clip_send(action, row["id"], "not-sent")
+            raise ServiceError(FAILED, "Webhook secret is unreadable")
+        if route != "ok" or sender is None:
+            self._log_clip_send(action, row["id"], "not-sent")
+            raise ServiceError(FAILED, "Webhook sender is off")
+        self._clip_sent_at[row["id"]] = now
+        created = now.isoformat()
+        copied_at = datetime.fromtimestamp(int(row["at"]), UTC).isoformat()
+        source = row.get("source_app") if isinstance(row.get("source_app"), str) else ""
+        # Imported here so starting the bridge does not load an adapter module.
+        from tetherbot.adapters.webhook_sender import clip_envelope
+
+        body = clip_envelope(
+            action=action,
+            action_id=f"a-{secrets.token_hex(4)}",
+            created=created,
+            sent_at=now,
+            entry_id=row["id"],
+            text=text,
+            tags=list(row.get("tags") or []),
+            copied_at=copied_at,
+            source_app=source,
+        )
+        outcome = sender.post_primary(body)
+        if _clip_accepted(outcome):
+            self._log_clip_send(action, row["id"], "sent")
+            return ("sent",)
+        self._log_clip_send(action, row["id"], "not-sent")
+        raise ServiceError(FAILED, _clip_failure(outcome))
+
+    def _log_clip_send(self, action: str, entry_id: str, result: str) -> None:
+        """Log the action, the entry id, and the result. Never the text."""
+
+        safe_action = action if action in _CLIP_ACTIONS else "invalid"
+        if isinstance(entry_id, str) and _CLIP_ID.fullmatch(entry_id):
+            safe_id = entry_id
+        else:
+            safe_id = "invalid"
+        safe_result = result if result in {"sent", "not-sent"} else "not-sent"
+        _LOG.info(
+            "clipboard send action=%s entry=%s result=%s",
+            safe_action,
+            safe_id,
+            safe_result,
+        )
+
     def _clipboard_history(self) -> ClipboardHistory:
         history = getattr(self._daemon, "clipboard", None)
         if not isinstance(history, ClipboardHistory):
@@ -1253,6 +1353,28 @@ def _clipboard_bytes(value: object) -> bytes:
 
 def _byte(value: object) -> bool:
     return isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= 255
+
+
+def _clip_accepted(outcome: object) -> bool:
+    status = getattr(outcome, "status", None)
+    kind = getattr(outcome, "kind", "")
+    if kind != "status" or isinstance(status, bool) or not isinstance(status, int):
+        return False
+    return 200 <= status < 300 or status == 409
+
+
+def _clip_failure(outcome: object) -> str:
+    """A visible reason with no URL, key, or clipboard text."""
+
+    kind = getattr(outcome, "kind", "")
+    status = getattr(outcome, "status", None)
+    if kind in {"timeout", "network", "tls", "off", "missing"}:
+        return "Could not reach the webhook"
+    if status in {401, 403}:
+        return "re-paste key"
+    if status in {404, 410}:
+        return "Routine not found"
+    return "Webhook did not accept the send"
 
 
 def _camel_to_snake(name: str) -> str:

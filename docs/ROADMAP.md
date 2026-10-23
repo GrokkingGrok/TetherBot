@@ -120,6 +120,8 @@ TetherBot is pre-alpha. Check items off as they land. Design detail is in [SPEC.
 - [ ] Money and watch section. Todo filters cover the need for now. A visual money overview is a possible future teaser, not part of v0.2.
 - [ ] Webhook-only mode copy in the popup. Webhook-only mode is not being pursued.
 - [ ] Lint the GNOME Shell extension JavaScript. Python is already linted with ruff in CI and passes. The `extension/*.js` files have no linter. Add ESLint (GJS/GNOME Shell globals, ES modules) to the Makefile and CI, then fix what it reports.
+- [ ] Main icon (polish, later). Make the icon GNOME shows for the TetherBot window in the workspace/app icon area the main TetherBot icon, replacing the one changed during the badge work. Keep the attention badges on it in the toolbar.
+- [ ] Clipboard toolbar icon (polish, later). Put the TetherBot face (the main icon above) on the front square of the clipboard icon, so the two icons read as one family.
 
 ## Clipboard history
 

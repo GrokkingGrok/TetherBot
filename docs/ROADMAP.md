@@ -125,6 +125,7 @@ TetherBot is pre-alpha. Check items off as they land. Design detail is in [SPEC.
 - [ ] Lint the GNOME Shell extension JavaScript. Python is already linted with ruff in CI and passes. The `extension/*.js` files have no linter. Add ESLint (GJS/GNOME Shell globals, ES modules) to the Makefile and CI, then fix what it reports.
 - [ ] Main icon (polish, later). Make the icon GNOME shows for the TetherBot window in the workspace/app icon area the main TetherBot icon, replacing the one changed during the badge work. Keep the attention badges on it in the toolbar.
 - [ ] Clipboard toolbar icon (polish, later). Put the TetherBot face (the main icon above) on the front square of the clipboard icon, so the two icons read as one family.
+- [ ] Secret filter allows URLs (polish, next batch). In `bridge/tetherbot/model.py` `looks_like_secret` (and the matching guard in the bot-side feed writer), stop flagging long hex/base64 runs that sit in the path of an `http(s)://` link (e.g. model IDs). Still flag: secret-looking query values (`token=`, `key=`, `sig=`, etc.), userinfo (`user:pass@`), known webhook hosts (Slack/Discord hooks), and the existing prefixes. Add tests both ways.
 
 ## Clipboard history
 

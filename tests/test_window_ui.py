@@ -275,21 +275,21 @@ def test_done_with_note_sends_the_text_and_stays_disabled_when_empty():
             window._done_current()
             assert "note" not in window._undo_holds["primary/one"]
             assert window._undo_holds["primary/one"]["via"] == "done"
-            assert window.done_stack.get_visible_child() is window.done_undo
-            assert window.note_stack.get_visible_child() is window.done_note_button
+            assert window.done_undo.get_parent() is window.done_stack.get_visible_child()
+            assert window.done_note_button.get_parent() is window.note_stack.get_visible_child()
             assert not window.done_note_button.get_sensitive()
             assert window.start_button.get_visible()
             assert window.attach_button.get_visible()
             assert window.copy_button.get_visible()
             assert window.ask_button.get_visible()
             window._undo("primary/one")
-            assert window.done_stack.get_visible_child() is window.done_button
-            assert window.note_stack.get_visible_child() is window.done_note_button
+            assert window.done_button.get_parent() is window.done_stack.get_visible_child()
+            assert window.done_note_button.get_parent() is window.note_stack.get_visible_child()
             window.note_buffer.set_text("Packed the blue bag")
             window.done_note_button.emit("clicked")
             assert window._undo_holds["primary/one"]["via"] == "note"
-            assert window.note_stack.get_visible_child() is window.note_undo
-            assert window.done_stack.get_visible_child() is window.done_button
+            assert window.note_undo.get_parent() is window.note_stack.get_visible_child()
+            assert window.done_button.get_parent() is window.done_stack.get_visible_child()
             assert not window.done_button.get_sensitive()
             assert window.start_button.get_visible()
             assert window.attach_button.get_visible()
@@ -372,6 +372,192 @@ def test_failed_send_leaves_the_hovered_row_until_a_later_idle():
             assert "primary/one" not in window._undo_holds
             assert any(item.get("key") == "primary/one" for item in window._items)
             assert window._rows["primary/one"].get_parent() is not None
+            holder["ok"] = True
+        except Exception as exc:
+            holder["error"] = exc
+        app.quit()
+        return False
+
+    app.connect("activate", lambda _app: GLib.idle_add(finish))
+    GLib.timeout_add(8000, app.quit)
+    try:
+        app.run(["tetherbot-window"])
+    finally:
+        reset_tetherbot_logger()
+    if "error" in holder:
+        raise holder["error"]
+    assert holder.get("ok") is True
+
+
+def test_detail_buttons_stay_short_and_inside_the_pane():
+    gi = pytest.importorskip("gi")
+    try:
+        gi.require_version("Gtk", "4.0")
+        gi.require_version("Adw", "1")
+        from gi.repository import GLib, Gtk
+    except ValueError as exc:
+        pytest.skip(str(exc))
+    if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
+        pytest.skip("GTK window test needs a display")
+
+    from tetherbot.window import WindowApp
+
+    fake = _Fake()
+    app = WindowApp(client=fake)
+    holder: dict = {}
+
+    def finish():
+        window = app.window
+        assert window is not None
+        window.present()
+        window.select_key("primary/one")
+
+        def check(width: int, nxt):
+            window.set_default_size(width, 800)
+
+            def measure():
+                try:
+                    _assert_action_row(window, Gtk)
+                    if nxt is None:
+                        holder["ok"] = True
+                        app.quit()
+                    else:
+                        nxt()
+                except Exception as exc:
+                    holder["error"] = exc
+                    app.quit()
+                return False
+
+            GLib.timeout_add(200, measure)
+
+        def at_1400():
+            check(1400, None)
+
+        check(1520, at_1400)
+        return False
+
+    app.connect("activate", lambda _app: GLib.idle_add(finish))
+    GLib.timeout_add(8000, app.quit)
+    try:
+        app.run(["tetherbot-window"])
+    finally:
+        reset_tetherbot_logger()
+    if "error" in holder:
+        raise holder["error"]
+    assert holder.get("ok") is True
+
+
+def _assert_action_row(window, gtk) -> None:
+    buttons = (
+        window.done_button,
+        window.done_note_button,
+        window.start_button,
+        window.attach_button,
+        window.copy_button,
+        window.ask_button,
+    )
+    pane = window.action_row.get_parent()
+    assert pane is not None
+    pane_width = pane.get_width()
+    assert pane_width > 0
+    assert window.action_row.get_width() <= pane_width
+    assert not window.action_row.get_vexpand()
+    # One line at the default and minimum window widths. A narrow measure wraps.
+    assert 24 <= window.action_row.get_height() <= 48
+    wide = window.action_row.measure(gtk.Orientation.VERTICAL, 4000).natural
+    narrow = window.action_row.measure(gtk.Orientation.VERTICAL, 320).natural
+    assert narrow > wide
+    body = window.text.get_parent().get_parent()
+    assert body.get_vexpand()
+    assert body.get_height() > window.action_row.get_height()
+    for button in buttons:
+        assert 16 <= button.get_height() <= window.action_row.get_height()
+        found, bounds = button.compute_bounds(window.action_row)
+        assert found
+        assert bounds.get_x() >= -1
+        right = bounds.get_x() + bounds.get_width()
+        assert right <= window.action_row.get_width() + 1
+    widths = []
+    for button in buttons:
+        found, bounds = button.compute_bounds(window.action_row)
+        widths.append(round(bounds.get_width()))
+    assert len(set(widths)) > 1
+    start_before = _button_x(window, window.start_button)
+    ask_before = _button_x(window, window.ask_button)
+    window._done_current()
+    assert window.done_undo.get_parent() is window.done_stack.get_visible_child()
+    assert _button_x(window, window.start_button) == start_before
+    assert _button_x(window, window.ask_button) == ask_before
+    window._undo("primary/one")
+
+
+def _button_x(window, button) -> int:
+    found, bounds = button.compute_bounds(window.action_row)
+    assert found
+    return round(bounds.get_x())
+
+
+def test_done_row_clears_when_another_todo_is_selected():
+    gi = pytest.importorskip("gi")
+    try:
+        gi.require_version("Gtk", "4.0")
+        gi.require_version("Adw", "1")
+        from gi.repository import GLib, Gtk
+    except ValueError as exc:
+        pytest.skip(str(exc))
+    if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
+        pytest.skip("GTK window test needs a display")
+
+    from tetherbot.window import WindowApp
+
+    class _Sent(_Fake):
+        def __init__(self) -> None:
+            super().__init__()
+            self.items.append(
+                {
+                    "key": "primary/two",
+                    "kind": "todo",
+                    "title": "Second item",
+                    "body": "Leave this one open.",
+                    "status": "open",
+                    "actions": ["done"],
+                    "source": {"bot": "primary"},
+                }
+            )
+
+        def mark_done(self, key, note=""):
+            self.done.append(key)
+            self.done_notes.append(note)
+            self.items = [item for item in self.items if item.get("key") != key]
+            return "a-done"
+
+    fake = _Sent()
+    app = WindowApp(client=fake)
+    holder: dict = {}
+
+    def finish():
+        try:
+            window = app.window
+            assert window is not None
+            window.select_key("primary/one")
+            window._done_current()
+            other = window._rows["primary/two"]
+            other.set_state_flags(Gtk.StateFlags.PRELIGHT, False)
+            window.list.select_row(other)
+            window._list_hovered = True
+            window._undo_holds["primary/one"]["until"] = 0
+            window._flush_due(False)
+            assert fake.done == ["primary/one"]
+            pending = window._after_send_idle
+            assert pending
+            GLib.source_remove(pending)
+            window._after_send_idle = 0
+            assert window._after_send() == GLib.SOURCE_REMOVE
+            assert "primary/one" not in window._undo_holds
+            assert "primary/one" not in window._rows
+            assert other.get_parent() is not None
+            assert window._rows["primary/two"].get_visible()
+            assert window._current.get("key") == "primary/two"
             holder["ok"] = True
         except Exception as exc:
             holder["error"] = exc

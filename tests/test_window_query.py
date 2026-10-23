@@ -290,6 +290,32 @@ def test_a_cleared_row_stays_put_until_its_window_ends():
     assert [row["key"] for row in pinned] == ["a", "c"]
     assert pinned[0]["_undo"]["fraction"] == 0
     assert pinned[0]["_undo"]["live"] is False
+    selective = merge_undo_items(
+        [{"key": "c", "title": "C"}],
+        {
+            "a": {"key": "a", "index": 0, "until": 0, "item": {"key": "a", "title": "A"}},
+            "b": {"key": "b", "index": 1, "until": 0, "item": {"key": "b", "title": "B"}},
+        },
+        10,
+        pin_expired=True,
+        pin_keys={"b"},
+    )
+    assert [row["key"] for row in selective] == ["c", "b"]
+    sent = merge_undo_items(
+        [{"key": "c", "title": "C"}],
+        {
+            "a": {
+                "key": "a",
+                "index": 0,
+                "until": 0,
+                "sent": True,
+                "item": {"key": "a", "title": "A"},
+            }
+        },
+        10,
+        pin_expired=True,
+    )
+    assert [row["key"] for row in sent] == ["c"]
     assert undo_fraction(5_000, 4_000) == 0.2
 
 

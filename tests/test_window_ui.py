@@ -1195,7 +1195,7 @@ def test_clipboard_tag_filter_stops_after_one_rebuild():
         gi.require_version("Gtk", "4.0")
         gi.require_version("Adw", "1")
         gi.require_version("Pango", "1.0")
-        from gi.repository import GLib, Pango
+        from gi.repository import Adw, Gio, GLib, Pango
     except ValueError as exc:
         pytest.skip(str(exc))
     if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
@@ -1243,9 +1243,34 @@ def test_clipboard_tag_filter_stops_after_one_rebuild():
                     "masked": True,
                     "tags": [],
                 },
+                {
+                    "id": "c-44444444",
+                    "kind": "image",
+                    "mime": "image/png",
+                    "size": 1258291,
+                    "at": 4,
+                    "pinned": False,
+                    "tags": [{"name": "Shot", "color": "green"}],
+                    "text": "",
+                    "path": "/tetherbot-missing/clipboard-image.png",
+                    "thumb": "/tetherbot-missing/clipboard-image.thumb.png",
+                },
             ]
 
-    app = WindowApp(client=_Clip())
+    class _Isolated(WindowApp):
+        """A second process must not attach to a window the user already has open."""
+
+        def __init__(self, client: _Clip) -> None:
+            Adw.Application.__init__(
+                self,
+                application_id="io.github.grokkinggrok.TetherBot.ClipboardTest",
+                flags=Gio.ApplicationFlags.NON_UNIQUE,
+            )
+            self._client = client
+            self.window = None
+            self._linger = 0
+
+    app = _Isolated(_Clip())
     holder: dict = {}
 
     def finish():
@@ -1258,7 +1283,7 @@ def test_clipboard_tag_filter_stops_after_one_rebuild():
 
             def wrapped() -> None:
                 fills["n"] += 1
-                if fills["n"] > 3:
+                if fills["n"] > 6:
                     raise AssertionError("tag filter rebuilt without stopping")
                 original()
 
@@ -1268,6 +1293,7 @@ def test_clipboard_tag_filter_stops_after_one_rebuild():
             assert window._clip_tag == "Later"
             shown = _clip_rows(window)
             assert [row.clip_text for row in shown] == ["alpha line"]
+            assert all(getattr(row, "clip_kind", "") != "image" for row in shown)
             window.clip_tag.set_selected(0)
             assert window._clip_tag == ""
             rows = _clip_rows(window)
@@ -1310,6 +1336,38 @@ def test_clipboard_tag_filter_stops_after_one_rebuild():
             assert _icon(masked, "system-search-symbolic").get_tooltip_text() == (
                 "Hidden passwords are not searched"
             )
+            image = next(row for row in rows if getattr(row, "clip_kind", "") == "image")
+            shown_image = _label_text(image, "Image · PNG · 1.2 MB")
+            assert shown_image is not None
+            assert shown_image.get_ellipsize() == Pango.EllipsizeMode.END
+            assert not _icon(image, "document-edit-symbolic").get_sensitive()
+            assert not _icon(image, "system-search-symbolic").get_sensitive()
+            assert _icon(image, "tag-symbolic").get_sensitive()
+            assert _icon(image, "edit-copy-symbolic").get_sensitive()
+            assert _icon(image, "view-pin-symbolic").get_sensitive()
+            assert _icon(image, "edit-delete-symbolic").get_sensitive()
+            assert _css_count(image, "tether-clip-sep") == 5
+            assert _icon(image, "document-edit-symbolic").get_tooltip_text() == (
+                "Images are not edited"
+            )
+            assert _icon(image, "system-search-symbolic").get_tooltip_text() == (
+                "Images are not searched"
+            )
+            window._clip_query = "png"
+            window._fill_clipboard_rows()
+            matched = _clip_rows(window)
+            assert [getattr(row, "clip_kind", "") for row in matched] == ["image"]
+            window._clip_query = "zz-bytes"
+            window._fill_clipboard_rows()
+            assert _clip_rows(window) == []
+            window._clip_query = ""
+            window._on_edit_clip(None, image.clip_entry)
+            assert getattr(window, "_clip_dialog", None) is None
+            window._preview_clipboard(image)
+            dialog = window._clip_dialog
+            assert dialog is not None
+            assert dialog.get_title() == "Preview"
+            dialog.close()
             holder["ok"] = True
         except Exception as exc:
             holder["error"] = exc

@@ -23,7 +23,7 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Pango", "1.0")
 from gi.repository import Adw, Gdk, Gio, GLib, Graphene, Gsk, Gtk, Pango  # noqa: E402
 
-from tetherbot.clipboard_policy import list_preview  # noqa: E402
+from tetherbot.clipboard_policy import image_label, list_preview  # noqa: E402
 from tetherbot.clipboard_search import choose_search_template, search_target  # noqa: E402
 from tetherbot.markdown import Run, render  # noqa: E402
 from tetherbot.todos import PALETTE  # noqa: E402
@@ -113,6 +113,10 @@ _CSS = """
   padding: 4px;
   min-width: 28px;
   min-height: 28px;
+}
+.tether-clip-thumb {
+  min-width: 48px;
+  min-height: 48px;
 }
 .tether-pin-on {
   color: @accent_color;
@@ -290,6 +294,17 @@ class BridgeClient:
     def edit_clipboard(self, entry_id: str, text: str) -> bool:
         raw = self._call("EditClipboard", "(ss)", (entry_id, text))
         return bool(raw and raw[0])
+
+    def get_clipboard_image(self, entry_id: str) -> tuple[str, bytes]:
+        """Original image bytes for copy-back. A missing image has no path."""
+
+        raw = self._call("GetClipboardImage", "(s)", (entry_id,))
+        if len(raw) < 2 or not isinstance(raw[0], str):
+            raise BridgeError("That image is not available")
+        blob = _as_bytes(raw[1])
+        if blob is None:
+            raise BridgeError("That image is not available")
+        return raw[0], blob
 
     def load_clipboard(
         self,
@@ -2477,7 +2492,8 @@ class TodoWindow(Adw.ApplicationWindow):
                 continue
             if not isinstance(text, str):
                 text = ""
-            if not masked and not text:
+            is_image = entry.get("kind") == "image"
+            if not masked and not text and not is_image:
                 continue
             names = _clip_tag_names(entry)
             if tag_filter and tag_filter not in names:
@@ -2486,6 +2502,9 @@ class TodoWindow(Adw.ApplicationWindow):
                 tag_hit = any(query in name.casefold() for name in names)
                 if masked:
                     if not tag_hit and query not in "hidden password":
+                        continue
+                elif is_image:
+                    if not tag_hit and not _image_query_hit(entry, query):
                         continue
                 elif not tag_hit and query not in text.casefold():
                     continue
@@ -2544,7 +2563,15 @@ class TodoWindow(Adw.ApplicationWindow):
     def _make_clip_row(self, entry: dict[str, Any], text: str, masked: bool) -> Gtk.ListBoxRow:
         ident = str(entry.get("id") or "")
         pinned = entry.get("pinned") is True
-        preview = "Hidden password" if masked else (list_preview(text) or "Empty")
+        is_image = entry.get("kind") == "image"
+        if is_image:
+            mime = entry.get("mime") if isinstance(entry.get("mime"), str) else ""
+            size = entry.get("size") if isinstance(entry.get("size"), int) else 0
+            preview = image_label(mime, size)
+        elif masked:
+            preview = "Hidden password"
+        else:
+            preview = list_preview(text) or "Empty"
         label = Gtk.Label(label=preview, xalign=0, hexpand=True)
         label.set_ellipsize(Pango.EllipsizeMode.END)
         label.set_wrap(False)
@@ -2562,6 +2589,10 @@ class TodoWindow(Adw.ApplicationWindow):
         text_box.set_hexpand(True)
         text_box.set_size_request(260, -1)
         text_box.set_valign(Gtk.Align.CENTER)
+        if is_image:
+            thumb = _clip_picture(entry)
+            if thumb is not None:
+                text_box.append(thumb)
         text_box.append(label)
         if dots.get_first_child() is not None:
             text_box.append(dots)
@@ -2573,23 +2604,31 @@ class TodoWindow(Adw.ApplicationWindow):
         tag_tip = "Hidden passwords are not tagged" if masked else "Tag"
         tag_button = _clip_icon("tag-symbolic", tag_tip, not masked)
         tag_button.connect("clicked", self._on_tag_clip, entry)
-        edit = _clip_icon("document-edit-symbolic", "Edit", not masked)
+        edit_tip = "Images are not edited" if is_image else "Edit"
+        edit = _clip_icon("document-edit-symbolic", edit_tip, not masked and not is_image)
         edit.connect("clicked", self._on_edit_clip, entry)
         copy = _clip_icon("edit-copy-symbolic", "Copy")
-        copy.connect("clicked", self._on_copy_clip, text)
+        copy.connect("clicked", self._on_copy_clip, entry)
         template = self._search_template()
-        if masked:
+        if is_image:
+            web_tip = "Images are not searched"
+            web_on = False
+        elif masked:
             web_tip = "Hidden passwords are not searched"
+            web_on = False
         elif self._clip_search_kind == "fallback":
             web_tip = "Uses the search fallback from Settings"
+            web_on = template is not None
         elif template is None:
             web_tip = "No default search engine is set"
+            web_on = False
         else:
             web_tip = "Search the web"
+            web_on = True
         web = _clip_icon(
             "system-search-symbolic",
             web_tip,
-            not masked and template is not None,
+            web_on,
         )
         web.connect("clicked", self._on_search_clip, entry)
         delete = _clip_icon("edit-delete-symbolic", "Delete")
@@ -2607,10 +2646,45 @@ class TodoWindow(Adw.ApplicationWindow):
         row.clip_text = text
         row.clip_masked = masked
         row.clip_entry = entry
+        row.clip_kind = "image" if is_image else "text"
         return row
 
-    def _on_copy_clip(self, _button: Gtk.Button, text: str) -> None:
+    def _on_copy_clip(self, _button: Gtk.Button, entry: dict[str, Any] | str) -> None:
+        if isinstance(entry, str):
+            if entry:
+                self.get_clipboard().set(entry)
+                self._toast("Copied")
+            return
+        if not isinstance(entry, dict):
+            return
+        if entry.get("kind") == "image":
+            self._copy_clip_image(entry)
+            return
+        text = entry.get("text")
+        if not isinstance(text, str) or not text:
+            return
         self.get_clipboard().set(text)
+        self._toast("Copied")
+
+    def _copy_clip_image(self, entry: dict[str, Any]) -> None:
+        ident = entry.get("id")
+        if not isinstance(ident, str) or not hasattr(self.client, "get_clipboard_image"):
+            self._toast("That image is not available")
+            return
+        try:
+            mime, data = self.client.get_clipboard_image(ident)
+        except BridgeError:
+            self._toast("That image is not available")
+            return
+        if not isinstance(mime, str) or not mime.startswith("image/") or not data:
+            self._toast("Could not copy the image")
+            return
+        try:
+            provider = Gdk.ContentProvider.new_for_bytes(mime, GLib.Bytes.new(data))
+            self.get_clipboard().set_content(provider)
+        except Exception:
+            self._toast("Could not copy the image")
+            return
         self._toast("Copied")
 
     def _on_pin_clip(self, _button: Gtk.Button, entry: dict[str, Any]) -> None:
@@ -2625,7 +2699,7 @@ class TodoWindow(Adw.ApplicationWindow):
         self._reload_clip_now()
 
     def _on_edit_clip(self, _button: Gtk.Button, entry: dict[str, Any]) -> None:
-        if entry.get("masked") is True:
+        if entry.get("masked") is True or entry.get("kind") == "image":
             return
         ident = entry.get("id")
         text = entry.get("text") if isinstance(entry.get("text"), str) else ""
@@ -2647,7 +2721,7 @@ class TodoWindow(Adw.ApplicationWindow):
         self._show_clip_tags(ident, tags)
 
     def _on_search_clip(self, _button: Gtk.Button, entry: dict[str, Any]) -> None:
-        if entry.get("masked") is True:
+        if entry.get("masked") is True or entry.get("kind") == "image":
             return
         self._clip_search_ready = False
         url = search_target(entry.get("text"), self._search_template())
@@ -2660,12 +2734,42 @@ class TodoWindow(Adw.ApplicationWindow):
             self._toast("Could not open the browser")
 
     def _preview_clipboard(self, row: Gtk.ListBoxRow) -> None:
+        entry = getattr(row, "clip_entry", None)
+        if isinstance(entry, dict) and entry.get("kind") == "image":
+            self._show_clip_image(entry)
+            return
         if getattr(row, "clip_masked", False) is True:
             return
         text = getattr(row, "clip_text", None)
         if not isinstance(text, str):
             return
         self._show_clip_text("Preview", text, editable=False, entry_id=None)
+
+    def _show_clip_image(self, entry: dict[str, Any]) -> None:
+        """Show the image file scaled to fit. SVG stays an image, not markup."""
+
+        path = entry.get("path") if isinstance(entry.get("path"), str) else ""
+        window = Gtk.Window(transient_for=self, modal=True, title="Preview")
+        window.set_default_size(640, 480)
+        picture = Gtk.Picture(hexpand=True, vexpand=True)
+        if hasattr(Gtk, "ContentFit"):
+            picture.set_content_fit(Gtk.ContentFit.CONTAIN)
+        loaded = False
+        if path and Path(path).is_file():
+            try:
+                picture.set_paintable(Gdk.Texture.new_from_filename(path))
+                loaded = True
+            except Exception:
+                loaded = False
+        if not loaded:
+            missing = Gtk.Label(label="That image is not available")
+            missing.set_halign(Gtk.Align.CENTER)
+            missing.set_valign(Gtk.Align.CENTER)
+            window.set_child(missing)
+        else:
+            window.set_child(picture)
+        self._clip_dialog = window
+        window.present()
 
     def _show_clip_text(
         self,
@@ -3461,6 +3565,50 @@ def _copy_icon(label: str) -> Gtk.Button:
 _CLIP_TONES = frozenset(
     {"red", "orange", "yellow", "green", "teal", "blue", "purple", "pink", "gray"}
 )
+
+
+def _image_query_hit(entry: dict[str, Any], query: str) -> bool:
+    """True when the label or the type matches. The bytes are not searched."""
+
+    mime = entry.get("mime") if isinstance(entry.get("mime"), str) else ""
+    size = entry.get("size") if isinstance(entry.get("size"), int) else 0
+    label = image_label(mime, size).casefold()
+    return query in label or query in mime.casefold()
+
+
+def _clip_picture(entry: dict[str, Any]) -> Gtk.Picture | None:
+    """A 48px thumbnail from the thumb file, or the image file when it exists."""
+
+    thumb = entry.get("thumb") if isinstance(entry.get("thumb"), str) else ""
+    path = entry.get("path") if isinstance(entry.get("path"), str) else ""
+    shown = thumb or path
+    if not shown:
+        return None
+    picture = Gtk.Picture()
+    picture.add_css_class("tether-clip-thumb")
+    picture.set_size_request(48, 48)
+    picture.set_valign(Gtk.Align.CENTER)
+    picture.set_can_shrink(True)
+    if hasattr(Gtk, "ContentFit"):
+        picture.set_content_fit(Gtk.ContentFit.CONTAIN)
+    if Path(shown).is_file():
+        try:
+            picture.set_paintable(Gdk.Texture.new_from_filename(shown))
+        except Exception:
+            return picture
+    return picture
+
+
+def _as_bytes(value: object) -> bytes | None:
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        return bytes(value)
+    if isinstance(value, list) and all(_byte(item) for item in value):
+        return bytes(value)
+    return None
+
+
+def _byte(item: object) -> bool:
+    return isinstance(item, int) and not isinstance(item, bool) and 0 <= item <= 255
 
 
 def _clip_icon(icon_name: str, tooltip: str, sensitive: bool = True) -> Gtk.Button:

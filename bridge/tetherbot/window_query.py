@@ -467,12 +467,15 @@ def merge_undo_items(
     now_ms: int,
     *,
     pin_expired: bool = False,
+    pin_keys: set[str] | None = None,
     window_ms: int = UNDO_MS,
 ) -> list[dict[str, Any]]:
     """Keep each cleared row at the index it had when it was cleared.
 
-    An expired row stays only while the pointer is still over the list, so
-    the rows under the cursor do not jump.
+    An expired row that has not been sent stays only while the pointer is
+    still over that row, so the row under the cursor does not jump. A sent
+    row leaves. ``pin_keys`` limits which expired rows stay; ``None`` keeps
+    every expired unsent row when ``pin_expired`` is set.
     """
 
     rows = list(holds.values()) if isinstance(holds, Mapping) else list(holds)
@@ -486,8 +489,11 @@ def merge_undo_items(
             continue
         until = _millis(hold.get("until"))
         live = until > now_ms and not hold.get("sent")
-        if not live and not pin_expired:
-            continue
+        if not live:
+            if hold.get("sent") or not pin_expired:
+                continue
+            if pin_keys is not None and key not in pin_keys:
+                continue
         active[key] = hold
     base: list[dict[str, Any]] = []
     for item in items:

@@ -115,7 +115,7 @@ _CSS = """
 .tether-dark .tether-dot-failed_closed,
 .tether-dark .tether-dot-unconfigured,
 .tether-dark .tether-dot-error { color: #ff8b8b; }
-.tether-undo { min-width: 4.5em; max-width: 4.5em; }
+.tether-undo { min-width: 4.5em; }
 progressbar.tether-undo-bar { min-height: 24px; }
 progressbar.tether-undo-bar > trough {
   min-height: 24px;
@@ -670,6 +670,8 @@ class TodoWindow(Adw.ApplicationWindow):
         title_row.append(self.detail_title)
         title_row.append(self.copy_title_button)
         self.detail_chips = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE)
+        self.detail_chips.set_vexpand(False)
+        self.detail_chips.set_valign(Gtk.Align.START)
         self.time_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         self.time_box.set_visible(False)
         time_row = Gtk.Box(spacing=8)
@@ -713,6 +715,7 @@ class TodoWindow(Adw.ApplicationWindow):
         self.copy_body_button = _copy_icon("Copy body")
         self.copy_body_button.connect("clicked", lambda _button: self._copy_body())
         body_row = Gtk.Box(spacing=8)
+        body_row.set_vexpand(True)
         body_row.append(body_scroll)
         body_row.append(self.copy_body_button)
         self.note_label = Gtk.Label(label="Note", xalign=0)
@@ -734,12 +737,14 @@ class TodoWindow(Adw.ApplicationWindow):
         note_scroll.set_max_content_height(140)
         note_scroll.add_css_class("frame")
         self.note_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        self.note_box.set_vexpand(False)
+        self.note_box.set_valign(Gtk.Align.START)
         self.note_box.append(self.note_label)
         self.note_box.append(note_scroll)
-        self.done_button = Gtk.Button(label="Done")
+        self.done_button = _label_button("Done")
         self.done_button.add_css_class("suggested-action")
         self.done_button.connect("clicked", lambda _button: self._done_current())
-        self.done_note_button = Gtk.Button(label="Done with note")
+        self.done_note_button = _label_button("Done with note")
         self.done_note_button.set_sensitive(False)
         self.done_note_button.connect("clicked", lambda _button: self._done_with_note())
         self.done_undo, self._done_bar = _undo_button()
@@ -748,22 +753,23 @@ class TodoWindow(Adw.ApplicationWindow):
         self.note_undo.connect("clicked", lambda _button: self._undo_current())
         self.done_stack = _button_slot(self.done_button, self.done_undo)
         self.note_stack = _button_slot(self.done_note_button, self.note_undo)
-        self.start_button = Gtk.Button(label="Start timer")
+        self.start_button = _label_button("Start timer")
         self.start_button.connect("clicked", lambda _button: self._start_current())
-        self.attach_button = Gtk.Button(label="Attach timer")
+        self.attach_button = _label_button("Attach timer")
         self.attach_button.connect("clicked", lambda _button: self._attach_current())
-        self.copy_button = Gtk.Button(label="Copy Todo")
+        self.copy_button = _label_button("Copy Todo")
         self.copy_button.set_tooltip_text("Copy title and body")
         self.copy_button.connect("clicked", lambda _button: self._copy_current())
-        self.ask_button = Gtk.Button(label="Ask the bot about this")
+        self.ask_button = _label_button("Ask the bot about this")
         self.ask_button.connect("clicked", lambda _button: self._ask_current())
-        buttons = Gtk.Box(spacing=8)
-        buttons.append(self.done_stack)
-        buttons.append(self.note_stack)
-        buttons.append(self.start_button)
-        buttons.append(self.attach_button)
-        buttons.append(self.copy_button)
-        buttons.append(self.ask_button)
+        self.action_row = _action_row(
+            self.done_stack,
+            self.note_stack,
+            self.start_button,
+            self.attach_button,
+            self.copy_button,
+            self.ask_button,
+        )
         self.source = Gtk.Label(xalign=0, wrap=True)
         self.source.add_css_class("tether-source")
         detail = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
@@ -776,7 +782,7 @@ class TodoWindow(Adw.ApplicationWindow):
         detail.append(self.time_box)
         detail.append(body_row)
         detail.append(self.note_box)
-        detail.append(buttons)
+        detail.append(self.action_row)
         detail.append(self.source)
         detail_bar = Adw.ToolbarView(content=detail)
         self.detail_header = Adw.HeaderBar()
@@ -939,11 +945,13 @@ class TodoWindow(Adw.ApplicationWindow):
             selected = getattr(current, "item_key", "") if current is not None else ""
             if not isinstance(selected, str):
                 selected = ""
+        pin_keys = self._pin_keys()
         shown = merge_undo_items(
             items,
             self._undo_holds,
             _now_ms(),
-            pin_expired=self._list_hovered,
+            pin_expired=pin_keys is None or bool(pin_keys),
+            pin_keys=pin_keys,
             window_ms=self._undo_span,
         )
         self._undo_bars = [
@@ -1441,10 +1449,12 @@ class TodoWindow(Adw.ApplicationWindow):
         via = hold.get("via") if live and isinstance(hold, dict) else ""
         if live and via not in {"done", "note"}:
             via = "done"
-        done_child = self.done_undo if via == "done" else self.done_button
-        note_child = self.note_undo if via == "note" else self.done_note_button
-        self.done_stack.set_visible_child(done_child)
-        self.note_stack.set_visible_child(note_child)
+        self.done_stack.set_visible_child(
+            self.done_stack.undo_page if via == "done" else self.done_stack.action_page
+        )
+        self.note_stack.set_visible_child(
+            self.note_stack.undo_page if via == "note" else self.note_stack.action_page
+        )
         self._done_until = int(hold["until"]) if via == "done" and isinstance(hold, dict) else 0
         self._note_until = int(hold["until"]) if via == "note" and isinstance(hold, dict) else 0
         self._done_bar.set_fraction(
@@ -1794,8 +1804,8 @@ class TodoWindow(Adw.ApplicationWindow):
             self.done_note_button.set_sensitive(False)
             return
         if (
-            self.done_stack.get_visible_child() is self.done_undo
-            or self.note_stack.get_visible_child() is self.note_undo
+            self.done_stack.get_visible_child() is self.done_stack.undo_page
+            or self.note_stack.get_visible_child() is self.note_stack.undo_page
         ):
             self.done_note_button.set_sensitive(False)
             return
@@ -1837,11 +1847,13 @@ class TodoWindow(Adw.ApplicationWindow):
             if item.get("key") == key:
                 snapshot = dict(item)
                 break
+        pin_keys = self._pin_keys()
         shown = merge_undo_items(
             self._items,
             self._undo_holds,
             _now_ms(),
-            pin_expired=self._list_hovered,
+            pin_expired=pin_keys is None or bool(pin_keys),
+            pin_keys=pin_keys,
             window_ms=self._undo_span,
         )
         found = False
@@ -2043,10 +2055,15 @@ class TodoWindow(Adw.ApplicationWindow):
             GLib.source_remove(source)
 
     def _after_send(self) -> bool:
-        """One list update after a send attempt. Hovered rows stay put."""
+        """One list update after a send attempt.
+
+        A failed send waits while the pointer is on that row. A send that
+        landed still rebuilds here, and the install path hides a hovered row
+        instead of freeing it.
+        """
 
         self._after_send_idle = 0
-        if self._list_hot():
+        if self._failed_row_under_pointer():
             self._after_send_idle = GLib.timeout_add(50, self._after_send)
             return GLib.SOURCE_REMOVE
         refresh = self._after_send_refresh
@@ -2061,20 +2078,60 @@ class TodoWindow(Adw.ApplicationWindow):
             self._list_hovered or self._guard_rows or self._doomed or self._any_pointer_row()
         )
 
-    def _settle_holds(self, *, fill: bool = True) -> None:
-        if self._list_hovered:
-            self._sync_open_undo()
-            if fill and self._page != "bots":
-                self._fill_rows(self._items)
-            self._arm_undo()
-            return
+    def _pin_keys(self) -> set[str] | None:
+        """Expired rows to keep so the pointer's row does not jump.
+
+        ``None`` means the pointer is on the list but not on one row, so
+        every expired unsent row stays. An empty set pins nothing.
+        """
+
+        if not self._list_hovered:
+            return set()
+        pointed: set[str] = set()
+        index = 0
+        while True:
+            row = self.list.get_row_at_index(index)
+            if row is None:
+                break
+            index += 1
+            if not row.get_visible() or not _pointer_on_row(row):
+                continue
+            key = getattr(row, "item_key", "")
+            if isinstance(key, str) and key:
+                pointed.add(key)
+        if pointed:
+            return pointed
+        return None
+
+    def _failed_row_under_pointer(self) -> bool:
+        """True when a failed send's row is the one under the pointer."""
+
+        if not self._list_hot():
+            return False
+        pin = self._pin_keys()
         now = _now_ms()
+        for key, hold in self._undo_holds.items():
+            if hold.get("sent"):
+                continue
+            pending = bool(hold.get("failed")) or int(hold.get("until") or 0) <= now
+            if pending and (pin is None or key in pin):
+                return True
+        return False
+
+    def _settle_holds(self, *, fill: bool = True) -> None:
+        now = _now_ms()
+        pin = self._pin_keys()
         before = set(self._undo_holds)
-        self._undo_holds = {
-            key: hold
-            for key, hold in self._undo_holds.items()
-            if not hold.get("sent") and int(hold.get("until") or 0) > now
-        }
+        kept: dict[str, dict[str, Any]] = {}
+        for key, hold in self._undo_holds.items():
+            if hold.get("sent"):
+                continue
+            if int(hold.get("until") or 0) > now:
+                kept[key] = hold
+                continue
+            if self._list_hovered and (pin is None or key in pin):
+                kept[key] = hold
+        self._undo_holds = kept
         if fill and set(self._undo_holds) != before and self._page != "bots":
             self._fill_rows(self._items)
         self._sync_open_undo()
@@ -2173,7 +2230,11 @@ class TodoWindow(Adw.ApplicationWindow):
             return
         if row is None:
             return
-        self._show_item(getattr(row, "item", None))
+        item = getattr(row, "item", None)
+        key = item.get("key") if isinstance(item, dict) else getattr(row, "item_key", "")
+        if isinstance(key, str) and key:
+            self._wanted = key
+        self._show_item(item)
 
     def _on_row_activated(self, _box: Gtk.ListBox, row: Gtk.ListBoxRow) -> None:
         if self._page == "bots":
@@ -2591,13 +2652,19 @@ def _now_ms() -> int:
 
 
 class CenterUndoBar(Gtk.Widget):
-    """Undo fill that shrinks toward the middle, from both ends."""
+    """Undo fill that shrinks toward the middle, from both ends.
+
+    The label is the size request, so the button stays one line tall.
+    """
 
     def __init__(self) -> None:
         super().__init__()
         self._fraction = 1.0
-        self.set_hexpand(True)
-        self.set_vexpand(True)
+        self._label: Gtk.Label | None = Gtk.Label(label="Undo")
+        self._label.set_parent(self)
+        self.set_layout_manager(Gtk.BinLayout())
+        self.set_hexpand(False)
+        self.set_vexpand(False)
         self.add_css_class("tether-undo-bar")
 
     def set_fraction(self, fraction: float) -> None:
@@ -2615,20 +2682,39 @@ class CenterUndoBar(Gtk.Widget):
         width = self.get_width()
         height = self.get_height()
         x, bar = center_bar_span(width, self._fraction)
-        if bar <= 0 or height <= 0:
-            return
-        rect = Graphene.Rect()
-        rect.init(x, 0, bar, height)
-        color = Gdk.RGBA()
-        color.red = 28 / 255
-        color.green = 113 / 255
-        color.blue = 216 / 255
-        color.alpha = 0.35
-        rounded = Gsk.RoundedRect()
-        rounded.init_from_rect(rect, min(6, height / 2, bar / 2))
-        snapshot.push_rounded_clip(rounded)
-        snapshot.append_color(color, rect)
-        snapshot.pop()
+        if bar > 0 and height > 0:
+            rect = Graphene.Rect()
+            rect.init(x, 0, bar, height)
+            color = Gdk.RGBA()
+            color.red = 28 / 255
+            color.green = 113 / 255
+            color.blue = 216 / 255
+            color.alpha = 0.35
+            rounded = Gsk.RoundedRect()
+            rounded.init_from_rect(rect, min(6, height / 2, bar / 2))
+            snapshot.push_rounded_clip(rounded)
+            snapshot.append_color(color, rect)
+            snapshot.pop()
+        if self._label is not None:
+            self.snapshot_child(self._label, snapshot)
+
+    def do_dispose(self) -> None:
+        label = self._label
+        self._label = None
+        if label is not None and label.get_parent() is self:
+            label.unparent()
+        Gtk.Widget.do_dispose(self)
+
+
+def _label_button(label: str) -> Gtk.Button:
+    """A detail button that stays the size of its label."""
+
+    button = Gtk.Button(label=label)
+    button.set_hexpand(False)
+    button.set_vexpand(False)
+    button.set_halign(Gtk.Align.START)
+    button.set_valign(Gtk.Align.CENTER)
+    return button
 
 
 def _undo_button() -> tuple[Gtk.Button, CenterUndoBar]:
@@ -2636,27 +2722,161 @@ def _undo_button() -> tuple[Gtk.Button, CenterUndoBar]:
 
     bar = CenterUndoBar()
     bar.set_fraction(1)
-    overlay = Gtk.Overlay()
-    overlay.set_child(bar)
-    overlay.add_overlay(Gtk.Label(label="Undo"))
-    button = Gtk.Button(child=overlay)
+    button = Gtk.Button(child=bar)
     button.add_css_class("tether-undo")
     button.set_hexpand(False)
-    button.set_size_request(78, 28)
+    button.set_vexpand(False)
+    button.set_halign(Gtk.Align.START)
+    button.set_valign(Gtk.Align.CENTER)
     return button, bar
 
 
-def _button_slot(action: Gtk.Button, undo: Gtk.Button) -> Gtk.Stack:
-    """One fixed slot. Undo replaces the action button without moving the row."""
+class SlotPage(Gtk.Widget):
+    """Holds one button at its label size inside a fixed slot."""
 
+    def __init__(self, child: Gtk.Widget) -> None:
+        super().__init__()
+        self._child: Gtk.Widget | None = child
+        child.set_parent(self)
+        self.set_hexpand(False)
+        self.set_vexpand(False)
+
+    def do_measure(self, orientation: Gtk.Orientation, for_size: int) -> tuple[int, int, int, int]:
+        child = self._child
+        if child is None:
+            return (0, 0, -1, -1)
+        measured = child.measure(orientation, for_size)
+        return (
+            measured.minimum,
+            measured.natural,
+            measured.minimum_baseline,
+            measured.natural_baseline,
+        )
+
+    def do_size_allocate(self, width: int, height: int, baseline: int) -> None:
+        del baseline
+        child = self._child
+        if child is None:
+            return
+        child_width = child.measure(Gtk.Orientation.HORIZONTAL, -1).natural
+        child_height = child.measure(Gtk.Orientation.VERTICAL, -1).natural
+        child.allocate(min(width, child_width), min(height, child_height), -1, None)
+
+    def do_snapshot(self, snapshot: Gtk.Snapshot) -> None:
+        if self._child is not None:
+            self.snapshot_child(self._child, snapshot)
+
+    def do_dispose(self) -> None:
+        child = self._child
+        self._child = None
+        if child is not None and child.get_parent() is self:
+            child.unparent()
+        Gtk.Widget.do_dispose(self)
+
+
+def _button_slot(action: Gtk.Button, undo: Gtk.Button) -> Gtk.Stack:
+    """One fixed slot. Undo replaces the action button without moving the row.
+
+    The slot is as wide as the wider of the two buttons. Each button keeps
+    its own label width inside that slot, so neighbors do not shift and the
+    buttons are not stretched to one shared width.
+    """
+
+    action_page = SlotPage(action)
+    undo_page = SlotPage(undo)
     stack = Gtk.Stack()
     stack.set_hhomogeneous(True)
-    stack.set_vhomogeneous(True)
+    stack.set_vhomogeneous(False)
+    stack.set_hexpand(False)
+    stack.set_vexpand(False)
+    stack.set_halign(Gtk.Align.START)
+    stack.set_valign(Gtk.Align.CENTER)
     stack.set_transition_type(Gtk.StackTransitionType.NONE)
-    stack.add_child(action)
-    stack.add_child(undo)
-    stack.set_visible_child(action)
+    stack.add_child(action_page)
+    stack.add_child(undo_page)
+    stack.set_visible_child(action_page)
+    stack.action_page = action_page
+    stack.undo_page = undo_page
     return stack
+
+
+class ActionRow(Gtk.Widget):
+    """Detail buttons at label size. Extra buttons wrap instead of clipping."""
+
+    def __init__(self, children: tuple[Gtk.Widget, ...]) -> None:
+        super().__init__()
+        self._children = list(children)
+        self._spacing = 8
+        self.set_hexpand(True)
+        self.set_vexpand(False)
+        self.set_halign(Gtk.Align.START)
+        self.set_valign(Gtk.Align.START)
+        for child in self._children:
+            child.set_parent(self)
+
+    def do_get_request_mode(self) -> Gtk.SizeRequestMode:
+        return Gtk.SizeRequestMode.HEIGHT_FOR_WIDTH
+
+    def do_measure(self, orientation: Gtk.Orientation, for_size: int) -> tuple[int, int, int, int]:
+        if orientation == Gtk.Orientation.HORIZONTAL:
+            widest = 0
+            total = 0
+            for index, child in enumerate(self._children):
+                measured = child.measure(Gtk.Orientation.HORIZONTAL, -1)
+                widest = max(widest, measured.minimum)
+                total += measured.natural
+                if index:
+                    total += self._spacing
+            return (widest, max(widest, total), -1, -1)
+        height = self._place(for_size if for_size > 0 else 100_000, allocate=False)
+        return (height, height, -1, -1)
+
+    def do_size_allocate(self, width: int, height: int, baseline: int) -> None:
+        del height, baseline
+        self._place(width, allocate=True)
+
+    def _place(self, width: int, *, allocate: bool) -> int:
+        x = 0
+        y = 0
+        row_height = 0
+        limit = width if width > 0 else 100_000
+        for child in self._children:
+            child_width = child.measure(Gtk.Orientation.HORIZONTAL, -1).natural
+            child_height = child.measure(Gtk.Orientation.VERTICAL, -1).natural
+            if x > 0 and x + child_width > limit:
+                x = 0
+                y += row_height + self._spacing
+                row_height = 0
+            if allocate:
+                point = Graphene.Point()
+                point.init(x, y)
+                child.allocate(
+                    child_width,
+                    child_height,
+                    -1,
+                    Gsk.Transform().translate(point),
+                )
+            x += child_width + self._spacing
+            row_height = max(row_height, child_height)
+        return y + row_height
+
+    def do_snapshot(self, snapshot: Gtk.Snapshot) -> None:
+        for child in self._children:
+            self.snapshot_child(child, snapshot)
+
+    def do_dispose(self) -> None:
+        children = self._children
+        self._children = []
+        for child in children:
+            if child.get_parent() is self:
+                child.unparent()
+        Gtk.Widget.do_dispose(self)
+
+
+def _action_row(*children: Gtk.Widget) -> ActionRow:
+    """The detail buttons. They wrap instead of clipping, and they do not grow."""
+
+    return ActionRow(children)
 
 
 def _copy_icon(label: str) -> Gtk.Button:

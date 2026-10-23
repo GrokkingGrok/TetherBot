@@ -462,11 +462,19 @@ def _assert_action_row(window, gtk) -> None:
     assert pane_width > 0
     assert window.action_row.get_width() <= pane_width
     assert not window.action_row.get_vexpand()
-    # One line at the default and minimum window widths. A narrow measure wraps.
-    assert 24 <= window.action_row.get_height() <= 48
-    wide = window.action_row.measure(gtk.Orientation.VERTICAL, 4000).natural
+    # One line when the labels fit. A narrower pane wraps. Text scale changes
+    # the width, so the height has to match the row's own measure.
+    one_line = window.action_row.measure(gtk.Orientation.VERTICAL, 4000).natural
+    at_width = window.action_row.measure(
+        gtk.Orientation.VERTICAL, max(window.action_row.get_width(), 1)
+    ).natural
     narrow = window.action_row.measure(gtk.Orientation.VERTICAL, 320).natural
-    assert narrow > wide
+    assert 24 <= one_line
+    assert narrow > one_line
+    assert window.action_row.get_height() == at_width
+    labels = window.action_row.measure(gtk.Orientation.HORIZONTAL, -1).natural
+    if window.action_row.get_width() >= labels:
+        assert window.action_row.get_height() == one_line
     body = window.text.get_parent().get_parent()
     assert body.get_vexpand()
     assert body.get_height() > window.action_row.get_height()

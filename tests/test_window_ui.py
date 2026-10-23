@@ -478,10 +478,18 @@ def _assert_action_row(window, gtk) -> None:
         right = bounds.get_x() + bounds.get_width()
         assert right <= window.action_row.get_width() + 1
     widths = []
+    gaps = []
+    previous = None
     for button in buttons:
         found, bounds = button.compute_bounds(window.action_row)
         widths.append(round(bounds.get_width()))
+        if previous is not None and abs(previous.get_y() - bounds.get_y()) < 2:
+            gap = bounds.get_x() - (previous.get_x() + previous.get_width())
+            gaps.append(round(gap))
+        previous = bounds
     assert len(set(widths)) > 1
+    assert len(gaps) >= 1
+    assert max(gaps) - min(gaps) <= 1
     start_before = _button_x(window, window.start_button)
     ask_before = _button_x(window, window.ask_button)
     window._done_current()

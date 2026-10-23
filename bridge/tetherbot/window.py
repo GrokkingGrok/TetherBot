@@ -116,6 +116,7 @@ _CSS = """
 .tether-dark .tether-dot-unconfigured,
 .tether-dark .tether-dot-error { color: #ff8b8b; }
 .tether-undo { min-width: 4.5em; }
+.tether-detail-undo { min-width: 0; }
 progressbar.tether-undo-bar { min-height: 24px; }
 progressbar.tether-undo-bar > trough {
   min-height: 24px;
@@ -163,12 +164,16 @@ class BridgeClient:
     def __init__(self) -> None:
         self._proxy: Gio.DBusProxy | None = None
         self._listener: Callable[[], None] | None = None
+        self._clipboard_listener: Callable[[], None] | None = None
         self._generation = 0
         self._signal_idle = 0
         self._waiting: tuple[int, dict[str, Any], Callable[..., None]] | None = None
 
     def set_listener(self, listener: Callable[[], None]) -> None:
         self._listener = listener
+
+    def set_clipboard_listener(self, listener: Callable[[], None]) -> None:
+        self._clipboard_listener = listener
 
     def get_items(self, spec: dict[str, Any]) -> list[dict[str, Any]]:
         raw = self._call("GetItems", "(s)", (json.dumps(spec),))
@@ -235,6 +240,37 @@ class BridgeClient:
 
     def delete_time_record(self, item_key: str, record_id: str) -> dict[str, Any]:
         return _object_dict(self._call("DeleteTimeRecord", "(ss)", (item_key, record_id)))
+
+    def get_clipboard(self, query: str = "") -> list[dict[str, Any]]:
+        return _object_list(self._call("GetClipboard", "(s)", (query,)))
+
+    def delete_clipboard(self, entry_id: str) -> bool:
+        raw = self._call("DeleteClipboard", "(s)", (entry_id,))
+        return bool(raw and raw[0])
+
+    def clear_clipboard(self) -> bool:
+        raw = self._call("ClearClipboard", "()", ())
+        return bool(raw and raw[0])
+
+    def load_clipboard(
+        self,
+        done: Callable[[list[dict[str, Any]], BridgeError | None], None],
+    ) -> None:
+        """Read clipboard history without blocking the window loop."""
+
+        def _done(raw: tuple[Any, ...] | None, error: BridgeError | None) -> None:
+            if error is not None or raw is None:
+                done([], error or BridgeError("Bridge not running"))
+                return
+            try:
+                done(_object_list(raw), None)
+            except (json.JSONDecodeError, TypeError):
+                done([], BridgeError("Clipboard history could not be read"))
+
+        if self._proxy is None:
+            done([], BridgeError("Bridge not running"))
+            return
+        self._call_async("GetClipboard", "(s)", ("",), _done)
 
     def load_timer(self, done: Callable[[dict[str, Any], BridgeError | None], None]) -> None:
         """Read the stopwatch without blocking the first paint."""
@@ -440,6 +476,11 @@ class BridgeClient:
         return (unpacked,)
 
     def _on_signal(self, _proxy: Gio.DBusProxy, _sender: str, signal: str, _params: Any) -> None:
+        if signal == "ClipboardChanged":
+            listener = self._clipboard_listener
+            if listener is not None:
+                listener()
+            return
         if signal in {"ItemsChanged", "TimerChanged"}:
             self._schedule_listener()
 
@@ -484,6 +525,9 @@ class TodoWindow(Adw.ApplicationWindow):
         self._filling = False
         self._view = "all"
         self._page = "todos"
+        self._clip_query = ""
+        self._clip_entries: list[dict[str, Any]] = []
+        self._clip_dialog: Adw.AlertDialog | None = None
         self._sort = "due"
         self._query = ""
         self._bot_query = ""
@@ -534,6 +578,8 @@ class TodoWindow(Adw.ApplicationWindow):
         self.add_controller(keys)
         if hasattr(client, "set_listener"):
             client.set_listener(self.refresh)
+        if hasattr(client, "set_clipboard_listener"):
+            client.set_clipboard_listener(self._on_clipboard_changed)
 
     def _build(self) -> None:
         self.titlebar = Adw.HeaderBar()
@@ -575,6 +621,15 @@ class TodoWindow(Adw.ApplicationWindow):
         self.bot_search = Gtk.SearchEntry(placeholder_text="Filter bots by name")
         self.bot_search.set_visible(False)
         self.bot_search.connect("changed", self._on_bot_search)
+        self.clip_search = Gtk.SearchEntry(placeholder_text="Search clipboard")
+        self.clip_search.set_visible(True)
+        self.clip_search.connect("search-changed", self._on_clip_search)
+        self.clip_clear = Gtk.Button(label="Clear history")
+        self.clip_clear.connect("clicked", lambda _button: self._confirm_clear_clipboard())
+        self._clip_controls = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        self._clip_controls.set_visible(False)
+        self._clip_controls.append(self.clip_search)
+        self._clip_controls.append(self.clip_clear)
         self.sort_drop = Gtk.DropDown.new_from_strings(list(_SORT_LABELS))
         self.sort_drop.connect("notify::selected", self._on_sort)
         self.show_done = Gtk.Switch(valign=Gtk.Align.CENTER)
@@ -645,6 +700,7 @@ class TodoWindow(Adw.ApplicationWindow):
         controls.append(self._page_buttons)
         controls.append(self._todo_controls)
         controls.append(self.bot_search)
+        controls.append(self._clip_controls)
         self._list_controls = controls
         scrolled = Gtk.ScrolledWindow(vexpand=True, child=self.list)
         scrolled.set_propagate_natural_height(False)
@@ -747,9 +803,9 @@ class TodoWindow(Adw.ApplicationWindow):
         self.done_note_button = _label_button("Done with note")
         self.done_note_button.set_sensitive(False)
         self.done_note_button.connect("clicked", lambda _button: self._done_with_note())
-        self.done_undo, self._done_bar = _undo_button()
+        self.done_undo, self._done_bar = _undo_button(detail=True)
         self.done_undo.connect("clicked", lambda _button: self._undo_current())
-        self.note_undo, self._note_bar = _undo_button()
+        self.note_undo, self._note_bar = _undo_button(detail=True)
         self.note_undo.connect("clicked", lambda _button: self._undo_current())
         self.done_stack = _button_slot(self.done_button, self.done_undo)
         self.note_stack = _button_slot(self.done_note_button, self.note_undo)
@@ -877,6 +933,9 @@ class TodoWindow(Adw.ApplicationWindow):
         self.present()
         if key == "bots":
             self._set_page("bots")
+            return
+        if key == "clipboard":
+            self._set_page("clipboard")
             return
         if self._page != "todos":
             self._set_page("todos")
@@ -2226,7 +2285,7 @@ class TodoWindow(Adw.ApplicationWindow):
             self._guard_rows = False
 
     def _on_row_selected(self, _box: Gtk.ListBox, row: Gtk.ListBoxRow | None) -> None:
-        if self._filling or self._page == "bots":
+        if self._filling or self._page in {"bots", "clipboard"}:
             return
         if row is None:
             return
@@ -2237,6 +2296,8 @@ class TodoWindow(Adw.ApplicationWindow):
         self._show_item(item)
 
     def _on_row_activated(self, _box: Gtk.ListBox, row: Gtk.ListBoxRow) -> None:
+        if self._page == "clipboard":
+            return
         if self._page == "bots":
             bot_id = getattr(row, "bot_id", "")
             if isinstance(bot_id, str) and bot_id:
@@ -2268,16 +2329,18 @@ class TodoWindow(Adw.ApplicationWindow):
         self.refresh()
 
     def _set_page(self, page: str) -> None:
-        self._page = "bots" if page == "bots" else "todos"
-        bots = self._page == "bots"
-        self._todo_controls.set_visible(not bots)
-        self.bot_search.set_visible(bots)
+        self._page = page if page in {"todos", "bots", "clipboard"} else "todos"
+        self._todo_controls.set_visible(self._page == "todos")
+        self.bot_search.set_visible(self._page == "bots")
+        self._clip_controls.set_visible(self._page == "clipboard")
         self._sync_pages()
         self._show_page_list()
 
     def _show_page_list(self) -> None:
         if self._page == "bots":
             self._fill_bot_rows()
+        elif self._page == "clipboard":
+            self._reload_clipboard()
         else:
             self._fill_rows(self._items)
 
@@ -2313,6 +2376,136 @@ class TodoWindow(Adw.ApplicationWindow):
             rows.append(self._make_bot_row(bot, text, now))
         self._install_rows(rows, "", clear_missing=False)
 
+    def _on_clipboard_changed(self) -> None:
+        if self._page == "clipboard":
+            self._reload_clipboard()
+
+    def _on_clip_search(self, entry: Gtk.SearchEntry) -> None:
+        self._clip_query = entry.get_text()
+        if self._page == "clipboard":
+            self._fill_clipboard_rows()
+
+    def _reload_clipboard(self) -> None:
+        if hasattr(self.client, "load_clipboard"):
+            self.client.load_clipboard(self._on_clipboard_loaded)
+            return
+        if hasattr(self.client, "get_clipboard"):
+            try:
+                self._clip_entries = self.client.get_clipboard()
+            except BridgeError as exc:
+                self.banner.set_title(str(exc))
+                self.banner.set_revealed(True)
+                self._clip_entries = []
+        self._fill_clipboard_rows()
+
+    def _on_clipboard_loaded(
+        self,
+        entries: list[dict[str, Any]],
+        error: BridgeError | None,
+    ) -> None:
+        if self._page != "clipboard":
+            return
+        if error is not None:
+            self.banner.set_title(str(error))
+            self.banner.set_revealed(True)
+            self._clip_entries = []
+        else:
+            self.banner.set_revealed(False)
+            self._clip_entries = entries
+        self._fill_clipboard_rows()
+
+    def _fill_clipboard_rows(self) -> None:
+        query = self._clip_query.casefold().strip()
+        rows: list[Gtk.ListBoxRow] = []
+        for entry in self._clip_entries:
+            text = entry.get("text")
+            ident = entry.get("id")
+            if not isinstance(text, str) or not isinstance(ident, str):
+                continue
+            if query and query not in text.casefold():
+                continue
+            rows.append(self._make_clip_row(ident, text))
+        if not rows:
+            empty_text = "No matches" if query else "Nothing copied yet"
+            empty = Gtk.Label(label=empty_text, xalign=0)
+            empty.add_css_class("dim-label")
+            empty.set_margin_top(8)
+            empty.set_margin_bottom(8)
+            empty.set_margin_start(8)
+            row = Gtk.ListBoxRow(child=empty)
+            row.set_selectable(False)
+            row.set_activatable(False)
+            rows.append(row)
+        self._install_rows(rows, "", clear_missing=False)
+
+    def _make_clip_row(self, ident: str, text: str) -> Gtk.ListBoxRow:
+        preview = " ".join(text.split())
+        if len(preview) > 180:
+            preview = preview[:179] + "…"
+        label = Gtk.Label(label=preview or "Empty", xalign=0, hexpand=True, wrap=True)
+        label.set_max_width_chars(48)
+        label.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+        copy = Gtk.Button(label="Copy")
+        copy.connect("clicked", self._on_copy_clip, text)
+        delete = Gtk.Button(label="Delete")
+        delete.connect("clicked", self._on_delete_clip, ident)
+        actions = Gtk.Box(spacing=6)
+        actions.append(copy)
+        actions.append(delete)
+        box = Gtk.Box(spacing=8)
+        box.set_margin_top(6)
+        box.set_margin_bottom(6)
+        box.set_margin_start(8)
+        box.set_margin_end(8)
+        box.append(label)
+        box.append(actions)
+        row = Gtk.ListBoxRow(child=box)
+        row.clip_id = ident
+        return row
+
+    def _on_copy_clip(self, _button: Gtk.Button, text: str) -> None:
+        self.get_clipboard().set(text)
+        self._toast("Copied")
+
+    def _on_delete_clip(self, _button: Gtk.Button, entry_id: str) -> None:
+        if not hasattr(self.client, "delete_clipboard"):
+            return
+        try:
+            self.client.delete_clipboard(entry_id)
+        except BridgeError as exc:
+            self._toast(str(exc))
+            return
+        self._clip_entries = [
+            entry for entry in self._clip_entries if entry.get("id") != entry_id
+        ]
+        self._fill_clipboard_rows()
+
+    def _confirm_clear_clipboard(self) -> None:
+        dialog = Adw.AlertDialog(
+            heading="Clear clipboard history?",
+            body="Copied text saved on this machine is removed. The feed is not changed.",
+        )
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("clear", "Clear")
+        dialog.set_response_appearance("clear", Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.set_default_response("cancel")
+        dialog.set_close_response("cancel")
+        dialog.connect("response", self._on_clear_clipboard)
+        self._clip_dialog = dialog
+        dialog.present(self)
+
+    def _on_clear_clipboard(self, _dialog: Adw.AlertDialog, response: str) -> None:
+        if response != "clear" or not hasattr(self.client, "clear_clipboard"):
+            return
+        try:
+            self.client.clear_clipboard()
+        except BridgeError as exc:
+            self._toast(str(exc))
+            return
+        self._clip_entries = []
+        self._fill_clipboard_rows()
+        self._toast("Clipboard cleared")
+
     def _make_bot_row(self, bot: dict[str, Any], label: str, now: int) -> Gtk.ListBoxRow:
         state = bot.get("state")
         if not isinstance(state, str) or state not in _DOT_STATES:
@@ -2345,18 +2538,23 @@ class TodoWindow(Adw.ApplicationWindow):
         box = Gtk.Box(spacing=6)
         self._page_todos = Gtk.ToggleButton(label="Todos")
         self._page_bots = Gtk.ToggleButton(label="Bots")
+        self._page_clip = Gtk.ToggleButton(label="Clipboard")
         self._page_bots.set_group(self._page_todos)
+        self._page_clip.set_group(self._page_todos)
         self._page_todos.set_active(True)
         self._page_todos.connect("toggled", self._on_page, "todos")
         self._page_bots.connect("toggled", self._on_page, "bots")
+        self._page_clip.connect("toggled", self._on_page, "clipboard")
         box.append(self._page_todos)
         box.append(self._page_bots)
+        box.append(self._page_clip)
         return box
 
     def _sync_pages(self) -> None:
         self._filling = True
-        self._page_todos.set_active(self._page != "bots")
+        self._page_todos.set_active(self._page == "todos")
         self._page_bots.set_active(self._page == "bots")
+        self._page_clip.set_active(self._page == "clipboard")
         self._filling = False
 
     def _sync_theme(self, manager: Adw.StyleManager, _pspec: Any = None) -> None:
@@ -2717,13 +2915,15 @@ def _label_button(label: str) -> Gtk.Button:
     return button
 
 
-def _undo_button() -> tuple[Gtk.Button, CenterUndoBar]:
+def _undo_button(*, detail: bool = False) -> tuple[Gtk.Button, CenterUndoBar]:
     """An Undo button whose bar shrinks toward the middle."""
 
     bar = CenterUndoBar()
     bar.set_fraction(1)
     button = Gtk.Button(child=bar)
     button.add_css_class("tether-undo")
+    if detail:
+        button.add_css_class("tether-detail-undo")
     button.set_hexpand(False)
     button.set_vexpand(False)
     button.set_halign(Gtk.Align.START)
@@ -2732,7 +2932,7 @@ def _undo_button() -> tuple[Gtk.Button, CenterUndoBar]:
 
 
 class SlotPage(Gtk.Widget):
-    """Holds one button at its label size inside a fixed slot."""
+    """Holds one button that fills a fixed slot."""
 
     def __init__(self, child: Gtk.Widget) -> None:
         super().__init__()
@@ -2758,9 +2958,7 @@ class SlotPage(Gtk.Widget):
         child = self._child
         if child is None:
             return
-        child_width = child.measure(Gtk.Orientation.HORIZONTAL, -1).natural
-        child_height = child.measure(Gtk.Orientation.VERTICAL, -1).natural
-        child.allocate(min(width, child_width), min(height, child_height), -1, None)
+        child.allocate(width, height, -1, None)
 
     def do_snapshot(self, snapshot: Gtk.Snapshot) -> None:
         if self._child is not None:
@@ -2777,9 +2975,10 @@ class SlotPage(Gtk.Widget):
 def _button_slot(action: Gtk.Button, undo: Gtk.Button) -> Gtk.Stack:
     """One fixed slot. Undo replaces the action button without moving the row.
 
-    The slot is as wide as the wider of the two buttons. Each button keeps
-    its own label width inside that slot, so neighbors do not shift and the
-    buttons are not stretched to one shared width.
+    The slot is as wide as the wider of the two buttons. The visible button
+    fills that slot, so the gap before the next button is only the row
+    spacing. Neighbors do not shift, and the six buttons are not stretched
+    to one shared width.
     """
 
     action_page = SlotPage(action)

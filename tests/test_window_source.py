@@ -75,3 +75,9 @@ def test_window_sources_do_not_touch_the_network_or_secrets():
     assert "AdjustTimerStart" in window
     assert "merge_undo_items" in window
     assert "tether-undo" in window
+    assert 'label="Clipboard"' in window
+    assert "GetClipboard" in window
+    assert "DeleteClipboard" in window
+    assert "ClearClipboard" in window
+    assert "Clear history" in window
+    assert "Search clipboard" in window

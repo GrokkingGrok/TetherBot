@@ -7,6 +7,7 @@
 import Clutter from 'gi://Clutter';
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
+import Meta from 'gi://Meta';
 import Pango from 'gi://Pango';
 import St from 'gi://St';
 
@@ -53,6 +54,12 @@ import {
     isMainWindow,
     topRightFrame,
 } from './view.js';
+import {
+    DEFAULT_EXCLUDED_APPS,
+    MENU_LIMIT,
+    classifyClipboard,
+    menuLabel,
+} from './clipboard.js';
 
 function _windowIdentity(metaWindow) {
     let gtkId = '';
@@ -204,6 +211,7 @@ export default class TetherBotExtension extends Extension {
         this._indicator.add_child(box);
         this._buildMenu();
         Main.panel.addToStatusArea(this.uuid, this._indicator);
+        this._buildClipboardIndicator();
 
         try {
             const xmlFile = this.dir.get_child('io.github.grokkinggrok.TetherBot1.xml');
@@ -226,6 +234,7 @@ export default class TetherBotExtension extends Extension {
             this._settings = null;
             this._settingsId = 0;
         }
+        this._watchClipboard();
 
         this._watchedWindows = new Map();
         this._mainWindows = new Map();
@@ -254,8 +263,12 @@ export default class TetherBotExtension extends Extension {
             this._source.destroy();
             this._source = null;
         }
+        this._unwatchClipboard();
         this._indicator?.destroy();
         this._indicator = null;
+        this._clipIndicator?.destroy();
+        this._clipIndicator = null;
+        this._clipSection = null;
         this._icon = null;
         this._pause = null;
         this._time = null;
@@ -627,6 +640,8 @@ export default class TetherBotExtension extends Extension {
                 this._bindProxy();
                 this._reloadBridgeSettings();
                 this._refresh();
+                this._loadClipboard();
+                this._captureClipboard();
             },
             null,
             Gio.DBusProxyFlags.DO_NOT_AUTO_START,
@@ -672,6 +687,10 @@ export default class TetherBotExtension extends Extension {
             return;
         if (!Array.isArray(params))
             params = [];
+        if (name === 'ClipboardChanged') {
+            this._loadClipboard();
+            return;
+        }
         if (name === 'StateChanged') {
             this._state = params[0] || '';
             this._reason = params[1] || '';
@@ -1916,6 +1935,227 @@ export default class TetherBotExtension extends Extension {
         });
         this._source = source;
         return source;
+    }
+
+    _buildClipboardIndicator() {
+        this._clipEntries = [];
+        this._clipIndicator = new PanelMenu.Button(0.0, 'Clipboard', false);
+        this._clipIndicator.add_style_class_name('tetherbot-clipboard');
+        const icon = new St.Icon({
+            icon_name: 'edit-copy-symbolic',
+            style_class: 'system-status-icon',
+            y_align: Clutter.ActorAlign.CENTER,
+        });
+        this._clipIndicator.add_child(icon);
+        this._clipIndicator.accessible_name = 'Clipboard';
+        this._clipIndicator.tooltip_text = 'Clipboard';
+        this._clipSection = new PopupMenu.PopupMenuSection();
+        this._clipIndicator.menu.addMenuItem(this._clipSection);
+        this._clipIndicator.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+        const clearItem = new PopupMenu.PopupMenuItem('Clear history');
+        clearItem.connect('activate', () => this._clearClipboard());
+        this._clipIndicator.menu.addMenuItem(clearItem);
+        const openItem = new PopupMenu.PopupMenuItem('Open clipboard');
+        openItem.connect('activate', () => this._openClipboardWindow());
+        this._clipIndicator.menu.addMenuItem(openItem);
+        this._fillClipboardMenu();
+        Main.panel.addToStatusArea(`${this.uuid}-clipboard`, this._clipIndicator, 1);
+    }
+
+    _watchClipboard() {
+        this._clipSelection = null;
+        this._clipOwnerId = 0;
+        try {
+            this._clipSelection = global.display.get_selection();
+            this._clipOwnerId = this._clipSelection.connect('owner-changed', (_selection, type) => {
+                this._onClipboardOwner(type);
+            });
+        } catch (error) {
+            this._clipSelection = null;
+            this._clipOwnerId = 0;
+        }
+        this._captureClipboard();
+    }
+
+    _unwatchClipboard() {
+        const selection = this._clipSelection;
+        if (selection && this._clipOwnerId) {
+            try {
+                selection.disconnect(this._clipOwnerId);
+            } catch (error) {
+                // The selection owner is already gone with the shell.
+            }
+        }
+        this._clipSelection = null;
+        this._clipOwnerId = 0;
+    }
+
+    _onClipboardOwner(type) {
+        let clipboardType = null;
+        try {
+            clipboardType = Meta.SelectionType.SELECTION_CLIPBOARD;
+        } catch (error) {
+            clipboardType = 1;
+        }
+        if (type !== clipboardType)
+            return;
+        this._captureClipboard();
+    }
+
+    _captureClipboard() {
+        if (!this._enabled)
+            return;
+        const options = this._clipboardOptions();
+        const mimes = this._clipboardMimes();
+        const wmClass = this._focusedClass();
+        const decision = classifyClipboard({
+            text: null,
+            mimes,
+            wmClass,
+            enabled: options.enabled,
+            excluded: options.excluded,
+        });
+        if (decision !== 'needs-text')
+            return;
+        let clipboard = null;
+        try {
+            clipboard = St.Clipboard.get_default();
+        } catch (error) {
+            clipboard = null;
+        }
+        if (!clipboard)
+            return;
+        clipboard.get_text(St.ClipboardType.CLIPBOARD, (_clip, text) => {
+            if (!this._enabled)
+                return;
+            const current = this._clipboardOptions();
+            const result = classifyClipboard({
+                text,
+                mimes,
+                wmClass,
+                enabled: current.enabled,
+                excluded: current.excluded,
+            });
+            if (result !== 'stored' || !this._proxy || !this._proxy.OfferClipboardRemote)
+                return;
+            const meta = JSON.stringify({mimes, wm_class: wmClass});
+            this._proxy.OfferClipboardRemote(text, meta, () => {
+                if (this._enabled)
+                    this._loadClipboard();
+            });
+        });
+    }
+
+    _clipboardOptions() {
+        const settings = this._settings;
+        if (!settings)
+            return {enabled: true, excluded: DEFAULT_EXCLUDED_APPS};
+        let enabled = true;
+        let excluded = DEFAULT_EXCLUDED_APPS;
+        try {
+            enabled = settings.get_boolean('clipboard-enabled') === true;
+        } catch (error) {
+            enabled = true;
+        }
+        try {
+            const list = settings.get_strv('clipboard-excluded-apps');
+            if (Array.isArray(list))
+                excluded = list;
+        } catch (error) {
+            excluded = DEFAULT_EXCLUDED_APPS;
+        }
+        return {enabled, excluded};
+    }
+
+    _clipboardMimes() {
+        try {
+            const selection = this._clipSelection || global.display.get_selection();
+            const type = Meta.SelectionType.SELECTION_CLIPBOARD;
+            if (selection && selection.get_mimetypes)
+                return selection.get_mimetypes(type) || [];
+        } catch (error) {
+            return [];
+        }
+        return [];
+    }
+
+    _focusedClass() {
+        try {
+            const win = global.display.focus_window;
+            if (!win)
+                return '';
+            if (win.get_wm_class)
+                return win.get_wm_class() || '';
+            return win.wm_class || '';
+        } catch (error) {
+            return '';
+        }
+    }
+
+    _loadClipboard() {
+        if (!this._enabled || !this._proxy || !this._proxy.GetClipboardRemote)
+            return;
+        this._proxy.GetClipboardRemote('', (result, error) => {
+            if (!this._enabled || error || !result)
+                return;
+            let parsed = [];
+            try {
+                const raw = result[0];
+                parsed = JSON.parse(typeof raw === 'string' ? raw : '[]');
+            } catch (parseError) {
+                parsed = [];
+            }
+            this._clipEntries = Array.isArray(parsed) ? parsed : [];
+            this._fillClipboardMenu();
+        });
+    }
+
+    _fillClipboardMenu() {
+        if (!this._clipSection)
+            return;
+        this._clipSection.removeAll();
+        const entries = (this._clipEntries || []).slice(0, MENU_LIMIT);
+        if (!entries.length) {
+            const empty = new PopupMenu.PopupMenuItem('Nothing copied yet', {reactive: false});
+            this._clipSection.addMenuItem(empty);
+            return;
+        }
+        for (const entry of entries) {
+            if (!entry || typeof entry.text !== 'string')
+                continue;
+            const item = new PopupMenu.PopupMenuItem(menuLabel(entry.text));
+            item.connect('activate', () => this._recopyClipboard(entry.text));
+            this._clipSection.addMenuItem(item);
+        }
+    }
+
+    _recopyClipboard(text) {
+        if (typeof text !== 'string' || !text)
+            return;
+        try {
+            St.Clipboard.get_default().set_text(St.ClipboardType.CLIPBOARD, text);
+        } catch (error) {
+            console.debug('TetherBot: clipboard was not written');
+        }
+        this._clipIndicator?.menu.close();
+    }
+
+    _clearClipboard() {
+        if (!this._proxy || !this._proxy.ClearClipboardRemote)
+            return;
+        this._proxy.ClearClipboardRemote(() => {
+            if (this._enabled)
+                this._loadClipboard();
+        });
+        this._clipIndicator?.menu.close();
+    }
+
+    _openClipboardWindow() {
+        if (!this._proxy)
+            return;
+        const call = openWindowCall('clipboard');
+        this._proxy.OpenWindowRemote(...call.args, () => {});
+        this._clipIndicator?.menu.close();
     }
 }
 

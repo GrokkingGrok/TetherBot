@@ -70,6 +70,8 @@ def test_disable_drops_the_proxy_and_handlers():
     assert "_dropProxy" in disable
     assert "_source.destroy" in disable
     assert "_indicator?.destroy" in disable
+    assert "_clipIndicator?.destroy" in disable
+    assert "_unwatchClipboard" in disable
     assert "_proxy = null" in (EXTENSION / "extension.js").read_text(encoding="utf-8")
     assert "disconnectSignal" in text
     assert "_tickSource" in disable
@@ -178,6 +180,19 @@ def test_disable_drops_the_proxy_and_handlers():
     assert "A1.65" in ring
     dot = (icons / "face-dot-symbolic.svg").read_text(encoding="utf-8")
     assert 'r="2.4"' in dot
+
+
+def test_clipboard_capture_filters_before_it_reads_text():
+    text = (EXTENSION / "extension.js").read_text(encoding="utf-8")
+    capture = text.split("    _captureClipboard() {", 1)[1].split("\n    _", 1)[0]
+    assert capture.index("classifyClipboard") < capture.index("get_text")
+    assert capture.index("get_text") < capture.index("OfferClipboardRemote")
+    assert "needs-text" in capture
+    menu = text.split("    _buildClipboardIndicator() {", 1)[1].split("\n    _", 1)[0]
+    assert "edit-copy-symbolic" in menu
+    assert "accessible_name = 'Clipboard'" in menu
+    assert "Clear history" in menu
+    assert "text:" not in menu or "count" not in menu
 
 
 def test_the_menu_undo_bar_is_centered():

@@ -15,6 +15,13 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
+from tetherbot.clipboard_policy import (
+    CLIPBOARD_LIMIT_DEFAULT,
+    DEFAULT_EXCLUDED_APPS,
+    clamp_clipboard_limit,
+    excluded_apps,
+)
+
 POLL_DEFAULT = 120
 POLL_MIN = 60
 POLL_MAX = 900
@@ -55,6 +62,9 @@ class UiSettings:
     history_enabled: bool = True
     history_amount: int = HISTORY_AMOUNT_DEFAULT
     history_unit: str = HISTORY_UNIT_DEFAULT
+    clipboard_enabled: bool = True
+    clipboard_limit: int = CLIPBOARD_LIMIT_DEFAULT
+    clipboard_excluded: tuple[str, ...] = DEFAULT_EXCLUDED_APPS
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "poll_seconds", clamp_poll_seconds(self.poll_seconds))
@@ -64,6 +74,9 @@ class UiSettings:
         object.__setattr__(self, "history_enabled", self.history_enabled is True)
         object.__setattr__(self, "history_amount", clamp_history_amount(self.history_amount))
         object.__setattr__(self, "history_unit", clamp_history_unit(self.history_unit))
+        object.__setattr__(self, "clipboard_enabled", self.clipboard_enabled is True)
+        object.__setattr__(self, "clipboard_limit", clamp_clipboard_limit(self.clipboard_limit))
+        object.__setattr__(self, "clipboard_excluded", excluded_apps(self.clipboard_excluded))
 
     @property
     def done_history_seconds(self) -> int | None:
@@ -192,6 +205,11 @@ def load_ui_settings(schema_dir: Path | None = None) -> UiSettings:
             HISTORY_UNIT_DEFAULT,
             HISTORY_UNITS,
         ),
+        clipboard_enabled=_schema_bool(settings, "clipboard-enabled", True),
+        clipboard_limit=clamp_clipboard_limit(
+            _schema_int(settings, "clipboard-limit", CLIPBOARD_LIMIT_DEFAULT)
+        ),
+        clipboard_excluded=_schema_apps(settings),
     )
 
 
@@ -276,6 +294,18 @@ def _schema_has(settings: object, key: str) -> bool:
         return bool(schema.has_key(key))
     except Exception:
         return False
+
+
+def _schema_apps(settings: object) -> tuple[str, ...]:
+    """The saved exclude list, or the password-manager default when unset."""
+
+    if not _schema_has(settings, "clipboard-excluded-apps"):
+        return DEFAULT_EXCLUDED_APPS
+    try:
+        values = list(settings.get_strv("clipboard-excluded-apps"))
+    except Exception:
+        return DEFAULT_EXCLUDED_APPS
+    return excluded_apps(values)
 
 
 def _schema_bool(settings: object, key: str, default: bool) -> bool:

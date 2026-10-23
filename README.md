@@ -96,4 +96,4 @@ Runtime Python dependencies are none. PyGObject, libsecret, and git come from th
 
 ## Privacy, in one paragraph
 
-After a real install, each adapter is still opt-in. The only planned outbound traffic is an action batch you trigger, sent to the webhook you configured, and, if you enable it, files the bridge owns pushed to your private repository. The extension does not read the screen, files, clipboard, or other apps. Details are in [docs/SPEC.md](docs/SPEC.md) section 14. A standalone privacy document is a v0.2 checklist item.
+After a real install, each adapter is still opt-in. The only planned outbound traffic is an action batch you trigger, sent to the webhook you configured, and, if you enable it, files the bridge owns pushed to your private repository. The extension reads the clipboard only to keep a local text history on this machine. It does not read the screen or files outside the bridge, and clipboard text is not sent to a bot. Details are in [docs/SPEC.md](docs/SPEC.md) section 14. A standalone privacy document is a v0.2 checklist item.

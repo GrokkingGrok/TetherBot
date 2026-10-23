@@ -59,6 +59,7 @@ TetherBot is pre-alpha. Check items off as they land. Design detail is in [SPEC.
 - [x] Manual checks M80 and M81 passed on the desktop: Stop timer on the open todo, and copy icons for the title and the body plus Copy Todo.
 - [x] Manual check M82 passed on the desktop: completed todos stay in Show done for the history window, history filtering updates live, and Reset to defaults leaves that setting alone.
 - [ ] Manual checks M83–M95: Enter in the edit-start time field, Done while the pointer stays on the row, the How many unit note, a window that opens at the list's height without clipping the last row, the upper-right of the work area, Done with note, the disabled empty note, the wider window still fitting at the upper right, fixed detail buttons, the centered undo bar, Done while the receiver is unreachable, and detail buttons that stay one line tall and fully on screen. The steps are in [MANUAL-CHECKS.md](MANUAL-CHECKS.md). They have not been run on the desktop yet.
+- [ ] Manual checks M96–M104: even gaps in the detail button row, and clipboard history phase 1 (capture, the panel menu copies an entry back, the window search and delete, a password-manager copy is skipped, an excluded app is skipped, Clear, the toggle, and nothing reaches the feed). The steps are in [MANUAL-CHECKS.md](MANUAL-CHECKS.md). They have not been run on the desktop yet. M96 reopens the window. M97–M104 need a log out so the extension and the schema load.
 
 ## v0.2 — early adopters
 
@@ -113,14 +114,15 @@ TetherBot is pre-alpha. Check items off as they land. Design detail is in [SPEC.
 
 ## Clipboard history
 
-Not built. Text only, on this machine. A clipboard entry is never written to the feed repository, to `desktop/*`, or into a log. It is not sent to a bot unless a later phase's send button is pressed. This is the stand-in for a separate clipboard-history extension. The toolbar icon shows no count. The timer text stays the only number in the toolbar. Direct paste into the active window is out of the plan. The reason is [CLIPBOARD.md](CLIPBOARD.md).
+Phase 1 is built. Text only, on this machine. A clipboard entry is never written to the feed repository, to `desktop/*`, or into a log. It is not sent to a bot unless a later phase's send button is pressed. This is the stand-in for a separate clipboard-history extension. The toolbar icon shows no count. The timer text stays the only number in the toolbar. Direct paste into the active window is out of the plan. The reason is [CLIPBOARD.md](CLIPBOARD.md).
 
-Today the extension does not read the clipboard. [privacy.md](privacy.md) says so. Building phase 1 has to update that sentence. The text still stays on this machine except for the phase 4 buttons.
+The extension reads the clipboard for this history. [privacy.md](privacy.md) says what stays on the machine. The text stays on this machine except for the phase 4 buttons, which are not built.
 
-- [ ] Phase 1. Capture text. Its own toolbar icon opens a clipboard view, and the TetherBot window has the same view. Store the entries in local state, not in the feed clone. Skip an entry the clipboard marks sensitive for a password manager (the target `x-kde-passwordManagerHint`). Skip a copy taken while the focused window's class is on a per-app exclude list. A setting chooses how many entries to keep.
-- [ ] Phase 2. Item actions: Delete, Tag, Paste, Pin, Edit, and Preview. Paste puts the text on the clipboard. It does not type into another window.
+- [x] Phase 1. Capture plain text into local state, not the feed clone. The file is mode 0600. A setting chooses how many entries to keep (default 50, from 1 to 500) and can turn capture off. Clear removes what is saved. Skip an entry the clipboard marks sensitive (`x-kde-passwordManagerHint`, or a concealed type) and a copy taken while the focused window's class is on the exclude list. The default exclude list is common password managers. Its own toolbar icon opens a menu of recent entries. Choosing one copies it back onto the clipboard. The TetherBot window has a Clipboard page with search, Copy, and Delete.
+- [ ] Phase 2. Tag, Pin, Edit, and Preview. Copying an entry back onto the clipboard is already part of phase 1. That copy does not type into another window.
 - [ ] Phase 3. Web search. Searching an entry opens a new tab in the default browser and uses that browser's default search engine. No search host is hard-coded. If the desktop cannot name the engine, this phase does not pick one.
 - [ ] Phase 4. Three send-to-bot buttons, each a webhook note answered in the bot chat: "make a new todo", "make a new todo and search my bot and TetherBot data for context", and "tell me more". The text leaves the machine only when one of those is pressed. The send goes through the bridge. The extension does not open a socket.
+- [ ] Images. A later phase. Phase 1 stores plain text only.
 
 ## Resolved
 

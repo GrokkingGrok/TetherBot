@@ -59,8 +59,11 @@ import {
     LOOKALIKE_SKIP,
     MENU_LIMIT,
     classifyClipboard,
+    imageLabel,
+    imageWithinCap,
     lookalikeMode,
     menuLabel,
+    pickImageMime,
 } from './clipboard.js';
 
 function _windowIdentity(metaWindow) {
@@ -2002,12 +2005,17 @@ export default class TetherBotExtension extends Extension {
         }
         if (type !== clipboardType)
             return;
+        // Copying an image back changes the owner. Ignore that echo.
+        if (this._clipboardEchoing())
+            return;
         this._captureClipboard();
     }
 
     _captureClipboard() {
         if (!this._enabled)
             return;
+        this._clipToken = (this._clipToken || 0) + 1;
+        const token = this._clipToken;
         const options = this._clipboardOptions();
         const mimes = this._clipboardMimes();
         const wmClass = this._focusedClass();
@@ -2019,6 +2027,19 @@ export default class TetherBotExtension extends Extension {
             excluded: options.excluded,
             lookalike: options.lookalike,
         });
+        if (
+            decision === 'skipped-sensitive'
+            || decision === 'skipped-app'
+            || decision === 'skipped-disabled'
+        ) {
+            this._noteClipboard(mimes, wmClass, decision);
+            return;
+        }
+        const imageMime = pickImageMime(mimes);
+        if (imageMime && decision !== 'needs-text') {
+            this._captureClipboardImage(token, mimes, wmClass, imageMime, options);
+            return;
+        }
         if (decision !== 'needs-text') {
             this._noteClipboard(mimes, wmClass, decision);
             return;
@@ -2032,7 +2053,7 @@ export default class TetherBotExtension extends Extension {
         if (!clipboard)
             return;
         clipboard.get_text(St.ClipboardType.CLIPBOARD, (_clip, text) => {
-            if (!this._enabled)
+            if (!this._enabled || token !== this._clipToken)
                 return;
             const current = this._clipboardOptions();
             const result = classifyClipboard({
@@ -2056,13 +2077,75 @@ export default class TetherBotExtension extends Extension {
         });
     }
 
+    _captureClipboardImage(token, mimes, wmClass, imageMime, options) {
+        if (options.images !== true) {
+            this._noteClipboard(mimes, wmClass, 'skipped-images-off');
+            return;
+        }
+        let clipboard = null;
+        try {
+            clipboard = St.Clipboard.get_default();
+        } catch (error) {
+            clipboard = null;
+        }
+        if (!clipboard || typeof clipboard.get_content !== 'function') {
+            this._noteClipboard(mimes, wmClass, 'skipped-image-bad');
+            return;
+        }
+        try {
+            clipboard.get_content(St.ClipboardType.CLIPBOARD, imageMime, (_clip, bytes) => {
+                if (!this._enabled || token !== this._clipToken)
+                    return;
+                const read = imageBytes(bytes);
+                if (read.result !== 'ok') {
+                    this._noteClipboard(mimes, wmClass, read.result);
+                    return;
+                }
+                const current = this._clipboardOptions();
+                if (current.enabled !== true) {
+                    this._noteClipboard(mimes, wmClass, 'skipped-disabled');
+                    return;
+                }
+                if (current.images !== true) {
+                    this._noteClipboard(mimes, wmClass, 'skipped-images-off');
+                    return;
+                }
+                if (!this._proxy || !this._proxy.OfferClipboardImageRemote) {
+                    this._noteClipboard(mimes, wmClass, 'skipped-image-bad');
+                    return;
+                }
+                let payload = read.data;
+                const meta = JSON.stringify({mimes, wm_class: wmClass, mime: imageMime});
+                try {
+                    this._proxy.OfferClipboardImageRemote(payload, meta, () => {
+                        payload = null;
+                        if (this._enabled)
+                            this._loadClipboard();
+                    });
+                } catch (error) {
+                    payload = null;
+                    this._noteClipboard(mimes, wmClass, 'skipped-image-bad');
+                }
+            });
+        } catch (error) {
+            this._noteClipboard(mimes, wmClass, 'skipped-image-bad');
+        }
+    }
+
     _clipboardOptions() {
         const settings = this._settings;
-        if (!settings)
-            return {enabled: true, excluded: DEFAULT_EXCLUDED_APPS, lookalike: LOOKALIKE_SKIP};
+        if (!settings) {
+            return {
+                enabled: true,
+                excluded: DEFAULT_EXCLUDED_APPS,
+                lookalike: LOOKALIKE_SKIP,
+                images: true,
+            };
+        }
         let enabled = true;
         let excluded = DEFAULT_EXCLUDED_APPS;
         let lookalike = LOOKALIKE_SKIP;
+        let images = true;
         try {
             enabled = settings.get_boolean('clipboard-enabled') === true;
         } catch (error) {
@@ -2080,7 +2163,12 @@ export default class TetherBotExtension extends Extension {
         } catch (error) {
             lookalike = LOOKALIKE_SKIP;
         }
-        return {enabled, excluded, lookalike};
+        try {
+            images = settings.get_boolean('clipboard-images') === true;
+        } catch (error) {
+            images = true;
+        }
+        return {enabled, excluded, lookalike, images};
     }
 
     _noteClipboard(mimes, wmClass, result) {
@@ -2148,7 +2236,8 @@ export default class TetherBotExtension extends Extension {
             return;
         }
         for (const entry of entries) {
-            if (!entry || typeof entry.text !== 'string')
+            const isImage = entry?.kind === 'image';
+            if (!entry || (!isImage && typeof entry.text !== 'string'))
                 continue;
             const masked = entry.masked === true;
             const pinned = entry.pinned === true;
@@ -2164,7 +2253,9 @@ export default class TetherBotExtension extends Extension {
                 y_align: Clutter.ActorAlign.CENTER,
             });
             const label = new St.Label({
-                text: menuLabel(masked ? '' : entry.text, masked),
+                text: isImage
+                    ? imageLabel(entry.mime, entry.size)
+                    : menuLabel(masked ? '' : entry.text, masked),
                 x_expand: true,
                 y_align: Clutter.ActorAlign.CENTER,
             });
@@ -2172,21 +2263,39 @@ export default class TetherBotExtension extends Extension {
                 label.clutter_text.ellipsize = Pango.EllipsizeMode.END;
                 label.clutter_text.line_wrap = false;
             }
+            if (isImage) {
+                const thumb = this._clipThumb(entry);
+                if (thumb)
+                    textBox.add_child(thumb);
+            }
             textBox.add_child(label);
             const dots = clipDots(entry.tags);
             if (dots.get_n_children() > 0)
                 textBox.add_child(dots);
             row.add_child(textBox);
+            const editTip = isImage ? 'Images are not edited' : 'Edit';
             const tagTip = masked ? 'Hidden passwords are not tagged' : 'Tag';
-            const searchTip = masked ? 'Hidden passwords are not searched' : 'Search the web';
+            const searchTip = isImage
+                ? 'Images are not searched'
+                : (masked ? 'Hidden passwords are not searched' : 'Search the web');
+            const copyBack = () => {
+                if (isImage)
+                    this._recopyImage(entry.id);
+                else
+                    this._recopyClipboard(entry.text);
+            };
             const columns = [
-                ['document-edit-symbolic', 'Edit', !masked, false, () => this._openClipboardWindow()],
+                ['document-edit-symbolic', editTip, !masked && !isImage, false, () => {
+                    this._openClipboardWindow();
+                }],
                 ['view-pin-symbolic', pinned ? 'Unpin' : 'Pin', true, pinned, () => {
                     this._pinClipboard(entry.id, !pinned);
                 }],
                 ['tag-symbolic', tagTip, !masked, false, () => this._openClipboardWindow()],
-                ['edit-copy-symbolic', 'Copy', true, false, () => this._recopyClipboard(entry.text)],
-                ['system-search-symbolic', searchTip, !masked, false, () => this._openClipboardWindow()],
+                ['edit-copy-symbolic', 'Copy', true, false, copyBack],
+                ['system-search-symbolic', searchTip, !masked && !isImage, false, () => {
+                    this._openClipboardWindow();
+                }],
                 ['edit-delete-symbolic', 'Delete', true, false, () => this._deleteClipboard(entry.id)],
             ];
             columns.forEach(([iconName, tip, enabled, accent, onPress], index) => {
@@ -2215,7 +2324,7 @@ export default class TetherBotExtension extends Extension {
                     this._clipPinHold = false;
                     return;
                 }
-                this._recopyClipboard(entry.text);
+                copyBack();
             });
             this._clipSection.addMenuItem(item);
         }
@@ -2240,6 +2349,30 @@ export default class TetherBotExtension extends Extension {
         button.accessible_name = name;
         button.tooltip_text = name;
         return button;
+    }
+
+    _clipThumb(entry) {
+        const thumbPath = typeof entry.thumb === 'string' ? entry.thumb : '';
+        const imagePath = typeof entry.path === 'string' ? entry.path : '';
+        const shown = thumbPath || imagePath;
+        if (!shown)
+            return null;
+        try {
+            const file = Gio.File.new_for_path(shown);
+            if (thumbPath) {
+                const painted = clipThumbActor(file);
+                if (painted)
+                    return painted;
+            }
+            return new St.Icon({
+                gicon: new Gio.FileIcon({file}),
+                icon_size: 48,
+                style_class: 'tetherbot-clip-thumb',
+                y_align: Clutter.ActorAlign.CENTER,
+            });
+        } catch (error) {
+            return null;
+        }
     }
 
     _pinClipboard(entryId, pinned) {
@@ -2271,6 +2404,58 @@ export default class TetherBotExtension extends Extension {
         this._clipIndicator?.menu.close();
     }
 
+    _recopyImage(entryId) {
+        if (!entryId || !this._proxy || !this._proxy.GetClipboardImageRemote) {
+            Main.notify('TetherBot', 'That image is not available');
+            this._clipIndicator?.menu.close();
+            return;
+        }
+        this._proxy.GetClipboardImageRemote(entryId, (result, error) => {
+            if (!this._enabled)
+                return;
+            if (error || !result || result.length < 2) {
+                Main.notify('TetherBot', 'That image is not available');
+                return;
+            }
+            const mime = result[0];
+            const data = result[1];
+            if (typeof mime !== 'string' || !mime.startsWith('image/') || !data) {
+                Main.notify('TetherBot', 'Could not copy the image');
+                return;
+            }
+            try {
+                this._armClipboardEcho();
+                St.Clipboard.get_default().set_content(
+                    St.ClipboardType.CLIPBOARD,
+                    mime,
+                    clipboardBytes(data),
+                );
+            } catch (writeError) {
+                console.debug('TetherBot: image was not written');
+                Main.notify('TetherBot', 'Could not copy the image');
+            }
+        });
+        this._clipIndicator?.menu.close();
+    }
+
+    _armClipboardEcho() {
+        try {
+            this._clipEchoUntil = GLib.get_monotonic_time() + 1500000;
+        } catch (error) {
+            this._clipEchoUntil = 0;
+        }
+    }
+
+    _clipboardEchoing() {
+        if (typeof this._clipEchoUntil !== 'number' || !this._clipEchoUntil)
+            return false;
+        try {
+            return GLib.get_monotonic_time() < this._clipEchoUntil;
+        } catch (error) {
+            return false;
+        }
+    }
+
     _clearClipboard() {
         if (!this._proxy || !this._proxy.ClearClipboardRemote)
             return;
@@ -2287,6 +2472,69 @@ export default class TetherBotExtension extends Extension {
         const call = openWindowCall('clipboard');
         this._proxy.OpenWindowRemote(...call.args, () => {});
         this._clipIndicator?.menu.close();
+    }
+}
+
+function imageBytes(bytes) {
+    if (!bytes || typeof bytes.get_size !== 'function')
+        return {result: 'skipped-image-bad', data: null};
+    let size = 0;
+    try {
+        const raw = bytes.get_size();
+        size = typeof raw === 'number' ? raw : Number(raw);
+    } catch (error) {
+        return {result: 'skipped-image-bad', data: null};
+    }
+    if (!Number.isFinite(size))
+        return {result: 'skipped-image-bad', data: null};
+    if (size === 0)
+        return {result: 'skipped-empty', data: null};
+    if (!imageWithinCap(size))
+        return {result: 'skipped-image-large', data: null};
+    let data = null;
+    try {
+        data = typeof bytes.get_data === 'function' ? bytes.get_data() : null;
+    } catch (error) {
+        data = null;
+    }
+    if (data && typeof data.toArray === 'function')
+        data = data.toArray();
+    if (!data || (typeof data.length === 'number' && data.length === 0))
+        return {result: data ? 'skipped-empty' : 'skipped-image-bad', data: null};
+    return {result: 'ok', data};
+}
+
+function clipboardBytes(data) {
+    if (data && typeof data.get_data === 'function' && typeof data.get_size === 'function')
+        return data;
+    if (data && typeof data.toArray === 'function')
+        return GLib.Bytes.new(data.toArray());
+    return GLib.Bytes.new(data);
+}
+
+function clipThumbActor(file) {
+    try {
+        const cache = St.TextureCache.get_default();
+        let paintScale = 1;
+        try {
+            paintScale = St.ThemeContext.get_for_stage(global.stage).scale_factor || 1;
+        } catch (error) {
+            paintScale = 1;
+        }
+        const actor = cache.load_file_async(file, 48, 48, paintScale, 1);
+        if (!actor)
+            return null;
+        const box = new St.Widget({
+            style_class: 'tetherbot-clip-thumb',
+            width: 48,
+            height: 48,
+            y_align: Clutter.ActorAlign.CENTER,
+            clip_to_allocation: true,
+        });
+        box.add_child(actor);
+        return box;
+    } catch (error) {
+        return null;
     }
 }
 

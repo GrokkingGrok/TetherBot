@@ -220,6 +220,11 @@
     spacing: 6px;
 }
 
+.tetherbot-clip-thumb {
+    width: 48px;
+    height: 48px;
+}
+
 .tetherbot-clip-action {
     padding: 2px;
 }

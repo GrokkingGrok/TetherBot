@@ -64,6 +64,21 @@ export function historySeconds(enabled, amount, unit) {
     return historyAmount(amount) * HISTORY_SCALE[historyUnit(unit)];
 }
 
+export const SEARCH_FALLBACK_DEFAULT = 'https://duckduckgo.com/?q={searchTerms}';
+
+export function searchFallback(value) {
+    if (typeof value !== 'string')
+        return null;
+    const template = value.trim();
+    if (!template.startsWith('https://') || template.includes(' '))
+        return null;
+    if (!template.includes('{searchTerms}') && !template.includes('%s'))
+        return null;
+    if (template.includes('\n') || template.includes('\r') || template.includes('@'))
+        return null;
+    return template;
+}
+
 export const FEED_RESET_KEYS = ['poll-seconds', 'undo-seconds'];
 
 export function resetFeedSettings(settings, configPoll) {

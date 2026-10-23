@@ -89,8 +89,12 @@ def test_window_sources_do_not_touch_the_network_or_secrets():
     assert 'label="Pin"' in window or '"Unpin"' in window
     assert "editable=False" in window
     assert "Hidden passwords are not searched" in window
+    assert "Hidden passwords are not tagged" in window
+    assert "Uses the search fallback from Settings" in window
+    assert "_clip_tag_guard" in window
+    assert "chosen == self._clip_tag" in window
     search = (ROOT / "bridge" / "tetherbot" / "clipboard_search.py").read_text(encoding="utf-8")
-    assert "google.com" not in search
-    assert "duckduckgo.com" not in search
     assert "google.com" not in window
     assert "duckduckgo.com" not in window
+    assert search.count("https://www.google.com/") == 1
+    assert "FALLBACK_SEARCH_TEMPLATE" in search

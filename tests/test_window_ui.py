@@ -1189,6 +1189,143 @@ def test_an_open_window_picks_up_a_renamed_bot():
     assert holder.get("ok") is True
 
 
+def test_clipboard_tag_filter_stops_after_one_rebuild():
+    gi = pytest.importorskip("gi")
+    try:
+        gi.require_version("Gtk", "4.0")
+        gi.require_version("Adw", "1")
+        from gi.repository import GLib
+    except ValueError as exc:
+        pytest.skip(str(exc))
+    if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
+        pytest.skip("GTK window test needs a display")
+
+    from tetherbot.window import WindowApp
+
+    class _Clip:
+        def set_listener(self, listener) -> None:
+            return None
+
+        def set_clipboard_listener(self, listener) -> None:
+            return None
+
+        def get_items(self, spec):
+            return []
+
+        def get_tags(self):
+            return []
+
+        def bots(self):
+            return []
+
+        def get_clipboard(self):
+            return [
+                {
+                    "id": "c-11111111",
+                    "text": "alpha line",
+                    "at": 2,
+                    "pinned": False,
+                    "tags": [{"name": "Later", "color": "blue"}],
+                },
+                {
+                    "id": "c-22222222",
+                    "text": "beta line",
+                    "at": 1,
+                    "pinned": False,
+                    "tags": [],
+                },
+                {
+                    "id": "c-33333333",
+                    "text": "hidden-secret",
+                    "at": 3,
+                    "pinned": True,
+                    "masked": True,
+                    "tags": [],
+                },
+            ]
+
+    app = WindowApp(client=_Clip())
+    holder: dict = {}
+
+    def finish():
+        try:
+            window = app.window
+            assert window is not None
+            window._set_page("clipboard")
+            fills = {"n": 0}
+            original = window._fill_clipboard_rows
+
+            def wrapped() -> None:
+                fills["n"] += 1
+                if fills["n"] > 3:
+                    raise AssertionError("tag filter rebuilt without stopping")
+                original()
+
+            window._fill_clipboard_rows = wrapped
+            window.clip_tag.set_selected(1)
+            assert fills["n"] == 1
+            assert window._clip_tag == "Later"
+            shown = _clip_rows(window)
+            assert [row.clip_text for row in shown] == ["alpha line"]
+            window.clip_tag.set_selected(0)
+            assert window._clip_tag == ""
+            rows = _clip_rows(window)
+            masked = next(row for row in rows if row.clip_masked)
+            plain = next(row for row in rows if row.clip_text == "alpha line")
+            assert _button(masked, "Unpin").get_sensitive()
+            assert not _button(masked, "Tag").get_sensitive()
+            assert not _button(masked, "Edit").get_sensitive()
+            assert not _button(masked, "Search the web").get_sensitive()
+            assert _button(plain, "Tag").get_sensitive()
+            assert _button(plain, "Search the web").get_sensitive()
+            labels = [button.get_label() or "" for button in _buttons(masked)]
+            assert all("hidden-secret" not in label for label in labels)
+            holder["ok"] = True
+        except Exception as exc:
+            holder["error"] = exc
+        app.quit()
+        return False
+
+    try:
+        app.connect("activate", lambda _app: GLib.idle_add(finish))
+        GLib.timeout_add(8000, app.quit)
+        app.run(["tetherbot-window"])
+    finally:
+        reset_tetherbot_logger()
+    if "error" in holder:
+        raise holder["error"]
+    assert holder.get("ok") is True
+
+
+def _clip_rows(window) -> list:
+    rows = []
+    index = 0
+    while True:
+        row = window.list.get_row_at_index(index)
+        if row is None:
+            return rows
+        if getattr(row, "clip_id", ""):
+            rows.append(row)
+        index += 1
+
+
+def _buttons(widget):
+    found = []
+    child = widget.get_first_child() if hasattr(widget, "get_first_child") else None
+    while child is not None:
+        if hasattr(child, "get_label") and child.get_label():
+            found.append(child)
+        found.extend(_buttons(child))
+        child = child.get_next_sibling()
+    return found
+
+
+def _button(widget, label: str):
+    match = next((button for button in _buttons(widget) if button.get_label() == label), None)
+    assert match is not None, label
+    return match
+
+
 def _bot_labels(window) -> list[str]:
     labels = []
     index = 0

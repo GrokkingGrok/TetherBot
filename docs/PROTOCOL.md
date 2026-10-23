@@ -146,7 +146,7 @@ This JSON is the webhook POST body. The key travels only in the `Authorization` 
 
 ## Clipboard history
 
-Clipboard text is not part of schema `tetherbot/1`. It is not a field on a feed item and it is not a field on a webhook action. The bridge stores it in `clipboard.json` under the XDG state directory, including pin and tag fields. `OfferClipboard`, `GetClipboard`, `DeleteClipboard`, `ClearClipboard`, `NoteClipboard`, `PinClipboard`, `SetClipboardTags`, and `EditClipboard` are session-bus methods. `ClipboardChanged` carries a count, not the text. A sensitive clipboard target is not stored. `NoteClipboard` records MIME types and a result and does not take the text. A password-like copy is skipped unless Settings keeps it hidden for 30 seconds. Search the web is not a bus method and not a webhook. The window opens the desktop browser only after that button is pressed.
+Clipboard text is not part of schema `tetherbot/1`. It is not a field on a feed item and it is not a field on a webhook action. The bridge stores it in `clipboard.json` under the XDG state directory, including pin and tag fields. `OfferClipboard`, `GetClipboard`, `DeleteClipboard`, `ClearClipboard`, `NoteClipboard`, `PinClipboard`, `SetClipboardTags`, and `EditClipboard` are session-bus methods. `ClipboardChanged` carries a count, not the text. A sensitive clipboard target is not stored. `NoteClipboard` records MIME types and a result and does not take the text. A password-like copy is skipped unless Settings keeps it hidden for 30 seconds. Search the web is not a bus method and not a webhook. The window opens the desktop browser only after that button is pressed. If the browser engine cannot be read, that click uses the search fallback stored in gsettings.
 
 ## Legacy inbox
 

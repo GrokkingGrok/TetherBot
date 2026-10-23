@@ -1,18 +1,26 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 """Build a search URL from the desktop's own search engine.
 
-No search host is chosen here. A missing or unreadable engine returns
-None. This module does not open a browser, a socket, or a log.
+A Chromium profile stores Google as ``{google:baseURL}``. That token
+is expanded to the base Chromium uses. When no browser engine can be
+read, the Settings fallback is used. This module does not open a
+browser, a socket, or a log.
 """
 
 from __future__ import annotations
 
 import json
+import re
+import sqlite3
 from pathlib import Path
 from urllib.parse import quote, urlsplit, urlunsplit
 
 _PLACEHOLDER = "{searchTerms}"
 _QUERY_MAX = 1500
+_CHROMIUM_GOOGLE_BASE = "https://www.google.com/"
+FALLBACK_SEARCH_TEMPLATE = "https://duckduckgo.com/?q={searchTerms}"
+_OTHER_TOKEN = re.compile(r"\{(?!searchTerms\})[^{}]+\}")
+_PROFILE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 ._-]{0,80}$")
 
 
 def search_target(text: object, template: object) -> str | None:
@@ -60,6 +68,51 @@ def discover_search_template(home: Path, desktop_id: str, setting: str | None = 
     if "chrome" in ident or "chromium" in ident or "brave" in ident or "edge" in ident:
         return _chromium_template(home, ident)
     return None
+
+
+def choose_search_template(
+    home: Path,
+    desktop_id: str,
+    setting: str | None = None,
+    fallback: str | None = None,
+) -> tuple[str | None, str]:
+    """The browser template, or the Settings fallback. Nothing is opened."""
+
+    found = discover_search_template(home, desktop_id, setting)
+    if found is not None:
+        return found, "browser"
+    chosen = accept_template(fallback if fallback is not None else FALLBACK_SEARCH_TEMPLATE)
+    if chosen is not None:
+        return chosen, "fallback"
+    return None, "none"
+
+
+def clamp_search_fallback(value: object) -> str:
+    """An https template, or the Settings default when the value is unusable."""
+
+    chosen = accept_template(value)
+    return chosen if chosen is not None else FALLBACK_SEARCH_TEMPLATE
+
+
+def normalize_search_url(value: object) -> str | None:
+    """Turn a browser template into an https URL. Other tokens are dropped."""
+
+    if not isinstance(value, str):
+        return None
+    direct = accept_template(value)
+    if direct is not None:
+        return direct
+    text = value.strip()
+    text = text.replace("{google:baseURL}", _CHROMIUM_GOOGLE_BASE)
+    text = text.replace("{google:baseSuggestURL}", _CHROMIUM_GOOGLE_BASE)
+    text = text.replace("{inputEncoding}", "UTF-8")
+    text = _OTHER_TOKEN.sub("", text)
+    text = text.replace("?&", "?").replace("&&", "&")
+    while "&&" in text:
+        text = text.replace("&&", "&")
+    if text.endswith("&") or text.endswith("?"):
+        text = text[:-1]
+    return accept_template(text)
 
 
 def decode_mozlz4(blob: bytes) -> bytes | None:
@@ -120,12 +173,53 @@ def template_from_chromium(payload: object) -> str | None:
     if not isinstance(payload, dict):
         return None
     data = payload.get("default_search_provider_data")
-    if not isinstance(data, dict):
+    if isinstance(data, dict):
+        row = data.get("template_url_data")
+        if isinstance(row, dict):
+            found = normalize_search_url(row.get("url"))
+            if found is not None:
+                return found
+    legacy = payload.get("default_search_provider")
+    if isinstance(legacy, dict):
+        for key in ("search_url", "url"):
+            found = normalize_search_url(legacy.get(key))
+            if found is not None:
+                return found
+    return None
+
+
+def template_from_web_data(path: Path) -> str | None:
+    """The default engine URL in a Chromium ``Web Data`` database."""
+
+    if not path.is_file():
         return None
-    row = data.get("template_url_data")
-    if not isinstance(row, dict):
+    uri = "file:" + quote(str(path), safe="/:") + "?mode=ro"
+    try:
+        connection = sqlite3.connect(uri, uri=True, timeout=0.2)
+    except sqlite3.Error:
         return None
-    return accept_template(row.get("url"))
+    try:
+        meta = connection.execute(
+            "SELECT value FROM meta WHERE key = ?",
+            ("Default Search Provider ID",),
+        ).fetchone()
+        if meta is None:
+            return None
+        try:
+            ident = int(meta[0])
+        except (TypeError, ValueError):
+            return None
+        row = connection.execute(
+            "SELECT url FROM keywords WHERE id = ?",
+            (ident,),
+        ).fetchone()
+    except sqlite3.Error:
+        return None
+    finally:
+        connection.close()
+    if row is None:
+        return None
+    return normalize_search_url(row[0])
 
 
 def _firefox_template(home: Path) -> str | None:
@@ -164,7 +258,55 @@ def _chromium_template(home: Path, ident: str) -> str | None:
         names.append(home / ".config" / "google-chrome")
         names.append(home / ".var" / "app" / "com.google.Chrome" / "config" / "google-chrome")
     for root in names:
-        path = root / "Default" / "Preferences"
+        for profile in _chromium_profiles(root):
+            found = _chromium_profile_template(profile)
+            if found is not None:
+                return found
+    return None
+
+
+def _chromium_profiles(root: Path) -> list[Path]:
+    """Last-used profile first, then Default, then any other profile."""
+
+    last = _chromium_last_used(root)
+    ordered: list[Path] = []
+    if last:
+        ordered.append(root / last)
+    default = root / "Default"
+    if default not in ordered:
+        ordered.append(default)
+    if not root.is_dir():
+        return ordered
+    try:
+        children = sorted(root.iterdir(), key=lambda path: path.name)
+    except OSError:
+        return ordered
+    for child in children:
+        if child in ordered or not child.is_dir():
+            continue
+        if (child / "Preferences").is_file() or (child / "Web Data").is_file():
+            ordered.append(child)
+    return ordered
+
+
+def _chromium_last_used(root: Path) -> str:
+    path = root / "Local State"
+    if not path.is_file():
+        return ""
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return ""
+    profile = payload.get("profile") if isinstance(payload, dict) else None
+    last = profile.get("last_used") if isinstance(profile, dict) else None
+    if not isinstance(last, str) or not _PROFILE_NAME.fullmatch(last):
+        return ""
+    return last
+
+
+def _chromium_profile_template(profile: Path) -> str | None:
+    for name in ("Preferences", "Secure Preferences"):
+        path = profile / name
         if not path.is_file():
             continue
         try:
@@ -174,7 +316,7 @@ def _chromium_template(home: Path, ident: str) -> str | None:
         found = template_from_chromium(payload)
         if found is not None:
             return found
-    return None
+    return template_from_web_data(profile / "Web Data")
 
 
 def _firefox_profile(root: Path) -> Path | None:
@@ -200,6 +342,17 @@ def _firefox_profile(root: Path) -> Path | None:
         current[key.strip()] = value.strip()
     if current:
         sections.append(current)
+    install = next(
+        (
+            row.get("Default")
+            for row in sections
+            if "Path" not in row and row.get("Default") not in (None, "", "0", "1")
+        ),
+        None,
+    )
+    if isinstance(install, str) and install:
+        folder = Path(install)
+        return folder if folder.is_absolute() else root / folder
     chosen = next((row for row in sections if row.get("Default") == "1" and row.get("Path")), None)
     if chosen is None:
         chosen = next((row for row in sections if row.get("Path")), None)

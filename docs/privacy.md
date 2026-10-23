@@ -33,9 +33,9 @@ Webhook URL, webhook key, and GitHub token live in the desktop secret service (t
 
 ## What stays on the machine
 
-The bridge keeps an item cache, the action queue, logs, `timer.json`, `item-time.json`, and `clipboard.json` under the XDG state directory. `clipboard.json` is mode 0600. It holds plain-text clipboard history. It is not under `desktop/`, it is not in the feed clone, and it is not pushed. Snooze times stay on this machine. The stopwatch is not written to the feed and is not sent to the bot. Clipboard history is not written to the feed and is not sent to the bot. Pins, tags, and edited text stay in `clipboard.json`. Search the web is the one clipboard action that can leave the machine, and only after that button is pressed. It asks the desktop browser to open that browser's own search. TetherBot does not choose a search site.
+The bridge keeps an item cache, the action queue, logs, `timer.json`, `item-time.json`, and `clipboard.json` under the XDG state directory. `clipboard.json` is mode 0600. It holds plain-text clipboard history. It is not under `desktop/`, it is not in the feed clone, and it is not pushed. Snooze times stay on this machine. The stopwatch is not written to the feed and is not sent to the bot. Clipboard history is not written to the feed and is not sent to the bot. Pins, tags, and edited text stay in `clipboard.json`. Search the web is the one clipboard action that can leave the machine, and only after that button is pressed. It asks the desktop browser to open that browser's own search. When that engine cannot be read, it uses the search fallback shown in Settings. The default is DuckDuckGo, and the address can be changed.
 
-gsettings on this machine stores the poll interval, the undo length, completed-todo history (on or off, a number, and a unit), clipboard capture (on or off, a cap, the app exclude list, and the password-like choice), the list of muted bots, and the list of hidden bots.
+gsettings on this machine stores the poll interval, the undo length, completed-todo history (on or off, a number, and a unit), clipboard capture (on or off, a cap, the app exclude list, the password-like choice, and the search fallback address), the list of muted bots, and the list of hidden bots.
 
 ## Nothing is paid, sent, or deleted from the desktop
 

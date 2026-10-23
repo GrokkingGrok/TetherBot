@@ -24,6 +24,8 @@ import {
     historyAmount,
     historyUnit,
     resetFeedSettings,
+    SEARCH_FALLBACK_DEFAULT,
+    searchFallback,
     idList,
     keyButtonLabel,
     rememberExpansion,
@@ -253,6 +255,7 @@ export default class TetherBotPreferences extends ExtensionPreferences {
         group.add(this._clipboardLookalike(settings));
         group.add(this._clipboardLimit(settings));
         group.add(this._clipboardApps(settings));
+        group.add(this._clipboardSearch(settings));
         page.add(group);
     }
 
@@ -319,6 +322,39 @@ export default class TetherBotPreferences extends ExtensionPreferences {
             const value = clipboardLimit(settings.get_int('clipboard-limit'));
             this._showSpin(row, value);
         });
+        return row;
+    }
+
+    _clipboardSearch(settings) {
+        const row = new Adw.EntryRow({
+            title: 'Search fallback',
+            subtitle: 'Used when the browser engine cannot be read. The default is DuckDuckGo. Nothing opens until Search the web is pressed.',
+        });
+        const show = () => {
+            const stored = settings.get_string('clipboard-search-fallback');
+            const text = searchFallback(stored) || SEARCH_FALLBACK_DEFAULT;
+            this._showingSearch = true;
+            if (row.get_text() !== text)
+                row.set_text(text);
+            this._showingSearch = false;
+        };
+        const save = () => {
+            if (this._showingSearch)
+                return;
+            const chosen = searchFallback(row.get_text());
+            if (!chosen) {
+                show();
+                return;
+            }
+            if (settings.get_string('clipboard-search-fallback') !== chosen)
+                settings.set_string('clipboard-search-fallback', chosen);
+        };
+        row.connect('apply', save);
+        const focus = new Gtk.EventControllerFocus();
+        focus.connect('leave', save);
+        row.add_controller(focus);
+        settings.connect('changed::clipboard-search-fallback', show);
+        show();
         return row;
     }
 

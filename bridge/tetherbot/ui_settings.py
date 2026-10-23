@@ -24,6 +24,7 @@ from tetherbot.clipboard_policy import (
     clamp_lookalike_mode,
     excluded_apps,
 )
+from tetherbot.clipboard_search import FALLBACK_SEARCH_TEMPLATE, clamp_search_fallback
 
 POLL_DEFAULT = 120
 POLL_MIN = 60
@@ -69,6 +70,7 @@ class UiSettings:
     clipboard_limit: int = CLIPBOARD_LIMIT_DEFAULT
     clipboard_excluded: tuple[str, ...] = DEFAULT_EXCLUDED_APPS
     clipboard_lookalike: str = LOOKALIKE_SKIP
+    clipboard_search_fallback: str = FALLBACK_SEARCH_TEMPLATE
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "poll_seconds", clamp_poll_seconds(self.poll_seconds))
@@ -85,6 +87,11 @@ class UiSettings:
             self,
             "clipboard_lookalike",
             clamp_lookalike_mode(self.clipboard_lookalike),
+        )
+        object.__setattr__(
+            self,
+            "clipboard_search_fallback",
+            clamp_search_fallback(self.clipboard_search_fallback),
         )
 
     @property
@@ -225,6 +232,9 @@ def load_ui_settings(schema_dir: Path | None = None) -> UiSettings:
             LOOKALIKE_SKIP,
             LOOKALIKE_MODES,
         ),
+        clipboard_search_fallback=clamp_search_fallback(
+            _schema_string(settings, "clipboard-search-fallback", FALLBACK_SEARCH_TEMPLATE)
+        ),
     )
 
 
@@ -342,6 +352,16 @@ def _schema_int(settings: object, key: str, default: int) -> int:
     if not _positive_int(value):
         return default
     return int(value)
+
+
+def _schema_string(settings: object, key: str, default: str) -> str:
+    if not _schema_has(settings, key):
+        return default
+    try:
+        value = settings.get_string(key)
+    except Exception:
+        return default
+    return value if isinstance(value, str) else default
 
 
 def _schema_choice(

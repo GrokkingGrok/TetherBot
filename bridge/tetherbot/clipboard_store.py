@@ -140,7 +140,7 @@ class ClipboardHistory:
         """Replace tags. Each kept tag has a name and a palette color."""
 
         row = self._find(entry_id)
-        if row is None:
+        if row is None or row.get("masked") is True:
             return False
         cleaned = _clean_tags(tags)
         if cleaned:
@@ -256,10 +256,11 @@ class ClipboardHistory:
                 item: dict[str, Any] = {"id": ident, "text": text, "at": at}
                 if row.get("pinned") is True:
                     item["pinned"] = True
-                tags = _clean_tags(row.get("tags"))
+                masked = row.get("masked") is True
+                tags = [] if masked else _clean_tags(row.get("tags"))
                 if tags:
                     item["tags"] = tags
-                if row.get("masked") is True:
+                if masked:
                     until = row.get("until")
                     if isinstance(until, bool) or not isinstance(until, int):
                         continue

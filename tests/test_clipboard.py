@@ -384,6 +384,22 @@ def test_old_clipboard_file_loads_and_a_hidden_password_is_not_edited(tmp_path: 
     assert path.stat().st_mode & 0o777 == stat.S_IRUSR | stat.S_IWUSR
 
 
+def test_a_hidden_password_can_be_pinned_but_not_tagged(tmp_path: Path):
+    now = {"at": 1_700_000_000}
+    history = _history(tmp_path, lookalike="mask", clock=lambda: now["at"])
+    assert history.offer(LOOKALIKE, ["text/plain"], "gedit") == "stored-masked"
+    row = history.list_entries()[0]
+    assert history.set_pinned(row["id"], True) is True
+    assert history.set_tags(row["id"], [{"name": "Later", "color": "blue"}]) is False
+    listed = history.list_entries()
+    assert listed[0]["pinned"] is True
+    assert listed[0]["tags"] == []
+    assert "Later" not in history.path.read_text(encoding="utf-8")
+    now["at"] = 1_700_000_031
+    assert history.purge() is True
+    assert history.list_entries() == []
+
+
 def test_service_pin_edit_and_tags_do_not_log_text(tmp_path: Path):
     stream = StringIO()
     daemon = BridgeDaemon(

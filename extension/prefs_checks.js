@@ -20,6 +20,8 @@ import {
     effectiveUndoSeconds,
     historySeconds,
     resetFeedSettings,
+    SEARCH_FALLBACK_DEFAULT,
+    searchFallback,
     idList,
     keyButtonLabel,
     rememberExpansion,
@@ -92,6 +94,10 @@ assert(!FEED_RESET_KEYS.includes('clipboard-enabled'), 'reset does not clear cli
 assert(!FEED_RESET_KEYS.includes('clipboard-limit'), 'reset does not clear the clipboard cap');
 assert(!FEED_RESET_KEYS.includes('clipboard-excluded-apps'), 'reset does not clear skipped apps');
 assert(!FEED_RESET_KEYS.includes('clipboard-lookalike'), 'reset does not clear password-like copies');
+assert(!FEED_RESET_KEYS.includes('clipboard-search-fallback'), 'reset does not clear the search fallback');
+assert(searchFallback(SEARCH_FALLBACK_DEFAULT) === SEARCH_FALLBACK_DEFAULT, 'the search fallback default is https');
+assert(searchFallback('http://example.test/?q={searchTerms}') === null, 'the search fallback rejects http');
+assert(searchFallback('https://example.test/search') === null, 'the search fallback needs a placeholder');
 
 const kept = {
     hidden: ['notes'],
@@ -142,6 +148,8 @@ assert(prefsSource.includes('Remember copied text'), 'prefs has the clipboard to
 assert(prefsSource.includes('clipboard-excluded-apps'), 'prefs stores skipped apps');
 assert(prefsSource.includes('Password-like copies'), 'prefs has the password-like choice');
 assert(prefsSource.includes('clipboard-lookalike'), 'prefs stores the password-like choice');
+assert(prefsSource.includes('Search fallback'), 'prefs shows the search fallback');
+assert(prefsSource.includes('clipboard-search-fallback'), 'prefs stores the search fallback');
 assert(
     prefsSource.includes('1 month = 30 days, 1 year = 365 days'),
     'how many names a month and a year',

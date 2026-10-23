@@ -59,6 +59,11 @@
       <summary>Password-like copies</summary>
       <description>Skip drops a single-line copy that looks like a password. Mask keeps that copy on this machine for 30 seconds and hides the text. The default is skip.</description>
     </key>
+    <key name="clipboard-search-fallback" type="s">
+      <default>'https://duckduckgo.com/?q={searchTerms}'</default>
+      <summary>Search fallback</summary>
+      <description>An https search address used only when the browser's own search engine cannot be read. It must contain {searchTerms} or %s. The default is DuckDuckGo. Search the web does not open until that button is pressed.</description>
+    </key>
     <key name="history-unit" type="s">
       <choices>
         <choice value="hours"/>

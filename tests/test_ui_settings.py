@@ -168,6 +168,8 @@ def test_compiled_schema_loads_the_defaults(tmp_path: Path):
     assert loaded.clipboard_enabled is True
     assert loaded.clipboard_limit == 50
     assert loaded.clipboard_lookalike == "skip"
+    assert loaded.clipboard_search_fallback.startswith("https://")
+    assert "{searchTerms}" in loaded.clipboard_search_fallback
     assert "keepassxc" in {name.casefold() for name in loaded.clipboard_excluded}
     text = source.read_text(encoding="utf-8")
     folded = text.lower()
@@ -176,3 +178,4 @@ def test_compiled_schema_loads_the_defaults(tmp_path: Path):
     assert "ghp_" not in folded
     assert 'name="clipboard-excluded-apps"' in text
     assert 'name="clipboard-lookalike"' in text
+    assert 'name="clipboard-search-fallback"' in text

@@ -24,9 +24,10 @@ gi.require_version("Pango", "1.0")
 from gi.repository import Adw, Gdk, Gio, GLib, Graphene, Gsk, Gtk, Pango  # noqa: E402
 
 from tetherbot.clipboard_policy import list_preview  # noqa: E402
-from tetherbot.clipboard_search import discover_search_template, search_target  # noqa: E402
+from tetherbot.clipboard_search import choose_search_template, search_target  # noqa: E402
 from tetherbot.markdown import Run, render  # noqa: E402
 from tetherbot.todos import PALETTE  # noqa: E402
+from tetherbot.ui_settings import load_ui_settings  # noqa: E402
 from tetherbot.window_launch import APP_ID  # noqa: E402
 from tetherbot.window_query import (  # noqa: E402
     MIN_WINDOW_HEIGHT,
@@ -543,7 +544,9 @@ class TodoWindow(Adw.ApplicationWindow):
         self._page = "todos"
         self._clip_query = ""
         self._clip_tag = ""
+        self._clip_tag_guard = False
         self._clip_search_ready = False
+        self._clip_search_kind = "none"
         self._clip_search_template: str | None = None
         self._clip_entries: list[dict[str, Any]] = []
         self._clip_dialog: Adw.AlertDialog | None = None
@@ -2353,6 +2356,8 @@ class TodoWindow(Adw.ApplicationWindow):
 
     def _set_page(self, page: str) -> None:
         self._page = page if page in {"todos", "bots", "clipboard"} else "todos"
+        if self._page == "clipboard":
+            self._clip_search_ready = False
         self._todo_controls.set_visible(self._page == "todos")
         self.bot_search.set_visible(self._page == "bots")
         self._clip_controls.set_visible(self._page == "clipboard")
@@ -2484,18 +2489,34 @@ class TodoWindow(Adw.ApplicationWindow):
                     names.append(name)
         labels = ["All tags", *names]
         current = self._clip_tag if self._clip_tag in names else ""
-        self._filling = True
-        self.clip_tag.set_model(Gtk.StringList.new(labels))
-        self.clip_tag.set_selected(0 if not current else labels.index(current))
         self._clip_tag = current
-        self._filling = False
+        wanted = 0 if not current else labels.index(current)
+        model = self.clip_tag.get_model()
+        same = (
+            model is not None
+            and model.get_n_items() == len(labels)
+            and all(model.get_string(index) == labels[index] for index in range(len(labels)))
+        )
+        if same and self.clip_tag.get_selected() == wanted:
+            return
+        self._clip_tag_guard = True
+        try:
+            if not same:
+                self.clip_tag.set_model(Gtk.StringList.new(labels))
+            if self.clip_tag.get_selected() != wanted:
+                self.clip_tag.set_selected(wanted)
+        finally:
+            self._clip_tag_guard = False
 
     def _on_clip_tag(self, drop: Gtk.DropDown, _pspec: Any) -> None:
-        if self._filling:
+        if self._clip_tag_guard or self._filling:
             return
         item = drop.get_selected_item()
         raw = item.get_string() if item is not None and hasattr(item, "get_string") else ""
-        self._clip_tag = "" if not isinstance(raw, str) or raw == "All tags" else raw
+        chosen = "" if not isinstance(raw, str) or raw == "All tags" else raw
+        if chosen == self._clip_tag:
+            return
+        self._clip_tag = chosen
         self._fill_clipboard_rows()
 
     def _make_clip_row(self, entry: dict[str, Any], text: str, masked: bool) -> Gtk.ListBoxRow:
@@ -2514,6 +2535,9 @@ class TodoWindow(Adw.ApplicationWindow):
         pin = Gtk.Button(label="Unpin" if pinned else "Pin")
         pin.connect("clicked", self._on_pin_clip, entry)
         tag_button = Gtk.Button(label="Tag")
+        tag_button.set_sensitive(not masked)
+        if masked:
+            tag_button.set_tooltip_text("Hidden passwords are not tagged")
         tag_button.connect("clicked", self._on_tag_clip, entry)
         edit = Gtk.Button(label="Edit")
         edit.set_sensitive(not masked)
@@ -2525,6 +2549,8 @@ class TodoWindow(Adw.ApplicationWindow):
         web.set_sensitive(not masked and template is not None)
         if masked:
             web.set_tooltip_text("Hidden passwords are not searched")
+        elif self._clip_search_kind == "fallback":
+            web.set_tooltip_text("Uses the search fallback from Settings")
         elif template is None:
             web.set_tooltip_text("No default search engine is set")
         web.connect("clicked", self._on_search_clip, entry)
@@ -2582,6 +2608,8 @@ class TodoWindow(Adw.ApplicationWindow):
         self._show_clip_text("Edit", text, editable=True, entry_id=ident)
 
     def _on_tag_clip(self, _button: Gtk.Button, entry: dict[str, Any]) -> None:
+        if entry.get("masked") is True:
+            return
         ident = entry.get("id")
         if not isinstance(ident, str):
             return
@@ -2595,6 +2623,7 @@ class TodoWindow(Adw.ApplicationWindow):
     def _on_search_clip(self, _button: Gtk.Button, entry: dict[str, Any]) -> None:
         if entry.get("masked") is True:
             return
+        self._clip_search_ready = False
         url = search_target(entry.get("text"), self._search_template())
         if url is None:
             self._toast("No default search engine")
@@ -2770,9 +2799,12 @@ class TodoWindow(Adw.ApplicationWindow):
         except Exception:
             setting = None
         try:
-            self._clip_search_template = discover_search_template(Path.home(), desktop, setting)
+            fallback = load_ui_settings().clipboard_search_fallback
+            chosen, kind = choose_search_template(Path.home(), desktop, setting, fallback)
         except Exception:
-            self._clip_search_template = None
+            chosen, kind = None, "none"
+        self._clip_search_template = chosen
+        self._clip_search_kind = kind
         return self._clip_search_template
 
     def _on_delete_clip(self, _button: Gtk.Button, entry_id: str) -> None:

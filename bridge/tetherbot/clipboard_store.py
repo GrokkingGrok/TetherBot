@@ -18,6 +18,7 @@ from typing import Any
 
 from tetherbot.clipboard_policy import (
     CLIPBOARD_LIMIT_DEFAULT,
+    CLIPBOARD_TEXT_MAX,
     DEFAULT_EXCLUDED_APPS,
     LOOKALIKE_SKIP,
     MASK_SECONDS,
@@ -28,8 +29,11 @@ from tetherbot.clipboard_policy import (
     excluded_apps,
 )
 from tetherbot.files import write_private_json
+from tetherbot.todos import PALETTE_NAMES, tag_color
 
 _ID = re.compile(r"^c-[0-9a-f]{8}$")
+_TAG_MAX = 8
+_TAG_LEN = 40
 
 
 class ClipboardHistory:
@@ -77,8 +81,7 @@ class ClipboardHistory:
         self.purge()
         if self.lookalike != "mask":
             self.entries = [row for row in self.entries if row.get("masked") is not True]
-        if len(self.entries) > self.limit:
-            self.entries = self.entries[: self.limit]
+        self._trim()
         if self.entries != before:
             self.save()
 
@@ -114,15 +117,52 @@ class ClipboardHistory:
         needle = query.casefold().strip() if isinstance(query, str) else ""
         rows: list[dict[str, Any]] = []
         for row in self.entries:
-            masked = row.get("masked") is True
-            text = str(row["text"])
-            if needle and (masked or needle not in text.casefold()):
+            if needle and not _query_hit(row, needle):
                 continue
-            item: dict[str, Any] = {"id": row["id"], "text": text, "at": row["at"]}
-            if masked:
-                item["masked"] = True
-            rows.append(item)
+            rows.append(_public_entry(row))
         return rows
+
+    def set_pinned(self, entry_id: str, pinned: bool) -> bool:
+        """Pin or unpin. Pinned rows stay at the top and out of the cap."""
+
+        row = self._find(entry_id)
+        if row is None or not isinstance(pinned, bool):
+            return False
+        if pinned:
+            row["pinned"] = True
+        else:
+            row.pop("pinned", None)
+        self._trim()
+        self.save()
+        return True
+
+    def set_tags(self, entry_id: str, tags: object) -> bool:
+        """Replace tags. Each kept tag has a name and a palette color."""
+
+        row = self._find(entry_id)
+        if row is None:
+            return False
+        cleaned = _clean_tags(tags)
+        if cleaned:
+            row["tags"] = cleaned
+        else:
+            row.pop("tags", None)
+        self.save()
+        return True
+
+    def edit_text(self, entry_id: str, text: object) -> bool:
+        """Replace the text. A hidden password is left unchanged."""
+
+        row = self._find(entry_id)
+        if row is None or row.get("masked") is True:
+            return False
+        if not isinstance(text, str) or "\x00" in text or not text.strip():
+            return False
+        if len(text.encode("utf-8")) > CLIPBOARD_TEXT_MAX:
+            return False
+        row["text"] = text
+        self.save()
+        return True
 
     def purge(self) -> bool:
         """Drop hidden entries whose 30 seconds are over. Text is not logged."""
@@ -175,7 +215,10 @@ class ClipboardHistory:
         return True
 
     def clear(self) -> bool:
-        self.entries = []
+        """Remove unpinned entries. Pinned entries stay."""
+
+        self.entries = [row for row in self.entries if row.get("pinned") is True]
+        self._sort()
         self.save()
         return True
 
@@ -211,6 +254,11 @@ class ClipboardHistory:
                 if isinstance(at, bool) or not isinstance(at, int):
                     at = 0
                 item: dict[str, Any] = {"id": ident, "text": text, "at": at}
+                if row.get("pinned") is True:
+                    item["pinned"] = True
+                tags = _clean_tags(row.get("tags"))
+                if tags:
+                    item["tags"] = tags
                 if row.get("masked") is True:
                     until = row.get("until")
                     if isinstance(until, bool) or not isinstance(until, int):
@@ -218,7 +266,8 @@ class ClipboardHistory:
                     item["masked"] = True
                     item["until"] = until
                 cleaned.append(item)
-        self.entries = cleaned[: self.limit]
+        self.entries = cleaned
+        self._trim()
         self.purge()
 
     def save(self) -> None:
@@ -235,13 +284,42 @@ class ClipboardHistory:
             "text": text,
             "at": now,
         }
+        if current is not None and current.get("pinned") is True:
+            entry["pinned"] = True
+        if current is not None and current.get("tags"):
+            entry["tags"] = current["tags"]
         if masked:
             entry["masked"] = True
             entry["until"] = now + MASK_SECONDS
         self.entries = [entry, *[row for row in self.entries if row["id"] != entry["id"]]]
-        if len(self.entries) > self.limit:
-            self.entries = self.entries[: self.limit]
+        self._trim()
         self.save()
+
+    def _find(self, entry_id: str) -> dict[str, Any] | None:
+        if not isinstance(entry_id, str) or not _ID.fullmatch(entry_id):
+            return None
+        return next((row for row in self.entries if row["id"] == entry_id), None)
+
+    def _sort(self) -> None:
+        def stamp(row: dict[str, Any]) -> int:
+            value = row.get("at")
+            if isinstance(value, bool) or not isinstance(value, int):
+                return 0
+            return value
+
+        pinned = [row for row in self.entries if row.get("pinned") is True]
+        rest = [row for row in self.entries if row.get("pinned") is not True]
+        pinned.sort(key=stamp, reverse=True)
+        rest.sort(key=stamp, reverse=True)
+        self.entries = pinned + rest
+
+    def _trim(self) -> None:
+        """Drop the oldest unpinned rows. Pinned rows stay."""
+
+        self._sort()
+        pinned = [row for row in self.entries if row.get("pinned") is True]
+        rest = [row for row in self.entries if row.get("pinned") is not True]
+        self.entries = pinned + rest[: self.limit]
 
     def _remember(self, mimes: object, wm_class: object, result: str) -> None:
         """Keep the decision. The copied text is not a field."""
@@ -282,6 +360,69 @@ def _clean_offer(raw: object) -> dict[str, Any] | None:
     if isinstance(at, bool) or not isinstance(at, int):
         at = 0
     return {"at": at, "mimes": names[:32], "result": result, "wm_class": wm_class}
+
+
+def _public_entry(row: dict[str, Any]) -> dict[str, Any]:
+    item: dict[str, Any] = {
+        "id": row["id"],
+        "text": str(row["text"]),
+        "at": row["at"],
+        "pinned": row.get("pinned") is True,
+        "tags": list(row.get("tags") or []),
+    }
+    if row.get("masked") is True:
+        item["masked"] = True
+    return item
+
+
+def _query_hit(row: dict[str, Any], needle: str) -> bool:
+    for tag in row.get("tags") or []:
+        name = tag.get("name") if isinstance(tag, dict) else ""
+        if isinstance(name, str) and needle in name.casefold():
+            return True
+    if row.get("masked") is True:
+        return False
+    return needle in str(row["text"]).casefold()
+
+
+def _clean_tags(value: object) -> list[dict[str, str]]:
+    if isinstance(value, str) or not isinstance(value, list):
+        return []
+    seen: set[str] = set()
+    cleaned: list[dict[str, str]] = []
+    for item in value:
+        if isinstance(item, str):
+            name = _tag_name(item)
+            color = ""
+        elif isinstance(item, dict):
+            name = _tag_name(item.get("name"))
+            raw = item.get("color")
+            color = raw if isinstance(raw, str) else ""
+        else:
+            continue
+        if not name:
+            continue
+        key = name.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        if color not in PALETTE_NAMES:
+            color = tag_color(name)
+        cleaned.append({"name": name, "color": color})
+        if len(cleaned) >= _TAG_MAX:
+            break
+    return cleaned
+
+
+def _tag_name(value: object) -> str:
+    if not isinstance(value, str):
+        return ""
+    name = " ".join(value.split())
+    if not name or len(name) > _TAG_LEN:
+        return ""
+    if any(ord(char) < 32 for char in name):
+        return ""
+    return name
 
 
 def _mimes(values: object) -> tuple[str, ...]:

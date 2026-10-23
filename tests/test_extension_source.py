@@ -196,6 +196,11 @@ def test_clipboard_capture_filters_before_it_reads_text():
     assert "accessible_name = 'Clipboard'" in menu
     assert "Clear history" in menu
     assert "text:" not in menu or "count" not in menu
+    filled = text.split("    _fillClipboardMenu() {", 1)[1].split("\n    _", 1)[0]
+    assert "Unpin" in filled
+    assert "view-pin-symbolic" in filled
+    assert "Clutter.EVENT_STOP" in filled
+    assert "PinClipboardRemote" in text
 
 
 def test_the_menu_undo_bar_is_centered():

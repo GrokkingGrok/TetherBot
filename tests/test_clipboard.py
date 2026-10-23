@@ -20,6 +20,7 @@ from tetherbot.clipboard_policy import (
 from tetherbot.clipboard_store import ClipboardHistory
 from tetherbot.daemon import BridgeDaemon
 from tetherbot.service import ServiceError
+from tetherbot.todos import tag_color
 from tetherbot.ui_settings import UiSettings
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -311,6 +312,110 @@ def test_note_records_mimes_without_the_text(tmp_path: Path):
     assert listed[0]["masked"] is True
     assert json.loads(daemon.api.call("GetClipboard", (LOOKALIKE,))[0]) == []
     assert LOOKALIKE not in stream.getvalue()
+
+
+def test_pin_survives_the_cap_and_clear_and_tags_are_searchable(tmp_path: Path):
+    history = _history(tmp_path, limit=2)
+    assert history.offer("one", ["text/plain"], "gedit") == "stored"
+    assert history.offer("two", ["text/plain"], "gedit") == "stored"
+    assert history.offer("three", ["text/plain"], "gedit") == "stored"
+    oldest = next(row for row in history.list_entries() if row["text"] == "two")
+    assert history.set_pinned(oldest["id"], True) is True
+    assert history.offer("four", ["text/plain"], "gedit") == "stored"
+    texts = [row["text"] for row in history.list_entries()]
+    assert texts[0] == "two"
+    assert "two" in texts
+    assert len([row for row in history.list_entries() if not row["pinned"]]) == 2
+    assert history.set_tags(oldest["id"], [{"name": "Later", "color": "nope"}, "later"]) is True
+    tagged = history.list_entries()[0]
+    assert tagged["pinned"] is True
+    assert tagged["tags"] == [{"name": "Later", "color": tag_color("Later")}]
+    assert history.list_entries("later")[0]["id"] == oldest["id"]
+    assert history.edit_text(oldest["id"], "two\nkept") is True
+    edited = history.list_entries()[0]
+    assert edited["text"] == "two\nkept"
+    assert edited["pinned"] is True
+    assert edited["tags"][0]["name"] == "Later"
+    assert history.clear() is True
+    left = history.list_entries()
+    assert [row["text"] for row in left] == ["two\nkept"]
+    assert left[0]["pinned"] is True
+    blob = history.path.read_text(encoding="utf-8")
+    assert "four" not in blob
+    assert "two\\nkept" in blob or "two\nkept" in blob
+
+
+def test_old_clipboard_file_loads_and_a_hidden_password_is_not_edited(tmp_path: Path):
+    path = tmp_path / "state" / "clipboard.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        json.dumps(
+            {
+                "kind": "clipboard",
+                "entries": [
+                    {"id": "c-1234abcd", "text": "kept line", "at": 5, "extra": "ignore"},
+                    {
+                        "id": "c-1234abce",
+                        "text": LOOKALIKE,
+                        "at": 6,
+                        "masked": True,
+                        "until": 1_700_000_100,
+                        "pinned": True,
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    history = ClipboardHistory(path, clock=lambda: 1_700_000_000)
+    rows = history.list_entries()
+    assert [row["text"] for row in rows] == [LOOKALIKE, "kept line"]
+    assert rows[0]["pinned"] is True
+    assert rows[1]["pinned"] is False
+    assert rows[1]["tags"] == []
+    kept = next(row for row in history.entries if row["text"] == "kept line")
+    assert "extra" not in kept
+    assert "extra" in path.read_text(encoding="utf-8")
+    assert history.edit_text(rows[0]["id"], "changed") is False
+    assert history.list_entries()[0]["text"] == LOOKALIKE
+    history.save()
+    saved = json.loads(path.read_text(encoding="utf-8"))
+    assert all("extra" not in row for row in saved["entries"])
+    assert path.stat().st_mode & 0o777 == stat.S_IRUSR | stat.S_IWUSR
+
+
+def test_service_pin_edit_and_tags_do_not_log_text(tmp_path: Path):
+    stream = StringIO()
+    daemon = BridgeDaemon(
+        config_path=tmp_path / "config.toml",
+        state_dir=tmp_path / "state",
+        log_stream=stream,
+        clock=lambda: NOW,
+    )
+    daemon.start()
+    assert daemon.api is not None
+    assert daemon.api.call("OfferClipboard", ("alpha line", META)) == ("stored",)
+    ident = json.loads(daemon.api.call("GetClipboard", ("",))[0])[0]["id"]
+    assert daemon.api.call("PinClipboard", (ident, True)) == (True,)
+    assert daemon.api.call("SetClipboardTags", (ident, '[{"name":"notes","color":"teal"}]')) == (
+        True,
+    )
+    found = json.loads(daemon.api.call("GetClipboard", ("notes",))[0])
+    assert found[0]["text"] == "alpha line"
+    assert daemon.api.call("EditClipboard", (ident, "alpha\nline")) == (True,)
+    assert json.loads(daemon.api.call("GetClipboard", ("",))[0])[0]["pinned"] is True
+    daemon.ui_settings = UiSettings(clipboard_lookalike="mask")
+    assert daemon.api.call("OfferClipboard", (LOOKALIKE, META)) == ("stored-masked",)
+    hidden = next(
+        row
+        for row in json.loads(daemon.api.call("GetClipboard", ("",))[0])
+        if row.get("masked") is True
+    )
+    assert daemon.api.call("EditClipboard", (hidden["id"], "changed")) == (False,)
+    assert LOOKALIKE not in stream.getvalue()
+    assert "alpha line" not in stream.getvalue()
+    with pytest.raises(ServiceError):
+        daemon.api.call("SetClipboardTags", (ident, LOOKALIKE))
 
 
 def test_javascript_filter_matches_the_bridge():

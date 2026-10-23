@@ -114,6 +114,19 @@ def excluded_apps(values: object) -> tuple[str, ...]:
     return tuple(seen)
 
 
+def list_preview(text: object, limit: int = 180) -> str:
+    """One short line for a list. The full text stays available for preview."""
+
+    if not isinstance(text, str):
+        return ""
+    line = " ".join(text.split())
+    if len(line) <= limit:
+        return line
+    if limit <= 1:
+        return "…"
+    return line[: limit - 1] + "…"
+
+
 def clamp_lookalike_mode(value: object) -> str:
     """``skip`` or ``mask``. Anything else is ``skip``."""
 

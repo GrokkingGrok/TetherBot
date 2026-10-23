@@ -167,6 +167,21 @@
       <arg name="meta_json" type="s" direction="in"/>
       <arg name="noted" type="b" direction="out"/>
     </method>
+    <method name="PinClipboard">
+      <arg name="entry_id" type="s" direction="in"/>
+      <arg name="pinned" type="b" direction="in"/>
+      <arg name="changed" type="b" direction="out"/>
+    </method>
+    <method name="SetClipboardTags">
+      <arg name="entry_id" type="s" direction="in"/>
+      <arg name="tags_json" type="s" direction="in"/>
+      <arg name="changed" type="b" direction="out"/>
+    </method>
+    <method name="EditClipboard">
+      <arg name="entry_id" type="s" direction="in"/>
+      <arg name="text" type="s" direction="in"/>
+      <arg name="changed" type="b" direction="out"/>
+    </method>
 
     <signal name="ItemsChanged">
       <arg name="added" type="as"/>

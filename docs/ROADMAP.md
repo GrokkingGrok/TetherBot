@@ -37,6 +37,7 @@ TetherBot is pre-alpha. Check items off as they land. Design detail is in [SPEC.
 - [ ] More than one desktop can read the same feed, for example a second, rarely used machine. macOS is not GNOME, so a non-GNOME client is out of scope for now. On a second machine the bot side is the entry point for adding todos.
 - [ ] Proposed, not urgent: each desktop writes only `desktop/<machine-id>.json` (see Open checks). Matters once a second GNOME desktop exists.
 - [ ] Optional later: an always-on local device, for example a single-board computer, as a physical attention indicator or a hub. Not required, because the private repo is already the always-on middle.
+- [ ] The feed writer's secret filter (`looks_like_secret` in tools/feed_write.py and the matching guard in the bridge) lets ordinary http(s) URLs through. Right now a GitHub link such as the MANUAL-CHECKS.md URL trips the 40-or-more-character letter-run rule, so bots have to pad links with `./` segments. Strip or exempt URLs before the check, and keep real tokens blocked.
 - [x] Rich todos, [RICH-TODOS.md](RICH-TODOS.md) (#19–#21). Bots still create and edit item text. The desktop reads, filters, searches, opens, and checks off.
 - [x] Optional feed fields: `tags`, `body_format`, Markdown bodies up to 8000 characters on todos, `owner` of `user` or `bot`, `waiting.since`, and feed `tag_colors`
 - [x] Bridge search and filters (`@tag`, `due:today`, `due:overdue`, `p:1`), quick views, `GetTags`, and sort. Popup and window share that result

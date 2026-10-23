@@ -18,7 +18,10 @@ from pathlib import Path
 from tetherbot.clipboard_policy import (
     CLIPBOARD_LIMIT_DEFAULT,
     DEFAULT_EXCLUDED_APPS,
+    LOOKALIKE_MODES,
+    LOOKALIKE_SKIP,
     clamp_clipboard_limit,
+    clamp_lookalike_mode,
     excluded_apps,
 )
 
@@ -65,6 +68,7 @@ class UiSettings:
     clipboard_enabled: bool = True
     clipboard_limit: int = CLIPBOARD_LIMIT_DEFAULT
     clipboard_excluded: tuple[str, ...] = DEFAULT_EXCLUDED_APPS
+    clipboard_lookalike: str = LOOKALIKE_SKIP
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "poll_seconds", clamp_poll_seconds(self.poll_seconds))
@@ -77,6 +81,11 @@ class UiSettings:
         object.__setattr__(self, "clipboard_enabled", self.clipboard_enabled is True)
         object.__setattr__(self, "clipboard_limit", clamp_clipboard_limit(self.clipboard_limit))
         object.__setattr__(self, "clipboard_excluded", excluded_apps(self.clipboard_excluded))
+        object.__setattr__(
+            self,
+            "clipboard_lookalike",
+            clamp_lookalike_mode(self.clipboard_lookalike),
+        )
 
     @property
     def done_history_seconds(self) -> int | None:
@@ -210,6 +219,12 @@ def load_ui_settings(schema_dir: Path | None = None) -> UiSettings:
             _schema_int(settings, "clipboard-limit", CLIPBOARD_LIMIT_DEFAULT)
         ),
         clipboard_excluded=_schema_apps(settings),
+        clipboard_lookalike=_schema_choice(
+            settings,
+            "clipboard-lookalike",
+            LOOKALIKE_SKIP,
+            LOOKALIKE_MODES,
+        ),
     )
 
 

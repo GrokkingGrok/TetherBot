@@ -8,6 +8,13 @@ export const CLIPBOARD_LIMIT_MIN = 1;
 export const CLIPBOARD_LIMIT_MAX = 500;
 export const CLIPBOARD_TEXT_MAX = 1000000;
 export const MENU_LIMIT = 12;
+export const LOOKALIKE_SKIP = 'skip';
+export const LOOKALIKE_MASK = 'mask';
+export const LOOKALIKE_MODES = [LOOKALIKE_SKIP, LOOKALIKE_MASK];
+export const LOOKALIKE_LABELS = ['Skip', 'Hide for 30 seconds'];
+export const CLIPBOARD_MASK_LABEL = 'Hidden password';
+export const LOOKALIKE_MIN = 8;
+export const LOOKALIKE_MAX = 128;
 
 export const DEFAULT_EXCLUDED_APPS = [
     '1password',
@@ -38,6 +45,9 @@ const TEXT_MIMES = new Set([
 ]);
 
 const APP_ID = /^[A-Za-z0-9._-]{2,128}$/;
+const UUID_TEXT = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+const EMAIL_TEXT = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+const FILENAME_TEXT = /^[A-Za-z0-9_-]+\.[A-Za-z]{1,8}$/;
 
 export function clipboardLimit(value) {
     if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0)
@@ -65,12 +75,49 @@ export function excludedApps(values) {
     return seen;
 }
 
+export function lookalikeMode(value) {
+    return LOOKALIKE_MODES.includes(value) ? value : LOOKALIKE_SKIP;
+}
+
+export function looksLikePassword(text) {
+    const body = singleLine(text);
+    if (body === null)
+        return false;
+    if (body.length < LOOKALIKE_MIN || body.length > LOOKALIKE_MAX)
+        return false;
+    const folded = body.toLowerCase();
+    if (body.includes('://') || folded.startsWith('www.'))
+        return false;
+    if (body.includes('/') || body.includes('\\') || body.startsWith('~'))
+        return false;
+    if (/^[0-9]+$/.test(body))
+        return false;
+    if (UUID_TEXT.test(body) || EMAIL_TEXT.test(body) || FILENAME_TEXT.test(body))
+        return false;
+    let lower = false;
+    let upper = false;
+    let digit = false;
+    let symbol = false;
+    for (const char of body) {
+        if (char >= 'a' && char <= 'z')
+            lower = true;
+        else if (char >= 'A' && char <= 'Z')
+            upper = true;
+        else if (char >= '0' && char <= '9')
+            digit = true;
+        else
+            symbol = true;
+    }
+    return Number(lower) + Number(upper) + Number(digit) + Number(symbol) >= 3;
+}
+
 export function classifyClipboard({
     text = null,
     mimes = [],
     wmClass = '',
     enabled = true,
     excluded = DEFAULT_EXCLUDED_APPS,
+    lookalike = LOOKALIKE_SKIP,
 } = {}) {
     if (enabled !== true)
         return 'skipped-disabled';
@@ -89,10 +136,14 @@ export function classifyClipboard({
         return 'skipped-empty';
     if (byteLength(text) > CLIPBOARD_TEXT_MAX)
         return 'skipped-huge';
+    if (looksLikePassword(text))
+        return lookalikeMode(lookalike) === LOOKALIKE_MASK ? 'stored-masked' : 'skipped-lookalike';
     return 'stored';
 }
 
-export function menuLabel(text) {
+export function menuLabel(text, masked = false) {
+    if (masked === true)
+        return CLIPBOARD_MASK_LABEL;
     const line = String(text || '').replace(/\s+/g, ' ').trim();
     if (!line)
         return 'Empty';
@@ -103,7 +154,23 @@ export function menuLabel(text) {
 
 function isSensitiveMime(mime) {
     const folded = String(mime || '').toLowerCase();
-    return folded.includes('passwordmanagerhint') || folded.includes('concealed');
+    return folded.includes('passwordmanagerhint')
+        || folded.includes('concealed')
+        || folded.includes('confidential')
+        || folded.includes('sensitive');
+}
+
+function singleLine(text) {
+    if (typeof text !== 'string' || !text)
+        return null;
+    let body = text;
+    if (body.endsWith('\r\n'))
+        body = body.slice(0, -2);
+    else if (body.endsWith('\n') || body.endsWith('\r'))
+        body = body.slice(0, -1);
+    if (!body || /\s/u.test(body))
+        return null;
+    return body;
 }
 
 function isTextMime(mime) {

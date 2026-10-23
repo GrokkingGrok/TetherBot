@@ -2,7 +2,7 @@
 
 Run these on one Fedora 44 desktop with GNOME Shell 50 on Wayland, after you can log in as a normal user. The project is unofficial and not affiliated with xAI.
 
-**Out of scope here:** M9 (webhook-only popup copy), M15 and M16 (a legacy todo sink outside this repository), and M17 (the full uninstall acceptance check). Uninstall is still documented in [SETUP.md](SETUP.md) and is the reset for M1. M18–M24 are the rich-todo checks later in this file. M25 checks that a new login starts the bridge. M26 checks that a todo click opens the window quickly. M27–M42 check the stopwatch. M43–M47 check more than one bot, display names, the compact Bots section, and the popup order. M48–M54 check an optional webhook slot, Sync now, the timer chip, toolbar colors, summary contrast, the bot-row dot and summary, and local dates. M55–M57 check the timer chip on the left, the top-bar width, and a window that updates while it stays open. M47 and M55–M68 passed on the desktop. M58 and M62 are the panel icon size and `primary` staying first. M59–M61 are replaced by M65–M68: a face in the shell's status-icon color, eyes that stay visible, Done sending when the shared bar ends, and one batch per menu. M74 passed on the desktop: reset to defaults restores the feed check and the undo timer. M75 passed on the desktop: the corner badge is in place, and blue for asks was confirmed. M76 passed on the desktop: one new item raises one notification, including after a bridge restart. M77 passed on the desktop: popup Done sends when the undo bar ends, and closing the menu early does not send it. M63 and M64 are a shared webhook slot and a missing secret on one bot. M69–M73 check the settings screen. M78 passed on the desktop: editing a todo's tracked total and deleting a time record. M79 passed on the desktop: the bots summary is amber for needs attention and red for an error or a bridge failure. M80 passed on the desktop: Stop timer on the open todo. M81 passed on the desktop: the title copy icon, the body copy icon, and Copy Todo. M82 passed on the desktop: completed todos stay in Show done for the history window, and Reset to defaults leaves that setting alone. M83–M104 are still open. M96 is even detail-button spacing. M97–M104 are clipboard history phase 1. Do not treat M9, M15, M16, or M17 as part of the v0.1 runbook.
+**Out of scope here:** M9 (webhook-only popup copy), M15 and M16 (a legacy todo sink outside this repository), and M17 (the full uninstall acceptance check). Uninstall is still documented in [SETUP.md](SETUP.md) and is the reset for M1. M18–M24 are the rich-todo checks later in this file. M25 checks that a new login starts the bridge. M26 checks that a todo click opens the window quickly. M27–M42 check the stopwatch. M43–M47 check more than one bot, display names, the compact Bots section, and the popup order. M48–M54 check an optional webhook slot, Sync now, the timer chip, toolbar colors, summary contrast, the bot-row dot and summary, and local dates. M55–M57 check the timer chip on the left, the top-bar width, and a window that updates while it stays open. M47 and M55–M68 passed on the desktop. M58 and M62 are the panel icon size and `primary` staying first. M59–M61 are replaced by M65–M68: a face in the shell's status-icon color, eyes that stay visible, Done sending when the shared bar ends, and one batch per menu. M74 passed on the desktop: reset to defaults restores the feed check and the undo timer. M75 passed on the desktop: the corner badge is in place, and blue for asks was confirmed. M76 passed on the desktop: one new item raises one notification, including after a bridge restart. M77 passed on the desktop: popup Done sends when the undo bar ends, and closing the menu early does not send it. M63 and M64 are a shared webhook slot and a missing secret on one bot. M69–M73 check the settings screen. M78 passed on the desktop: editing a todo's tracked total and deleting a time record. M79 passed on the desktop: the bots summary is amber for needs attention and red for an error or a bridge failure. M80 passed on the desktop: Stop timer on the open todo. M81 passed on the desktop: the title copy icon, the body copy icon, and Copy Todo. M82 passed on the desktop: completed todos stay in Show done for the history window, and Reset to defaults leaves that setting alone. M83–M108 are still open. M96 is even detail-button spacing. M97–M104 are clipboard history phase 1. M105–M108 check a Chrome password copy, the password-like rule, hiding one for 30 seconds, and the local debug command. Do not treat M9, M15, M16, or M17 as part of the v0.1 runbook.
 
 Examples use the bot id `primary`. Yours can be any lowercase id of letters, digits, and hyphens. Use the same id in the bot's feed file, in `config.toml`, and in the commands below.
 
@@ -10,7 +10,7 @@ Nothing in these steps belongs in a chat, in `config.toml`, or in this repositor
 
 ## Suggested order
 
-M1, M2, then the extension install in M14 (log out and back in once), then M3. Do M10 before M4 if the popup has no ask yet. Then M4, M10a, M5, M11, M6, M7, M8, M12, M13. After a rich todo is in the feed, M18 through M24. M25 is the next login after the unit is installed. M26 is a todo click after that. M27 through M42 need a running timer. M43 through M47 need this version installed and a log out, then a second feed file. M48 through M54 need that same login. M47 and M55 through M68 passed on the desktop. M74 through M77 passed on the desktop. M69 through M73 need the settings install and a log out, so the prefs window and the schema load. M78 through M82 passed on the desktop. M83 needs a running or paused timer. M84 needs an open todo. M85 needs the settings screen. M86 through M95 need the TetherBot window. M88 and M91 use the extension that places the window. M93 also uses the toolbar menu's undo bar, so that needs a log out if the extension has not reloaded since this version was installed. M89, M90, M92, M94, and M95 do not need a log out. Reopen the window after the old window process exits. M96 reopens the window after the old window process exits. M97 through M104 need a log out and back in, so the clipboard icon, the settings schema, and the bridge load.
+M1, M2, then the extension install in M14 (log out and back in once), then M3. Do M10 before M4 if the popup has no ask yet. Then M4, M10a, M5, M11, M6, M7, M8, M12, M13. After a rich todo is in the feed, M18 through M24. M25 is the next login after the unit is installed. M26 is a todo click after that. M27 through M42 need a running timer. M43 through M47 need this version installed and a log out, then a second feed file. M48 through M54 need that same login. M47 and M55 through M68 passed on the desktop. M74 through M77 passed on the desktop. M69 through M73 need the settings install and a log out, so the prefs window and the schema load. M78 through M82 passed on the desktop. M83 needs a running or paused timer. M84 needs an open todo. M85 needs the settings screen. M86 through M95 need the TetherBot window. M88 and M91 use the extension that places the window. M93 also uses the toolbar menu's undo bar, so that needs a log out if the extension has not reloaded since this version was installed. M89, M90, M92, M94, and M95 do not need a log out. Reopen the window after the old window process exits. M96 reopens the window after the old window process exits. M97 through M108 need a log out and back in, so the clipboard icon, the settings schema, and the bridge load.
 
 You can stop after any check. Later checks say what they need.
 
@@ -1672,6 +1672,65 @@ journalctl --user -b /usr/bin/gnome-shell --no-pager | tail -n 80
 - The top bar still has no number except the timer. The clipboard icon has no count.
 
 **Reset.** Clear the history with M102 if you do not want to keep the line.
+
+## M105. A Chrome password copy is not kept
+
+**Preconditions.** Log out and back in after this version is installed. Clipboard history is on. In Settings, Password-like copies is Skip, which is the default. Use Chrome or Chromium's built-in password manager for the copy. Do not use a separate password-manager app for this check.
+
+**Look for.**
+
+- Copy a saved password from that browser's password manager.
+- The clipboard menu and the Clipboard page do not show that password.
+- Run `tetherbotctl clipboard-debug`. It prints the MIME types the browser offered, `result: skipped-lookalike`, and `reason: password lookalike`. It does not print the password.
+- On Wayland and GNOME, current Chrome and Chromium offer ordinary text targets for that copy, such as `text/plain`, `text/plain;charset=utf-8`, `UTF8_STRING`, `STRING`, and `TEXT`, and sometimes `chromium/x-source-url`. They do not set `x-kde-passwordManagerHint`, a concealed type, or `application/x-chromium-*-sensitive`. The password-like rule is what skips the copy. If a future version does set a sensitive or confidential type, the result is `skipped-sensitive` instead, and the password is still not kept.
+- Copy a normal sentence from a text editor. That sentence still appears.
+
+**Reset.** None. Do not write the password down.
+
+## M106. Ordinary text is not treated as a password
+
+**Preconditions.** M105. Password-like copies is still Skip.
+
+**Look for.**
+
+- Copy a sentence with spaces. It is kept.
+- Copy a URL such as `https://example.com/notes`. It is kept.
+- Copy a file path. It is kept.
+- Copy a number such as `12345678`. It is kept.
+- Copy a short word such as `hello`. It is kept.
+- Copy a file name such as `README.md`, and an email address. Both are kept.
+- Copy one line with no spaces, 8 to 128 characters, mixing at least three of lowercase, uppercase, digits, and symbols, that is not a URL, a path, or a number. It is not kept.
+- `tetherbotctl clipboard-debug` says `skipped-lookalike` for that line and does not print it.
+
+**Reset.** None. Do not write a real password down. A made-up line is enough for the last step.
+
+## M107. Hide a password-like copy for 30 seconds
+
+**Preconditions.** M105. In Settings, set Password-like copies to Hide for 30 seconds.
+
+**Look for.**
+
+- Copy a made-up password-like line, or a password from Chrome's password manager.
+- The clipboard menu and the Clipboard page say Hidden password. They do not show the text.
+- Type part of that text into Search clipboard. The row does not appear. Clear the search. The Hidden password row is back.
+- Press Copy and paste into a text editor. The text comes back. The list still says Hidden password.
+- Wait 30 seconds. The row disappears from the menu and from the Clipboard page.
+- That text is no longer in `clipboard.json`.
+- Set Password-like copies back to Skip. The next password-like copy is not kept.
+
+**Reset.** Leave Password-like copies on Skip.
+
+## M108. The debug command stays on this machine
+
+**Preconditions.** M105. Copy one more ordinary line so the last offer is fresh.
+
+**Look for.**
+
+- `tetherbotctl clipboard-debug` prints `result:`, `reason:`, `mimes:`, and `wm_class:`.
+- The copied text is not in that output.
+- The copied text is not in the bridge log, not in a feed file, and not in a webhook body.
+
+**Reset.** Clear the history with M102 if you do not want to keep the ordinary line.
 
 ## When you are finished
 

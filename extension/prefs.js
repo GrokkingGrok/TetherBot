@@ -30,7 +30,7 @@ import {
     sameBotList,
     setupSlots,
 } from './prefs_model.js';
-import {clipboardLimit, excludedApps} from './clipboard.js';
+import {clipboardLimit, excludedApps, LOOKALIKE_LABELS, LOOKALIKE_MODES, lookalikeMode} from './clipboard.js';
 import {BUS_NAME, OBJECT_PATH, startServiceCall} from './view.js';
 
 export default class TetherBotPreferences extends ExtensionPreferences {
@@ -250,9 +250,40 @@ export default class TetherBotPreferences extends ExtensionPreferences {
         settings.connect('changed::clipboard-enabled', applyEnabled);
         applyEnabled();
         group.add(enabled);
+        group.add(this._clipboardLookalike(settings));
         group.add(this._clipboardLimit(settings));
         group.add(this._clipboardApps(settings));
         page.add(group);
+    }
+
+    _clipboardLookalike(settings) {
+        const model = new Gtk.StringList();
+        for (const label of LOOKALIKE_LABELS)
+            model.append(label);
+        const row = new Adw.ComboRow({
+            title: 'Password-like copies',
+            subtitle: 'Skip drops them. Hide keeps one on this machine for 30 seconds and does not show the text.',
+            model,
+        });
+        const apply = () => {
+            const index = LOOKALIKE_MODES.indexOf(lookalikeMode(settings.get_string('clipboard-lookalike')));
+            this._applyingLookalike = true;
+            row.selected = index < 0 ? 0 : index;
+            this._applyingLookalike = false;
+        };
+        row.connect('notify::selected', () => {
+            if (this._applyingLookalike)
+                return;
+            const index = row.selected;
+            if (index < 0 || index >= LOOKALIKE_MODES.length)
+                return;
+            const mode = LOOKALIKE_MODES[index];
+            if (settings.get_string('clipboard-lookalike') !== mode)
+                settings.set_string('clipboard-lookalike', mode);
+        });
+        settings.connect('changed::clipboard-lookalike', apply);
+        apply();
+        return row;
     }
 
     _clipboardLimit(settings) {

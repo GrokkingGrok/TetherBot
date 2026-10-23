@@ -56,8 +56,10 @@ import {
 } from './view.js';
 import {
     DEFAULT_EXCLUDED_APPS,
+    LOOKALIKE_SKIP,
     MENU_LIMIT,
     classifyClipboard,
+    lookalikeMode,
     menuLabel,
 } from './clipboard.js';
 
@@ -2014,9 +2016,12 @@ export default class TetherBotExtension extends Extension {
             wmClass,
             enabled: options.enabled,
             excluded: options.excluded,
+            lookalike: options.lookalike,
         });
-        if (decision !== 'needs-text')
+        if (decision !== 'needs-text') {
+            this._noteClipboard(mimes, wmClass, decision);
             return;
+        }
         let clipboard = null;
         try {
             clipboard = St.Clipboard.get_default();
@@ -2035,8 +2040,12 @@ export default class TetherBotExtension extends Extension {
                 wmClass,
                 enabled: current.enabled,
                 excluded: current.excluded,
+                lookalike: current.lookalike,
             });
-            if (result !== 'stored' || !this._proxy || !this._proxy.OfferClipboardRemote)
+            this._noteClipboard(mimes, wmClass, result);
+            if (result !== 'stored' && result !== 'stored-masked')
+                return;
+            if (!this._proxy || !this._proxy.OfferClipboardRemote)
                 return;
             const meta = JSON.stringify({mimes, wm_class: wmClass});
             this._proxy.OfferClipboardRemote(text, meta, () => {
@@ -2049,9 +2058,10 @@ export default class TetherBotExtension extends Extension {
     _clipboardOptions() {
         const settings = this._settings;
         if (!settings)
-            return {enabled: true, excluded: DEFAULT_EXCLUDED_APPS};
+            return {enabled: true, excluded: DEFAULT_EXCLUDED_APPS, lookalike: LOOKALIKE_SKIP};
         let enabled = true;
         let excluded = DEFAULT_EXCLUDED_APPS;
+        let lookalike = LOOKALIKE_SKIP;
         try {
             enabled = settings.get_boolean('clipboard-enabled') === true;
         } catch (error) {
@@ -2064,7 +2074,23 @@ export default class TetherBotExtension extends Extension {
         } catch (error) {
             excluded = DEFAULT_EXCLUDED_APPS;
         }
-        return {enabled, excluded};
+        try {
+            lookalike = lookalikeMode(settings.get_string('clipboard-lookalike'));
+        } catch (error) {
+            lookalike = LOOKALIKE_SKIP;
+        }
+        return {enabled, excluded, lookalike};
+    }
+
+    _noteClipboard(mimes, wmClass, result) {
+        if (!this._proxy || !this._proxy.NoteClipboardRemote)
+            return;
+        const meta = JSON.stringify({mimes, wm_class: wmClass, result});
+        try {
+            this._proxy.NoteClipboardRemote(meta, () => {});
+        } catch (error) {
+            // An older bridge has no note method. The text stays here.
+        }
     }
 
     _clipboardMimes() {
@@ -2123,7 +2149,8 @@ export default class TetherBotExtension extends Extension {
         for (const entry of entries) {
             if (!entry || typeof entry.text !== 'string')
                 continue;
-            const item = new PopupMenu.PopupMenuItem(menuLabel(entry.text));
+            const masked = entry.masked === true;
+            const item = new PopupMenu.PopupMenuItem(menuLabel(masked ? '' : entry.text, masked));
             item.connect('activate', () => this._recopyClipboard(entry.text));
             this._clipSection.addMenuItem(item);
         }

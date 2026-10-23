@@ -199,6 +199,8 @@ class BridgeDaemon:
             if hasattr(self._loop, "timeout_add"):
                 self._loop.timeout_add(1, self.tick_adapters)
                 self._loop.timeout_add(60, self.poll_timer)
+            if self.api is not None:
+                self.api.arm_clipboard_masks()
             self._loop.run()
         finally:
             if export is not None:

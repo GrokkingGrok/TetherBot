@@ -81,3 +81,4 @@ def test_window_sources_do_not_touch_the_network_or_secrets():
     assert "ClearClipboard" in window
     assert "Clear history" in window
     assert "Search clipboard" in window
+    assert "Hidden password" in window

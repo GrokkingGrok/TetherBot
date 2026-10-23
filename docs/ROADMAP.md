@@ -119,6 +119,7 @@ TetherBot is pre-alpha. Check items off as they land. Design detail is in [SPEC.
 - [ ] Start the stopwatch when the user logs in. The bridge already starts with the graphical session. Starting the timer itself on login is not built.
 - [ ] Money and watch section. Todo filters cover the need for now. A visual money overview is a possible future teaser, not part of v0.2.
 - [ ] Webhook-only mode copy in the popup. Webhook-only mode is not being pursued.
+- [ ] Lint the GNOME Shell extension JavaScript. Python is already linted with ruff in CI and passes. The `extension/*.js` files have no linter. Add ESLint (GJS/GNOME Shell globals, ES modules) to the Makefile and CI, then fix what it reports.
 
 ## Clipboard history
 

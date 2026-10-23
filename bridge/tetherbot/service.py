@@ -14,6 +14,7 @@ from datetime import datetime
 from typing import Any
 
 from tetherbot import SCHEMA_VERSION, __version__
+from tetherbot.clipboard_policy import OFFER_RESULTS, pick_image_mime
 from tetherbot.clipboard_store import ClipboardHistory
 from tetherbot.config import ConfigError, action_slots, save_adapter_enabled
 from tetherbot.dbus_service import INTERFACE
@@ -109,6 +110,8 @@ METHOD_OUT: dict[str, str | None] = {
     "PinClipboard": "(b)",
     "SetClipboardTags": "(b)",
     "EditClipboard": "(b)",
+    "OfferClipboardImage": "(s)",
+    "GetClipboardImage": "(say)",
 }
 
 PROPERTY_TYPES = {
@@ -751,6 +754,30 @@ class BridgeApi:
             self._schedule_clipboard_mask()
         return (result,)
 
+    def _offer_clipboard_image(self, data: object, meta_json: str) -> tuple[str]:
+        """Store image bytes. The bytes and the path are not logged."""
+
+        if not isinstance(meta_json, str):
+            raise ServiceError(INVALID_ARGS, "clipboard offer is invalid")
+        blob = _clipboard_bytes(data)
+        mimes, wm_class, mime = _clipboard_image_meta(meta_json)
+        history = self._clipboard_history()
+        result = history.offer_image(blob, mimes, wm_class, mime)
+        if result == "stored":
+            self._emit("ClipboardChanged", len(history.entries))
+        return (result,)
+
+    def _get_clipboard_image(self, entry_id: str) -> tuple[str, bytes]:
+        """Original image bytes for copy-back. A missing image is not found."""
+
+        if not isinstance(entry_id, str):
+            raise ServiceError(INVALID_ARGS, "entry_id is invalid")
+        history = self._clipboard_history()
+        found = history.read_image(entry_id)
+        if found is None:
+            raise ServiceError(NOT_FOUND, "image is not available")
+        return found
+
     def _note_clipboard(self, meta_json: str) -> tuple[bool]:
         """Record MIME types and a decision. The copied text is not accepted."""
 
@@ -833,6 +860,7 @@ class BridgeApi:
             limit=ui.clipboard_limit,
             excluded=ui.clipboard_excluded,
             lookalike=ui.clipboard_lookalike,
+            images=ui.clipboard_images,
         )
 
     def arm_clipboard_masks(self) -> None:
@@ -1164,17 +1192,7 @@ def _clipboard_note(raw: str) -> tuple[list[str], str, str]:
         raise ServiceError(INVALID_ARGS, "meta_json is invalid")
     mimes, wm_class = _clipboard_meta(raw)
     result = payload.get("result")
-    if not isinstance(result, str) or result not in {
-        "stored",
-        "stored-masked",
-        "skipped-sensitive",
-        "skipped-app",
-        "skipped-disabled",
-        "skipped-empty",
-        "skipped-binary",
-        "skipped-huge",
-        "skipped-lookalike",
-    }:
+    if not isinstance(result, str) or result not in OFFER_RESULTS:
         raise ServiceError(INVALID_ARGS, "meta_json is invalid")
     return mimes, wm_class, result
 
@@ -1199,6 +1217,42 @@ def _clipboard_meta(raw: str) -> tuple[list[str], str]:
     if not isinstance(wm_class, str):
         raise ServiceError(INVALID_ARGS, "meta_json is invalid")
     return mimes, wm_class
+
+
+def _clipboard_image_meta(raw: str) -> tuple[list[str], str, str]:
+    """MIME targets, window class, and the image type to store."""
+
+    if raw == "":
+        raise ServiceError(INVALID_ARGS, "meta_json is invalid")
+    mimes, wm_class = _clipboard_meta(raw)
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ServiceError(INVALID_ARGS, "meta_json is invalid") from exc
+    if not isinstance(payload, dict):
+        raise ServiceError(INVALID_ARGS, "meta_json is invalid")
+    mime = payload.get("mime", "")
+    if not isinstance(mime, str):
+        raise ServiceError(INVALID_ARGS, "meta_json is invalid")
+    if not mime:
+        mime = pick_image_mime(mimes) or ""
+    return mimes, wm_class, mime
+
+
+def _clipboard_bytes(value: object) -> bytes:
+    """A byte array from the session bus. Anything else is rejected."""
+
+    if isinstance(value, memoryview):
+        return value.tobytes()
+    if isinstance(value, (bytes, bytearray)):
+        return bytes(value)
+    if isinstance(value, list) and all(_byte(item) for item in value):
+        return bytes(value)
+    raise ServiceError(INVALID_ARGS, "clipboard offer is invalid")
+
+
+def _byte(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= 255
 
 
 def _camel_to_snake(name: str) -> str:

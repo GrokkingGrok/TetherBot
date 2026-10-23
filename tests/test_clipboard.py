@@ -680,6 +680,62 @@ def test_an_image_offer_does_not_log_bytes_or_the_path(tmp_path: Path):
     assert list(desktop.iterdir()) == []
 
 
+def test_service_stores_an_image_and_honors_images_off(tmp_path: Path):
+    stream = StringIO()
+    daemon = BridgeDaemon(
+        config_path=tmp_path / "config.toml",
+        state_dir=tmp_path / "state",
+        log_stream=stream,
+        clock=lambda: NOW,
+    )
+    daemon.start()
+    assert daemon.api is not None
+    seen: list[tuple[str, tuple[object, ...]]] = []
+    daemon.api.subscribe(lambda name, args: seen.append((name, args)))
+    blob = tiny_png(note=b"marker-not-logged")
+    meta = json.dumps({"mimes": ["image/png"], "wm_class": "gedit", "mime": "image/png"})
+    assert daemon.api.call("OfferClipboardImage", (blob, meta)) == ("stored",)
+    assert ("ClipboardChanged", (1,)) in seen
+    listed = json.loads(daemon.api.call("GetClipboard", ("",))[0])
+    assert listed[0]["kind"] == "image"
+    ident = listed[0]["id"]
+    mime, data = daemon.api.call("GetClipboardImage", (ident,))
+    assert mime == "image/png"
+    assert data == blob
+    assert daemon.api.call("EditClipboard", (ident, "changed")) == (False,)
+    hint = json.dumps(
+        {
+            "mimes": ["image/png", "x-kde-passwordManagerHint"],
+            "wm_class": "gedit",
+            "mime": "image/png",
+        }
+    )
+    assert daemon.api.call("OfferClipboardImage", (blob, hint)) == ("skipped-sensitive",)
+    excluded = json.dumps({"mimes": ["image/png"], "wm_class": "keepassxc", "mime": "image/png"})
+    assert daemon.api.call("OfferClipboardImage", (blob, excluded)) == ("skipped-app",)
+    daemon.ui_settings = UiSettings(clipboard_images=False)
+    fresh = tiny_png(1, 2, 3)
+    assert daemon.api.call("OfferClipboardImage", (fresh, meta)) == ("skipped-images-off",)
+    assert daemon.api.call("OfferClipboard", ("still text", META)) == ("stored",)
+    rows = json.loads(daemon.api.call("GetClipboard", ("",))[0])
+    assert [row.get("text") for row in rows] == ["still text", ""]
+    assert sum(1 for row in rows if row.get("kind") == "image") == 1
+    logged = stream.getvalue()
+    log_path = tmp_path / "state" / "bridge.log"
+    disk = log_path.read_text(encoding="utf-8") if log_path.is_file() else ""
+    assert "marker-not-logged" not in logged
+    assert "clipboard-images" not in logged
+    assert "marker-not-logged" not in disk
+    assert "clipboard-images" not in disk
+    assert blob not in logged.encode()
+    with pytest.raises(ServiceError):
+        daemon.api.call("OfferClipboardImage", ("nope", meta))
+    with pytest.raises(ServiceError):
+        daemon.api.call("OfferClipboardImage", (blob, "not-json"))
+    with pytest.raises(ServiceError):
+        daemon.api.call("GetClipboardImage", ("c-00000000",))
+
+
 def test_javascript_filter_matches_the_bridge():
     node = shutil.which("node")
     if node is None:

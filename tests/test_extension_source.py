@@ -225,6 +225,20 @@ def test_clipboard_capture_filters_before_it_reads_text():
     assert "Clutter.EVENT_STOP" in filled
     assert "Images are not edited" in filled
     assert "Images are not searched" in filled
+    assert "Images are not sent" in filled
+    assert "Hidden passwords are not sent" in filled
+    assert "tetherbot-check-symbolic" in filled
+    assert "tetherbot-square-check-symbolic" in filled
+    assert "tetherbot-circle-help-symbolic" in filled
+    assert "clip-todo" in filled
+    assert "clip-todo-context" in filled
+    assert "clip-ask" in filled
+    send = text.split("    _sendClipboard(", 1)[1].split("\n    _", 1)[0]
+    assert "SendClipboardRemote" in send
+    assert "entry.text" not in send
+    assert "entryId, action" in send
+    view = (EXTENSION / "view.js").read_text(encoding="utf-8")
+    assert "SendClipboardRemote" in view
     assert "tetherbot-clip-thumb" in text
     css = (EXTENSION / "stylesheet.css").read_text(encoding="utf-8")
     assert ".tetherbot-clip-thumb" in css
@@ -268,10 +282,45 @@ def test_the_panel_menu_loads_tetherbot_icons_from_the_extension():
     button = text.split("    _clipIconButton(", 1)[1].split("\n    _", 1)[0]
     assert "_menuIcon(" in button
     assert "icon_size: 16" not in button
+    assert "if (accent)" in button
+    assert "color: -st-accent-color" in button
+    assert button.index("if (accent)") < button.index("color: -st-accent-color")
+    assert "tetherbot-clip-pin-on" in button
     filled = text.split("    _fillClipboardMenu() {", 1)[1].split("\n    _", 1)[0]
     assert "tetherbot-tag-symbolic" in filled
     assert "_clipIconButton(" in filled
     assert "view-pin-symbolic" in filled
+    css = (EXTENSION / "stylesheet.css").read_text(encoding="utf-8")
+    assert ".tetherbot-clip-pin-on StIcon" in css
+    assert "color: -st-accent-color" in css
+
+
+def test_clipboard_send_icons_are_filled_and_credited():
+    icons = EXTENSION / "icons" / "hicolor" / "scalable" / "actions"
+    check = (icons / "tetherbot-check-symbolic.svg").read_text(encoding="utf-8")
+    square = (icons / "tetherbot-square-check-symbolic.svg").read_text(encoding="utf-8")
+    help_icon = (icons / "tetherbot-circle-help-symbolic.svg").read_text(encoding="utf-8")
+    for blob in (check, square, help_icon):
+        assert 'fill="#2e3436"' in blob
+        assert "currentColor" not in blob
+        assert "stroke" not in blob
+        assert "rotate" not in blob
+        assert 'viewBox="0 0 16 16"' in blob
+    assert check.count("<path") == 1
+    assert 'd="M14.04,4.707 ' in check
+    assert square.count("<path") == 2
+    assert 'd="M3.333,1 ' in square
+    assert 'd="M11.374,6.707 ' in square
+    assert help_icon.count("<path") == 3
+    assert 'd="M15.667,8 ' in help_icon
+    assert 'd="M5.117,5.668 ' in help_icon
+    assert 'd="M8,10.333 ' in help_icon
+    notice = (ROOT / "THIRD-PARTY.md").read_text(encoding="utf-8")
+    assert "https://lucide.dev/icons/check" in notice
+    assert "https://lucide.dev/icons/square-check" in notice
+    assert "https://lucide.dev/icons/circle-question-mark" in notice
+    assert "Copyright (c) 2013-present Cole Bemis" in notice
+    assert "does not apply to them" in notice
 
 
 def test_the_menu_undo_bar_is_centered():

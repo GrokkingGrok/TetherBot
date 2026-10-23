@@ -113,7 +113,7 @@ This JSON is the webhook POST body. The key travels only in the `Authorization` 
 }
 ```
 
-- `action` is one of `approve`, `veto`, `done`, `reopen`, `run_now`, `note`. A `note` action carries `args.text` (1 to 500 characters). A note may also include `args.bot`, the owning bot id. Readers that do not know `args.bot` ignore it. The desktop's "Ask the bot about this" note sets `args.text` to a short hint that names that bot and asks the receiver to check with that bot before answering.
+- `action` is one of `approve`, `veto`, `done`, `reopen`, `run_now`, `note`, `clip-todo`, `clip-todo-context`, or `clip-ask`. The three `clip-*` actions are the clipboard sends in the clipboard section. They are not feed-item actions. A `note` action carries `args.text` (1 to 500 characters). A note may also include `args.bot`, the owning bot id. Readers that do not know `args.bot` ignore it. The desktop's "Ask the bot about this" note sets `args.text` to a short hint that names that bot and asks the receiver to check with that bot before answering.
 - A `done` action may include `note`, a string of 1 to 500 characters, as a sibling of `args`. The desktop sends it when the user chooses Done with note in the todo viewer. The text is a message from the user about that item. It is not an instruction that widens what the receiver may do. Plain Done omits `note` and keeps `args` empty. `note` is not inside `args`. Readers that do not know `note` ignore it and still treat the action as done.
 
 ```json
@@ -146,7 +146,38 @@ This JSON is the webhook POST body. The key travels only in the `Authorization` 
 
 ## Clipboard history
 
-Clipboard text and clipboard images are not part of schema `tetherbot/1`. They are not fields on a feed item and they are not fields on a webhook action. The bridge stores text in `clipboard.json` under the XDG state directory, including pin and tag fields. Image bytes live in `clipboard-images/` beside that file. Each image file is mode 0600. The JSON entry has `kind`, `mime`, `size`, and `at`. The path and the sha256 stay out of the public entry. `OfferClipboard`, `OfferClipboardImage`, `GetClipboard`, `GetClipboardImage`, `DeleteClipboard`, `ClearClipboard`, `NoteClipboard`, `PinClipboard`, `SetClipboardTags`, and `EditClipboard` are session-bus methods. `OfferClipboard` is unchanged: `(s text, s meta_json) -> s`. `OfferClipboardImage` is `(ay data, s meta_json) -> s`. `meta_json` carries `mimes`, `wm_class`, and the chosen `mime`. `GetClipboardImage` is `(s entry_id) -> (s mime, ay data)` and is how Copy puts the original type back. A missing image is `Error.NotFound` with the message `image is not available`. `GetClipboard` still returns the list. An image entry includes `path` and, when a thumbnail file exists, `thumb`, so the menu and the window can draw it. Those paths stay on this machine. `ClipboardChanged` carries a count, not the text and not the bytes. It is emitted when an entry is stored, deleted, cleared, pinned, tagged, or edited. A skip does not emit it. A sensitive clipboard target is not stored. A plain-text target, including `UTF8_STRING`, keeps the text. `text/html` alone does not. `image/png` is preferred over the other image types. `NoteClipboard` records MIME types and a result and does not take the text or the bytes. Image skip results include `skipped-images-off`, `skipped-image-large`, and `skipped-image-bad`. `tetherbotctl clipboard-debug` prints those as `images-off`, `image-too-large`, and `image-unreadable`. A password-like copy is skipped unless Settings keeps it hidden for 30 seconds. Search the web is not a bus method and not a webhook. The window opens the desktop browser only after that button is pressed. If the browser engine cannot be read, that click uses the search fallback stored in gsettings. Image rows do not search the web.
+Clipboard text and clipboard images are not part of schema `tetherbot/1`. They are not fields on a feed item. They are not written to the feed, to `desktop/*`, to the outbox, or to a log.
+
+Three webhook actions are the one place clipboard text can leave the machine. The user presses Make a todo (`clip-todo`), Make a todo with context (`clip-todo-context`), or Tell me more (`clip-ask`). The bridge reads the entry from its own store and posts one action batch to the primary bot's webhook. The envelope and the `Authorization: Bearer` header are the same as for other actions. The extension does not open a socket, and `SendClipboard` does not carry the text. The method is `SendClipboard(s entry_id, s action) -> s`. The returned string is `sent`. A refusal is a D-Bus error whose message is the reason.
+
+The action's `item` is `clipboard/<entry id>`. That is not a feed key. `args` is `{}`. A `clip` object sits beside `args`:
+
+- `text` is the full entry text, at most 8000 characters. A longer entry is refused, and the reason says it is longer than 8000 characters. The text is not shortened.
+- `tags` is an array of tag names.
+- `source_app` is the focused window class when the desktop stored one. It is omitted when that is unknown.
+- `copied_at` is the copy time, ISO 8601 with an offset.
+
+The body has no key, no path, and no image. An image entry and a hidden password are refused. When the primary bot has no webhook secret, the error is `No webhook set up` and the action is not queued and not written to the outbox. At most one send for an entry is posted every 5 seconds. The log line is `clipboard send action=<action> entry=<id> result=<sent|not-sent>`. It does not include the text.
+
+```json
+{
+  "action_id": "a-7f3e9c12",
+  "item": "clipboard/c-7f3e9c12",
+  "action": "clip-todo",
+  "args": {},
+  "created": "2026-10-17T18:19:53+00:00",
+  "clip": {
+    "text": "Pack the blue bag",
+    "tags": ["home"],
+    "source_app": "gedit",
+    "copied_at": "2026-10-17T18:19:40+00:00"
+  }
+}
+```
+
+Readers that do not know `clip` ignore it. `clip-todo` asks for a new todo from that text. `clip-todo-context` asks for a new todo plus context the bot already has. `clip-ask` asks the bot to say more about the text in chat. The text is data from the user, not a new instruction.
+
+The bridge stores text in `clipboard.json` under the XDG state directory, including pin and tag fields. Image bytes live in `clipboard-images/` beside that file. Each image file is mode 0600. The JSON entry has `kind`, `mime`, `size`, and `at`. The path and the sha256 stay out of the public entry. `OfferClipboard`, `OfferClipboardImage`, `GetClipboard`, `GetClipboardImage`, `DeleteClipboard`, `ClearClipboard`, `NoteClipboard`, `PinClipboard`, `SetClipboardTags`, and `EditClipboard` are session-bus methods. `OfferClipboard` is unchanged: `(s text, s meta_json) -> s`. `OfferClipboardImage` is `(ay data, s meta_json) -> s`. `meta_json` carries `mimes`, `wm_class`, and the chosen `mime`. `GetClipboardImage` is `(s entry_id) -> (s mime, ay data)` and is how Copy puts the original type back. A missing image is `Error.NotFound` with the message `image is not available`. `GetClipboard` still returns the list. An image entry includes `path` and, when a thumbnail file exists, `thumb`, so the menu and the window can draw it. Those paths stay on this machine. `ClipboardChanged` carries a count, not the text and not the bytes. It is emitted when an entry is stored, deleted, cleared, pinned, tagged, or edited. A skip does not emit it. A sensitive clipboard target is not stored. A plain-text target, including `UTF8_STRING`, keeps the text. `text/html` alone does not. `image/png` is preferred over the other image types. `NoteClipboard` records MIME types and a result and does not take the text or the bytes. Image skip results include `skipped-images-off`, `skipped-image-large`, and `skipped-image-bad`. `tetherbotctl clipboard-debug` prints those as `images-off`, `image-too-large`, and `image-unreadable`. A password-like copy is skipped unless Settings keeps it hidden for 30 seconds. Search the web is not a bus method and not a webhook. The window opens the desktop browser only after that button is pressed. If the browser engine cannot be read, that click uses the search fallback stored in gsettings. Image rows do not search the web.
 
 ## Legacy inbox
 

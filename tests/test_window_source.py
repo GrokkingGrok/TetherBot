@@ -107,6 +107,17 @@ def test_window_sources_do_not_touch_the_network_or_secrets():
     assert "editable=False" in window
     assert "Hidden passwords are not searched" in window
     assert "Hidden passwords are not tagged" in window
+    assert "tetherbot-check-symbolic" in window
+    assert "tetherbot-square-check-symbolic" in window
+    assert "tetherbot-circle-help-symbolic" in window
+    assert "clip-todo" in window
+    assert "clip-todo-context" in window
+    assert "clip-ask" in window
+    assert "SendClipboard" in window
+    assert '"Sent"' in window
+    assert "Not sent" in window
+    assert "Images are not sent" in window
+    assert "Hidden passwords are not sent" in window
     assert "Uses the search fallback from Settings" in window
     assert "_clip_tag_guard" in window
     assert "chosen == self._clip_tag" in window

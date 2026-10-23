@@ -121,7 +121,11 @@ class ClipboardHistory:
         if result not in {"stored", "stored-masked"} or not isinstance(text, str):
             self.save()
             return result
-        self._store(text, masked=result == "stored-masked")
+        self._store(
+            text,
+            masked=result == "stored-masked",
+            source_app=_clean_source(wm_class),
+        )
         return result
 
     def offer_image(self, data: object, mimes: object, wm_class: object, mime: object) -> str:
@@ -250,6 +254,35 @@ class ClipboardHistory:
         self.save()
         return True
 
+    def send_source(self, entry_id: str) -> dict[str, Any] | None:
+        """Fields a clipboard send may use. No path and no image bytes."""
+
+        row = self._find(entry_id)
+        if row is None:
+            return None
+        kind = "image" if row.get("kind") == "image" else "text"
+        at = row.get("at")
+        if isinstance(at, bool) or not isinstance(at, int):
+            at = 0
+        names = [
+            tag["name"]
+            for tag in (row.get("tags") or [])
+            if isinstance(tag, dict) and isinstance(tag.get("name"), str)
+        ]
+        item: dict[str, Any] = {
+            "id": row["id"],
+            "kind": kind,
+            "masked": row.get("masked") is True,
+            "at": at,
+            "tags": names,
+        }
+        source = _clean_source(row.get("source_app"))
+        if source:
+            item["source_app"] = source
+        if kind == "text" and row.get("masked") is not True:
+            item["text"] = str(row.get("text") or "")
+        return item
+
     def purge(self) -> bool:
         """Drop hidden entries whose 30 seconds are over. Text is not logged."""
 
@@ -365,6 +398,9 @@ class ClipboardHistory:
                         continue
                     item["masked"] = True
                     item["until"] = until
+                source = _clean_source(row.get("source_app"))
+                if source:
+                    item["source_app"] = source
                 cleaned.append(item)
         self.entries = cleaned
         self._trim()
@@ -377,7 +413,7 @@ class ClipboardHistory:
             payload["last_offer"] = self.last_offer
         write_private_json(self.path, payload)
 
-    def _store(self, text: str, *, masked: bool) -> None:
+    def _store(self, text: str, *, masked: bool, source_app: str = "") -> None:
         now = int(self._clock())
         current = next(
             (
@@ -396,6 +432,11 @@ class ClipboardHistory:
             entry["pinned"] = True
         if current is not None and current.get("tags"):
             entry["tags"] = current["tags"]
+        source = _clean_source(source_app)
+        if not source and current is not None:
+            source = _clean_source(current.get("source_app"))
+        if source:
+            entry["source_app"] = source
         if masked:
             entry["masked"] = True
             entry["until"] = now + MASK_SECONDS
@@ -712,6 +753,14 @@ def _clean_tags(value: object) -> list[dict[str, str]]:
         if len(cleaned) >= _TAG_MAX:
             break
     return cleaned
+
+
+def _clean_source(value: object) -> str:
+    """A window class small enough to send. The copied text is not this."""
+
+    if not isinstance(value, str) or "\n" in value or len(value) > 128:
+        return ""
+    return value
 
 
 def _tag_name(value: object) -> str:

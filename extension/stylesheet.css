@@ -243,7 +243,8 @@
     background-color: rgba(255, 255, 255, 0.18);
 }
 
-.tetherbot-clip-pin-on {
+.tetherbot-clip-pin-on,
+.tetherbot-clip-pin-on StIcon {
     color: -st-accent-color;
 }
 

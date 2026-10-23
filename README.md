@@ -92,7 +92,7 @@ Runtime Python dependencies are none. PyGObject, libsecret, and git come from th
 
 ## License
 
-[GPL-2.0-or-later](LICENSE). GNOME Shell extensions reviewed on extensions.gnome.org need a GPL-compatible license, and GPL-2.0-or-later is the usual choice for shell extensions. The design spec agrees. The extension and the bridge share that license so the project can be packaged together.
+[GPL-2.0-or-later](LICENSE). GNOME Shell extensions reviewed on extensions.gnome.org need a GPL-compatible license, and GPL-2.0-or-later is the usual choice for shell extensions. The design spec agrees. The extension and the bridge share that license so the project can be packaged together. The tag icon is from Lucide and stays under the ISC license. The notice is in [THIRD-PARTY.md](THIRD-PARTY.md).
 
 ## Privacy, in one paragraph
 

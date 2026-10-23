@@ -233,10 +233,25 @@ def test_clipboard_capture_filters_before_it_reads_text():
     tag = (
         EXTENSION / "icons" / "hicolor" / "scalable" / "actions" / "tetherbot-tag-symbolic.svg"
     ).read_text(encoding="utf-8")
-    assert "#2e3436" in tag
+    assert 'fill="#2e3436"' in tag
     assert "currentColor" not in tag
-    assert "<circle " in tag
-    assert "rotate(-45" in tag
+    assert "stroke" not in tag
+    assert "rotate" not in tag
+    assert 'd="M9.098,1.017 ' in tag
+    assert '<circle cx="5" cy="5" r="1.333" fill="#2e3436"/>' in tag
+    notice = (ROOT / "THIRD-PARTY.md").read_text(encoding="utf-8")
+    assert "Lucide" in notice
+    assert "https://lucide.dev/icons/tag" in notice
+    assert "Copyright (c) 2026 Lucide Icons and Contributors" in notice
+    assert "Permission to use, copy, modify, and/or distribute this software" in notice
+    agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    assert (
+        "For generic UI icons, first use an existing open-licensed icon set such as "
+        "Lucide (ISC) or Adwaita symbolic icons. Credit the source in the repo and "
+        "convert strokes to filled symbolic paths. Don't draw new icons unless the "
+        "icon is specific to TetherBot (for example its face or logo) and the owner "
+        "asked for it."
+    ) in agents
     assert "PinClipboardRemote" in text
     assert "DeleteClipboardRemote" in text
     assert "launch_default_for_uri" not in text

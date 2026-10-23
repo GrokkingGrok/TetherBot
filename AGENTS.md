@@ -32,3 +32,7 @@ These are decided. Do not rename them in passing.
 - Libsecret schema: `io.github.grokkinggrok.TetherBot.Secret`
 - The README and `extension/metadata.json` say the project is unofficial and not affiliated with xAI.
 - A concrete legacy inbox format stays out of this public repository. `bridge/tetherbot/sinks/legacy_todo.py` stays a generic sink.
+
+## Icons
+
+For generic UI icons, first use an existing open-licensed icon set such as Lucide (ISC) or Adwaita symbolic icons. Credit the source in the repo and convert strokes to filled symbolic paths. Don't draw new icons unless the icon is specific to TetherBot (for example its face or logo) and the owner asked for it.

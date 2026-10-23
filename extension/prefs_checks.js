@@ -150,6 +150,11 @@ assert(prefsSource.includes('Password-like copies'), 'prefs has the password-lik
 assert(prefsSource.includes('clipboard-lookalike'), 'prefs stores the password-like choice');
 assert(prefsSource.includes('Search fallback'), 'prefs shows the search fallback');
 assert(prefsSource.includes('clipboard-search-fallback'), 'prefs stores the search fallback');
+const searchFn = prefsSource.split('_clipboardSearch(group, settings) {')[1].split('_clipboardApps')[0];
+assert(searchFn.includes('new Adw.ActionRow'), 'the search hint is its own row');
+assert(searchFn.includes('subtitle: hint'), 'the search fallback row shows the hint');
+assert(searchFn.includes('tooltip_text: hint'), 'the search address has the hint as a tooltip');
+assert(!/new Adw\.EntryRow\(\{[^}]*subtitle/.test(searchFn), 'an entry row does not take subtitle');
 assert(
     prefsSource.includes('1 month = 30 days, 1 year = 365 days'),
     'how many names a month and a year',

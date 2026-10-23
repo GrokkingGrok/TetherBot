@@ -63,6 +63,7 @@ TetherBot is pre-alpha. Check items off as they land. Design detail is in [SPEC.
 - [ ] Manual checks M105–M108: a Chrome password copy is not kept, ordinary text is not treated as a password, Hide for 30 seconds masks a password-like copy and then deletes it, and `tetherbotctl clipboard-debug` prints MIME types and the reason without the text. The steps are in [MANUAL-CHECKS.md](MANUAL-CHECKS.md). They have not been run on the desktop yet. They need a log out so the extension and the schema load.
 - [ ] Manual checks M109–M113: pin survives the cap and Clear, tags and the tag filter, edit keeps the pin and the tags, preview keeps line breaks, and Search the web uses the desktop engine only when pressed. The steps are in [MANUAL-CHECKS.md](MANUAL-CHECKS.md). They have not been run on the desktop yet. They need a log out so the extension and the bridge load.
 - [ ] Manual checks M114–M116: the tag filter does not freeze the window, Search the web follows Chrome's engine or the Settings fallback, and a hidden password can be pinned but not tagged. The steps are in [MANUAL-CHECKS.md](MANUAL-CHECKS.md). They have not been run on the desktop yet. They need a log out so the extension, the schema, and the window load.
+- [ ] Manual check M117: Settings opens without an error, and the Clipboard search fallback row shows its hint. The steps are in [MANUAL-CHECKS.md](MANUAL-CHECKS.md). Close Settings and open it again after this version is installed.
 
 ## v0.2 — early adopters
 

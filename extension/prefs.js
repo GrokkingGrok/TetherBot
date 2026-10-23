@@ -255,7 +255,7 @@ export default class TetherBotPreferences extends ExtensionPreferences {
         group.add(this._clipboardLookalike(settings));
         group.add(this._clipboardLimit(settings));
         group.add(this._clipboardApps(settings));
-        group.add(this._clipboardSearch(settings));
+        this._clipboardSearch(group, settings);
         page.add(group);
     }
 
@@ -325,10 +325,15 @@ export default class TetherBotPreferences extends ExtensionPreferences {
         return row;
     }
 
-    _clipboardSearch(settings) {
-        const row = new Adw.EntryRow({
+    _clipboardSearch(group, settings) {
+        const hint = 'Used when the browser engine cannot be read. The default is DuckDuckGo. Nothing opens until Search the web is pressed.';
+        group.add(new Adw.ActionRow({
             title: 'Search fallback',
-            subtitle: 'Used when the browser engine cannot be read. The default is DuckDuckGo. Nothing opens until Search the web is pressed.',
+            subtitle: hint,
+        }));
+        const row = new Adw.EntryRow({
+            title: 'Search address',
+            tooltip_text: hint,
         });
         const show = () => {
             const stored = settings.get_string('clipboard-search-fallback');
@@ -355,7 +360,7 @@ export default class TetherBotPreferences extends ExtensionPreferences {
         row.add_controller(focus);
         settings.connect('changed::clipboard-search-fallback', show);
         show();
-        return row;
+        group.add(row);
     }
 
     _clipboardApps(settings) {

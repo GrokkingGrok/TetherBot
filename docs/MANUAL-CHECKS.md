@@ -2024,6 +2024,29 @@ journalctl --user -b /usr/bin/gnome-shell --no-pager | tail -n 80
 
 **Reset.** None.
 
+## M131. The panel tag icon matches the pencil and the pin
+
+**Preconditions.** Log out and back in after this version is installed. Open the panel clipboard menu. The menu has a text entry.
+
+**Look for.**
+
+- The tag icon is a monochrome tilted tag, the same size and color as the pencil and the pin.
+- It is not a yellow clipboard and it is not a color emoji.
+- Switch the theme between light and dark. The tag follows the theme the same way the pencil and the pin do.
+
+**Reset.** None.
+
+## M132. The window tag icon matches, and tagging still works
+
+**Preconditions.** Open the TetherBot window after this version is installed. Open the Clipboard page. The list has a text entry.
+
+**Look for.**
+
+- The tag icon is the same monochrome tilted tag as in the panel menu, the same size and color as the pencil and the pin.
+- Tagging still works. Add a tag, confirm the entry shows it, then remove it.
+
+**Reset.** Remove the tag you added.
+
 ## When you are finished
 
 ```bash

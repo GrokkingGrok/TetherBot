@@ -187,10 +187,22 @@ def test_clipboard_capture_filters_before_it_reads_text():
     capture = text.split("    _captureClipboard() {", 1)[1].split("\n    _", 1)[0]
     assert capture.index("classifyClipboard") < capture.index("get_text")
     assert capture.index("get_text") < capture.index("OfferClipboardRemote")
+    assert "OfferClipboardImageRemote" not in capture
+    assert "get_content" not in capture
     assert "needs-text" in capture
     assert "_noteClipboard" in capture
     assert "stored-masked" in capture
     assert "NoteClipboardRemote" in text
+    image = text.split("    _captureClipboardImage(", 1)[1].split("\n    _", 1)[0]
+    assert "get_content" in image
+    assert "OfferClipboardImageRemote" in image
+    assert "skipped-images-off" in image
+    assert "GetClipboardImageRemote" in text
+    assert "set_content" in text
+    assert "_armClipboardEcho" in text
+    assert "clipboard-images" in text
+    assert "Could not copy the image" in text
+    assert "That image is not available" in text
     menu = text.split("    _buildClipboardIndicator() {", 1)[1].split("\n    _", 1)[0]
     assert "edit-copy-symbolic" in menu
     assert "accessible_name = 'Clipboard'" in menu
@@ -209,6 +221,10 @@ def test_clipboard_capture_filters_before_it_reads_text():
     assert "line_wrap = false" in filled
     assert "opacity: 0.45" not in filled
     assert "Clutter.EVENT_STOP" in filled
+    assert "Images are not edited" in filled
+    assert "Images are not searched" in filled
+    assert "tetherbot-clip-thumb" in text
+    assert ".tetherbot-clip-thumb" in (EXTENSION / "stylesheet.css").read_text(encoding="utf-8")
     assert "PinClipboardRemote" in text
     assert "DeleteClipboardRemote" in text
     assert "launch_default_for_uri" not in text

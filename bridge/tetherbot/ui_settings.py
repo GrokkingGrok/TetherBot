@@ -71,6 +71,7 @@ class UiSettings:
     clipboard_excluded: tuple[str, ...] = DEFAULT_EXCLUDED_APPS
     clipboard_lookalike: str = LOOKALIKE_SKIP
     clipboard_search_fallback: str = FALLBACK_SEARCH_TEMPLATE
+    clipboard_images: bool = True
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "poll_seconds", clamp_poll_seconds(self.poll_seconds))
@@ -93,6 +94,7 @@ class UiSettings:
             "clipboard_search_fallback",
             clamp_search_fallback(self.clipboard_search_fallback),
         )
+        object.__setattr__(self, "clipboard_images", self.clipboard_images is True)
 
     @property
     def done_history_seconds(self) -> int | None:
@@ -235,6 +237,7 @@ def load_ui_settings(schema_dir: Path | None = None) -> UiSettings:
         clipboard_search_fallback=clamp_search_fallback(
             _schema_string(settings, "clipboard-search-fallback", FALLBACK_SEARCH_TEMPLATE)
         ),
+        clipboard_images=_schema_bool(settings, "clipboard-images", True),
     )
 
 

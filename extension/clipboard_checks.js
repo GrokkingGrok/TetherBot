@@ -6,8 +6,11 @@ import {
     DEFAULT_EXCLUDED_APPS,
     classifyClipboard,
     clipboardLimit,
+    imageLabel,
+    imageWithinCap,
     looksLikePassword,
     menuLabel,
+    pickImageMime,
 } from './clipboard.js';
 
 let failed = 0;
@@ -81,8 +84,19 @@ assert(
         enabled: true,
         excluded: DEFAULT_EXCLUDED_APPS,
     }) === 'skipped-binary',
-    'an image is not stored in phase 1',
+    'an image is not stored as text',
 );
+assert(pickImageMime(['image/png']) === 'image/png', 'a png offer is an image');
+assert(pickImageMime(['image/jpeg', 'image/png']) === 'image/png', 'png wins over jpeg');
+assert(pickImageMime(['text/html', 'image/jpeg']) === 'image/jpeg', 'html does not beat an image');
+assert(pickImageMime(['text/plain', 'image/png']) === null, 'plain text wins over an image');
+assert(pickImageMime(['UTF8_STRING', 'image/webp']) === null, 'UTF8_STRING wins over an image');
+assert(pickImageMime(['image/jpg']) === 'image/jpeg', 'jpg is jpeg');
+assert(imageWithinCap(1) === true, 'a small image is within the cap');
+assert(imageWithinCap(10 * 1024 * 1024) === true, '10 MiB is within the cap');
+assert(imageWithinCap((10 * 1024 * 1024) + 1) === false, 'over 10 MiB is rejected');
+assert(imageWithinCap(0) === false, 'an empty image is rejected');
+assert(imageLabel('image/png', 1258291) === 'Image · PNG · 1.2 MB', 'the image label names the type and size');
 assert(classifyClipboard({...plain, text: '   '}) === 'skipped-empty', 'blank text is skipped');
 assert(clipboardLimit(0) === 50, 'a missing cap is 50');
 assert(clipboardLimit(900) === 500, 'the cap stops at 500');

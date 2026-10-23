@@ -1,6 +1,6 @@
 # Clipboard paste on GNOME Wayland
 
-This note is an investigation of paste-into-app. Clipboard history phase 1 is built. The phased plan is in [ROADMAP.md](ROADMAP.md). The question here is whether TetherBot should paste straight into the active window, the way Clipboard Indicator's "Paste on select" does. It does not.
+This note is an investigation of paste-into-app. Clipboard history phase 1 is built, and Batch J copies an image back onto the clipboard with its original type. The phased plan is in [ROADMAP.md](ROADMAP.md). The question here is whether TetherBot should paste straight into the active window, the way Clipboard Indicator's "Paste on select" does. It does not. Batch J copy-back still does not paste into the focused window. The user pastes with the shortcut that application already uses.
 
 The source read for this note is [Clipboard Indicator](https://github.com/Tudmotu/gnome-shell-extension-clipboard-indicator) (`clipboard-indicator@tudmotu.com`), `extension.js` and `keyboard.js` on the default branch.
 
@@ -50,4 +50,4 @@ A Paste action in the clipboard plan should put the chosen text on the clipboard
 
 Do not add a Clutter virtual keyboard, and do not send Shift+Insert or Ctrl+V from the extension. A later phase can revisit this only if there is a Wayland path that means "paste" rather than "type a key", and even then it should be off by default. There is no such path in the mechanism above.
 
-Phase 1 reads the clipboard for local history. [privacy.md](privacy.md) describes that. The captured text stays on this machine, and it is not written to the feed.
+Phase 1 reads the clipboard for local history. Batch J also keeps copied images in the state directory. [privacy.md](privacy.md) describes that. The captured text and the image files stay on this machine, and they are not written to the feed.

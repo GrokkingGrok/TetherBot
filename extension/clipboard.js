@@ -15,6 +15,27 @@ export const LOOKALIKE_LABELS = ['Skip', 'Hide for 30 seconds'];
 export const CLIPBOARD_MASK_LABEL = 'Hidden password';
 export const LOOKALIKE_MIN = 8;
 export const LOOKALIKE_MAX = 128;
+export const IMAGE_MAX_BYTES = 10 * 1024 * 1024;
+
+const IMAGE_MIME_ORDER = [
+    'image/png',
+    'image/jpeg',
+    'image/webp',
+    'image/bmp',
+    'image/gif',
+    'image/tiff',
+    'image/svg+xml',
+];
+
+const IMAGE_NAMES = {
+    'image/png': 'PNG',
+    'image/jpeg': 'JPEG',
+    'image/webp': 'WEBP',
+    'image/bmp': 'BMP',
+    'image/gif': 'GIF',
+    'image/tiff': 'TIFF',
+    'image/svg+xml': 'SVG',
+};
 
 export const DEFAULT_EXCLUDED_APPS = [
     '1password',
@@ -141,6 +162,38 @@ export function classifyClipboard({
     return 'stored';
 }
 
+export function canonicalImageMime(mime) {
+    if (typeof mime !== 'string')
+        return null;
+    let folded = mime.toLowerCase().split(';', 1)[0].trim();
+    if (folded === 'image/jpg')
+        folded = 'image/jpeg';
+    return Object.hasOwn(IMAGE_NAMES, folded) ? folded : null;
+}
+
+export function pickImageMime(mimes) {
+    const types = Array.isArray(mimes) ? mimes.filter(mime => typeof mime === 'string') : [];
+    if (types.some(isTextMime))
+        return null;
+    const found = types.map(canonicalImageMime).filter(Boolean);
+    if (found.includes('image/png'))
+        return 'image/png';
+    for (const mime of IMAGE_MIME_ORDER) {
+        if (found.includes(mime))
+            return mime;
+    }
+    return null;
+}
+
+export function imageWithinCap(size) {
+    return Number.isInteger(size) && size >= 1 && size <= IMAGE_MAX_BYTES;
+}
+
+export function imageLabel(mime, size) {
+    const name = IMAGE_NAMES[canonicalImageMime(mime)] || 'Image';
+    return `Image · ${name} · ${formatBytes(size)}`;
+}
+
 export function menuLabel(text, masked = false) {
     if (masked === true)
         return CLIPBOARD_MASK_LABEL;
@@ -190,6 +243,17 @@ function appExcluded(wmClass, excluded) {
             return true;
     }
     return false;
+}
+
+function formatBytes(size) {
+    const value = Number(size);
+    if (!Number.isFinite(value) || value < 0)
+        return '0 B';
+    if (value < 1024)
+        return `${Math.round(value)} B`;
+    if (value < 1024 * 1024)
+        return `${(value / 1024).toFixed(1)} KB`;
+    return `${(value / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function byteLength(text) {

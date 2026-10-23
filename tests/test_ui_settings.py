@@ -1,8 +1,11 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 """UI setting bounds. Secrets are not part of this snapshot."""
 
+import json
+import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -20,7 +23,6 @@ from tetherbot.ui_settings import (
     effective_poll_seconds,
     effective_undo_seconds,
     history_seconds,
-    load_ui_settings,
     notice_bot,
 )
 
@@ -147,6 +149,54 @@ def test_dialog_does_not_launch_without_a_display(monkeypatch: pytest.MonkeyPatc
     assert launch_secret_dialog("not a slot") is False
 
 
+def _settings_from_empty_backend(schema_dir: Path) -> dict:
+    """Read the compiled file. The session database is not consulted."""
+
+    env = os.environ.copy()
+    env["GSETTINGS_BACKEND"] = "memory"
+    env["TETHERBOT_SCHEMA_DIR"] = str(schema_dir)
+    bridge = str(ROOT / "bridge")
+    previous = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = bridge if not previous else bridge + os.pathsep + previous
+    script = "\n".join(
+        [
+            "import json, os",
+            "from pathlib import Path",
+            "from tetherbot.ui_settings import load_ui_settings",
+            "loaded = load_ui_settings(Path(os.environ['TETHERBOT_SCHEMA_DIR']))",
+            "print(json.dumps({",
+            "    'poll_seconds': loaded.poll_seconds,",
+            "    'poll_set': loaded.poll_set,",
+            "    'undo_seconds': loaded.undo_seconds,",
+            "    'muted_bots': sorted(loaded.muted_bots),",
+            "    'hidden_bots': sorted(loaded.hidden_bots),",
+            "    'history_enabled': loaded.history_enabled,",
+            "    'history_amount': loaded.history_amount,",
+            "    'history_unit': loaded.history_unit,",
+            "    'done_history_seconds': loaded.done_history_seconds,",
+            "    'clipboard_enabled': loaded.clipboard_enabled,",
+            "    'clipboard_images': loaded.clipboard_images,",
+            "    'clipboard_limit': loaded.clipboard_limit,",
+            "    'clipboard_lookalike': loaded.clipboard_lookalike,",
+            "    'clipboard_search_fallback': loaded.clipboard_search_fallback,",
+            "    'clipboard_excluded': list(loaded.clipboard_excluded),",
+            "}))",
+        ]
+    )
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        check=True,
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=30,
+    )
+    payload = json.loads(completed.stdout)
+    if not isinstance(payload, dict):
+        raise AssertionError(completed.stdout)
+    return payload
+
+
 def test_compiled_schema_loads_the_defaults(tmp_path: Path):
     if shutil.which("glib-compile-schemas") is None:
         pytest.skip("glib-compile-schemas is not installed")
@@ -155,22 +205,23 @@ def test_compiled_schema_loads_the_defaults(tmp_path: Path):
     source = ROOT / "extension" / "schemas" / "org.gnome.shell.extensions.tetherbot.gschema.xml"
     (dest / source.name).write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
     subprocess.run(["glib-compile-schemas", str(dest)], check=True, timeout=30)
-    loaded = load_ui_settings(dest)
-    assert loaded.poll_seconds == 120
-    assert loaded.poll_set is False
-    assert loaded.undo_seconds == 5
-    assert loaded.muted_bots == frozenset()
-    assert loaded.hidden_bots == frozenset()
-    assert loaded.history_enabled is True
-    assert loaded.history_amount == 1
-    assert loaded.history_unit == "years"
-    assert loaded.done_history_seconds == YEAR_SECONDS
-    assert loaded.clipboard_enabled is True
-    assert loaded.clipboard_limit == 50
-    assert loaded.clipboard_lookalike == "skip"
-    assert loaded.clipboard_search_fallback.startswith("https://")
-    assert "{searchTerms}" in loaded.clipboard_search_fallback
-    assert "keepassxc" in {name.casefold() for name in loaded.clipboard_excluded}
+    loaded = _settings_from_empty_backend(dest)
+    assert loaded["poll_seconds"] == 120
+    assert loaded["poll_set"] is False
+    assert loaded["undo_seconds"] == 5
+    assert loaded["muted_bots"] == []
+    assert loaded["hidden_bots"] == []
+    assert loaded["history_enabled"] is True
+    assert loaded["history_amount"] == 1
+    assert loaded["history_unit"] == "years"
+    assert loaded["done_history_seconds"] == YEAR_SECONDS
+    assert loaded["clipboard_enabled"] is True
+    assert loaded["clipboard_images"] is True
+    assert loaded["clipboard_limit"] == 50
+    assert loaded["clipboard_lookalike"] == "skip"
+    assert loaded["clipboard_search_fallback"].startswith("https://")
+    assert "{searchTerms}" in loaded["clipboard_search_fallback"]
+    assert "keepassxc" in {name.casefold() for name in loaded["clipboard_excluded"]}
     text = source.read_text(encoding="utf-8")
     folded = text.lower()
     assert "webhook" not in folded
@@ -179,3 +230,4 @@ def test_compiled_schema_loads_the_defaults(tmp_path: Path):
     assert 'name="clipboard-excluded-apps"' in text
     assert 'name="clipboard-lookalike"' in text
     assert 'name="clipboard-search-fallback"' in text
+    assert 'name="clipboard-images"' in text

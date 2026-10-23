@@ -27,6 +27,12 @@ def write_private_text(path: Path, text: str) -> None:
     _write_private_bytes(path, text.encode("utf-8"))
 
 
+def write_private_bytes(path: Path, data: bytes) -> None:
+    """Atomically replace ``path`` with ``data`` at mode 0600 and fsync it."""
+
+    _write_private_bytes(path, data)
+
+
 def write_private_json(path: Path, payload: Mapping[str, Any]) -> None:
     """Atomically replace ``path`` with ``payload`` and fsync it."""
 

@@ -182,6 +182,16 @@
       <arg name="text" type="s" direction="in"/>
       <arg name="changed" type="b" direction="out"/>
     </method>
+    <method name="OfferClipboardImage">
+      <arg name="data" type="ay" direction="in"/>
+      <arg name="meta_json" type="s" direction="in"/>
+      <arg name="result" type="s" direction="out"/>
+    </method>
+    <method name="GetClipboardImage">
+      <arg name="entry_id" type="s" direction="in"/>
+      <arg name="mime" type="s" direction="out"/>
+      <arg name="data" type="ay" direction="out"/>
+    </method>
 
     <signal name="ItemsChanged">
       <arg name="added" type="as"/>

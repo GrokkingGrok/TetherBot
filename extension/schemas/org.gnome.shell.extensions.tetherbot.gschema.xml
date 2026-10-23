@@ -39,6 +39,11 @@
       <summary>Remember copied text</summary>
       <description>When on, plain text copied on this machine is kept in local clipboard history. When off, new copies are not saved. The default is on.</description>
     </key>
+    <key name="clipboard-images" type="b">
+      <default>true</default>
+      <summary>Keep copied images</summary>
+      <description>When on, copied images are kept in local clipboard history. When off, new images are not saved. Text copies are unchanged. The default is on.</description>
+    </key>
     <key name="clipboard-limit" type="i">
       <default>50</default>
       <range min="1" max="500"/>

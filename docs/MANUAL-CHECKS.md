@@ -1891,6 +1891,90 @@ journalctl --user -b /usr/bin/gnome-shell --no-pager | tail -n 80
 
 **Reset.** Set Password-like copies back to Skip. Leave the history as you want it.
 
+## M120. A copied screenshot is kept
+
+**Preconditions.** Log out and back in after this version is installed, so the extension and the schema load. Remember copied text is on. Keep copied images is on.
+
+**Look for.**
+
+- Take a screenshot to the clipboard (Print Screen, then copy).
+- A thumbnail appears in the clipboard menu and on the Clipboard page. The label names the type and the size, for example Image · PNG · 1.2 MB.
+- The file is in `clipboard-images`, next to `clipboard.json` in the TetherBot state directory. `stat -c %a` on that file prints `600`. The directory is `700`.
+- `clipboard.json` has `kind` and `mime` for that entry. It does not contain the image bytes or the path `clipboard-images`.
+
+**Reset.** Delete the image if you do not want to keep it.
+
+## M121. Image rows stay one line
+
+**Preconditions.** M120. The window process was started after this version was installed.
+
+**Look for.**
+
+- The image row is one line in the menu and on the page. The label ends with … when it does not fit. It does not wrap under the icons.
+- The icons sit in the same columns: Edit, Pin, Tag, Copy, Search the web, Delete. A thin line separates each column. The columns line up with a text row.
+- Edit and Search the web are dimmed and stay in place. The Edit tooltip says images are not edited. The Search tooltip says images are not searched.
+- Pin, Tag, Copy, and Delete stay available.
+
+**Reset.** None.
+
+## M122. Preview and Copy
+
+**Preconditions.** M120.
+
+**Look for.**
+
+- Click the image row on the Clipboard page. Preview shows the full image, scaled to fit. There is no text editor.
+- Copy, then paste into an image editor or a chat. The paste is the image, with its original type.
+- No second row appears for that same image.
+- Clicking the row in the panel menu copies the image back, the same way clicking a text row copies the text. It does not type into the focused window.
+
+**Reset.** None.
+
+## M123. Pin and Tag an image
+
+**Preconditions.** M120.
+
+**Look for.**
+
+- Pin the image. It sorts first. Clear leaves it in place. It also stays when the history is past the item limit.
+- Add a tag. The colored dot shows in the row. Choosing that tag in the filter shows the image and hides untagged rows.
+
+**Reset.** Unpin, or delete the image, when you are done. Clear does not remove a pinned image.
+
+## M124. Delete and Clear remove files
+
+**Preconditions.** M120. One image is pinned and one image is not.
+
+**Look for.**
+
+- Delete one image. Its file, and its thumbnail if one was written, is gone from `clipboard-images`.
+- Clear history. The unpinned image file is gone. The pinned image file is still there until you delete that row.
+
+**Reset.** Leave the history as you want it.
+
+## M125. Rules still apply
+
+**Preconditions.** M120. Keep copied images is on. A password manager from the exclude list is available.
+
+**Look for.**
+
+- Copy an image while that password manager is focused. The image is not kept.
+- Turn Keep copied images off. Copy an image from an ordinary app. It is not kept. Copy a line of ordinary text. The text is kept. Images already in the history stay.
+- `tetherbotctl clipboard-debug` prints the MIME types and a reason such as `excluded app` or `images-off`. It prints no bytes and no path.
+
+**Reset.** Turn Keep copied images back on.
+
+## M126. Size cap and privacy
+
+**Preconditions.** M120. Keep copied images is on.
+
+**Look for.**
+
+- An image over 10 MiB is not kept. `tetherbotctl clipboard-debug` prints `image-too-large`. It prints no bytes and no path.
+- Nothing about the image appears in the feed repository, in `journalctl --user -u tetherbot`, or in a webhook body.
+
+**Reset.** None.
+
 ## When you are finished
 
 ```bash

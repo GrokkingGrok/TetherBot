@@ -236,7 +236,7 @@ export default class TetherBotPreferences extends ExtensionPreferences {
         });
         const enabled = new Adw.SwitchRow({
             title: 'Remember copied text',
-            subtitle: 'When this is off, new copies are not saved. Clear history removes what is already saved.',
+            subtitle: "When this is off, new text isn't saved. Text already in history stays until it's removed.",
         });
         const applyEnabled = () => {
             this._applyingClipboard = true;
@@ -253,8 +253,8 @@ export default class TetherBotPreferences extends ExtensionPreferences {
         applyEnabled();
         group.add(enabled);
         const images = new Adw.SwitchRow({
-            title: 'Keep copied images',
-            subtitle: 'When this is off, new images are not saved. Saved images stay until you delete them.',
+            title: 'Remember copied images',
+            subtitle: "When this is off, new images aren't saved. Images already in history stay until they're removed.",
         });
         const applyImages = () => {
             this._applyingImages = true;
@@ -321,7 +321,7 @@ export default class TetherBotPreferences extends ExtensionPreferences {
         adjustment.value = shown;
         const row = new Adw.SpinRow({
             title: 'How many entries',
-            subtitle: 'Plain text only. 1 to 500. The default is 50.',
+            subtitle: 'Text and images share this limit. 1 to 500. The default is 50.',
             adjustment,
             css_classes: ['tetherbot-seconds'],
         });

@@ -1893,7 +1893,7 @@ journalctl --user -b /usr/bin/gnome-shell --no-pager | tail -n 80
 
 ## M120. A copied screenshot is kept
 
-**Preconditions.** Log out and back in after this version is installed, so the extension and the schema load. Remember copied text is on. Keep copied images is on.
+**Preconditions.** Log out and back in after this version is installed, so the extension and the schema load. Remember copied text is on. Remember copied images is on.
 
 **Look for.**
 
@@ -1954,24 +1954,73 @@ journalctl --user -b /usr/bin/gnome-shell --no-pager | tail -n 80
 
 ## M125. Rules still apply
 
-**Preconditions.** M120. Keep copied images is on. A password manager from the exclude list is available.
+**Preconditions.** M120. Remember copied images is on. A password manager from the exclude list is available.
 
 **Look for.**
 
 - Copy an image while that password manager is focused. The image is not kept.
-- Turn Keep copied images off. Copy an image from an ordinary app. It is not kept. Copy a line of ordinary text. The text is kept. Images already in the history stay.
+- Turn Remember copied images off. Copy an image from an ordinary app. It is not kept. Copy a line of ordinary text. The text is kept. Images already in the history stay.
 - `tetherbotctl clipboard-debug` prints the MIME types and a reason such as `excluded app` or `images-off`. It prints no bytes and no path.
 
-**Reset.** Turn Keep copied images back on.
+**Reset.** Turn Remember copied images back on.
 
 ## M126. Size cap and privacy
 
-**Preconditions.** M120. Keep copied images is on.
+**Preconditions.** M120. Remember copied images is on.
 
 **Look for.**
 
 - An image over 10 MiB is not kept. `tetherbotctl clipboard-debug` prints `image-too-large`. It prints no bytes and no path.
 - Nothing about the image appears in the feed repository, in `journalctl --user -u tetherbot`, or in a webhook body.
+
+**Reset.** None.
+
+## M127. Clipboard menu icons stay in view
+
+**Preconditions.** Log out and back in after this version is installed, so the menu loads. Clipboard history has a long text line and an image.
+
+**Look for.**
+
+- Open the panel clipboard menu. Each row is one line.
+- Edit, Pin, Tag, Copy, Search the web, and Delete are fully visible on a text row and on an image row. None of them is cut off at the edge.
+- A long label ends with … . The image label does the same when the thumbnail and the icons need the room.
+
+**Reset.** None.
+
+## M128. The todo list keeps the start-timer button in view
+
+**Preconditions.** Open the TetherBot window after this version is installed. The list has a todo with a long title.
+
+**Look for.**
+
+- The start-timer button at the end of that row is fully visible. It is the icon button, not the Start timer button in the detail pane.
+- The long title ends with … . A short title still shows in full.
+- The button still starts the timer.
+
+**Reset.** Stop the timer if you started one.
+
+## M129. Remember copied images
+
+**Preconditions.** Open Settings after this version is installed. Log out and back in first if the schema is older.
+
+**Look for.**
+
+- The image switch is named Remember copied images. Its subtitle says that turning it off stops new images, and that images already in history stay until they are removed.
+- The text switch subtitle has the same shape: turning it off stops new text, and text already in history stays until it is removed.
+- How many entries says that text and images share the limit. The default is still 50.
+- Turning Remember copied images off still skips a new image and still keeps text. Images already in history stay. Pins still survive the limit.
+
+**Reset.** Leave Remember copied images on unless you want it off.
+
+## M130. The tag icon matches the other symbols
+
+**Preconditions.** Log out and back in after this version is installed. Open the panel clipboard menu and the Clipboard page.
+
+**Look for.**
+
+- The tag button is a tag outline, tilted, with a small hole near the tip.
+- It is one color, like the pencil and the pin. It is not a yellow clipboard and it is not a color emoji.
+- Switch the theme between light and dark. The tag follows the theme the same way the pencil and the pin do.
 
 **Reset.** None.
 

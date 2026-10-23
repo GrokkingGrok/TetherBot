@@ -5,8 +5,10 @@
 // or store a secret here.
 
 import Clutter from 'gi://Clutter';
+import Gdk from 'gi://Gdk?version=4.0';
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
+import Gtk from 'gi://Gtk?version=4.0';
 import Meta from 'gi://Meta';
 import Pango from 'gi://Pango';
 import St from 'gi://St';
@@ -122,6 +124,7 @@ function _workArea(metaWindow) {
 export default class TetherBotExtension extends Extension {
     enable() {
         this._enabled = true;
+        this._installIconTheme();
         this._proxy = null;
         this._proxySignals = [];
         this._source = null;
@@ -2251,6 +2254,7 @@ export default class TetherBotExtension extends Extension {
             const textBox = new St.BoxLayout({
                 style_class: 'tetherbot-clip-text',
                 y_align: Clutter.ActorAlign.CENTER,
+                x_expand: true,
             });
             const label = new St.Label({
                 text: isImage
@@ -2291,16 +2295,21 @@ export default class TetherBotExtension extends Extension {
                 ['view-pin-symbolic', pinned ? 'Unpin' : 'Pin', true, pinned, () => {
                     this._pinClipboard(entry.id, !pinned);
                 }],
-                ['tag-symbolic', tagTip, !masked, false, () => this._openClipboardWindow()],
+                ['tetherbot-tag-symbolic', tagTip, !masked, false, () => this._openClipboardWindow()],
                 ['edit-copy-symbolic', 'Copy', true, false, copyBack],
                 ['system-search-symbolic', searchTip, !masked && !isImage, false, () => {
                     this._openClipboardWindow();
                 }],
                 ['edit-delete-symbolic', 'Delete', true, false, () => this._deleteClipboard(entry.id)],
             ];
+            const actions = new St.BoxLayout({
+                style_class: 'tetherbot-clip-actions',
+                y_align: Clutter.ActorAlign.CENTER,
+                x_expand: false,
+            });
             columns.forEach(([iconName, tip, enabled, accent, onPress], index) => {
                 if (index > 0) {
-                    row.add_child(new St.Widget({
+                    actions.add_child(new St.Widget({
                         style_class: 'tetherbot-clip-sep',
                         y_align: Clutter.ActorAlign.CENTER,
                     }));
@@ -2316,8 +2325,9 @@ export default class TetherBotExtension extends Extension {
                         onPress();
                     return Clutter.EVENT_STOP;
                 });
-                row.add_child(button);
+                actions.add_child(button);
             });
+            row.add_child(actions);
             item.add_child(row);
             item.connect('activate', () => {
                 if (this._clipPinHold) {
@@ -2327,7 +2337,50 @@ export default class TetherBotExtension extends Extension {
                 copyBack();
             });
             this._clipSection.addMenuItem(item);
+            this._fitClipboardRow(textBox, actions);
         }
+    }
+
+    _installIconTheme() {
+        try {
+            const display = Gdk.Display.get_default();
+            if (!display)
+                return;
+            const theme = Gtk.IconTheme.get_for_display(display);
+            const path = this.dir.get_child('icons').get_path();
+            const current = theme.get_search_path() || [];
+            if (!current.includes(path))
+                theme.add_search_path(path);
+        } catch (error) {
+            console.debug('TetherBot: icon theme path was not added');
+        }
+    }
+
+    _fitClipboardRow(textBox, actions) {
+        // The icon cluster keeps its natural width. The label uses what remains,
+        // and the row stays inside the work area so the icons are not pushed off.
+        let budget = 0;
+        try {
+            const monitor = Main.layoutManager.findIndexForActor(this._clipIndicator);
+            const area = Main.layoutManager.getWorkAreaForMonitor(monitor);
+            if (area && area.width)
+                budget = area.width;
+        } catch (error) {
+            budget = 0;
+        }
+        if (!(budget > 0))
+            return;
+        let icons = 0;
+        try {
+            const [, natural] = actions.get_preferred_width(-1);
+            icons = natural || 0;
+        } catch (error) {
+            icons = 0;
+        }
+        if (!(icons >= 40))
+            return;
+        const textMax = Math.max(72, Math.floor(budget - icons - 96));
+        textBox.style = `max-width: ${textMax}px;`;
     }
 
     _clipIconButton(iconName, name, enabled, accent) {
@@ -2344,6 +2397,7 @@ export default class TetherBotExtension extends Extension {
             can_focus: true,
             reactive: true,
             track_hover: enabled,
+            x_expand: false,
             y_align: Clutter.ActorAlign.CENTER,
         });
         button.accessible_name = name;

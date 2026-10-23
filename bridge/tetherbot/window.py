@@ -9,6 +9,7 @@ no network calls. Links open only after a click, through the default browser.
 from __future__ import annotations
 
 import json
+import os
 import sys
 import time
 from collections.abc import Callable
@@ -27,7 +28,7 @@ from tetherbot.clipboard_policy import image_label, list_preview  # noqa: E402
 from tetherbot.clipboard_search import choose_search_template, search_target  # noqa: E402
 from tetherbot.markdown import Run, render  # noqa: E402
 from tetherbot.todos import PALETTE  # noqa: E402
-from tetherbot.ui_settings import load_ui_settings  # noqa: E402
+from tetherbot.ui_settings import EXTENSION_UUID, load_ui_settings  # noqa: E402
 from tetherbot.window_launch import APP_ID  # noqa: E402
 from tetherbot.window_query import (  # noqa: E402
     MIN_WINDOW_HEIGHT,
@@ -766,6 +767,8 @@ class TodoWindow(Adw.ApplicationWindow):
         self._list_controls = controls
         scrolled = Gtk.ScrolledWindow(vexpand=True, child=self.list)
         scrolled.set_propagate_natural_height(False)
+        scrolled.set_propagate_natural_width(False)
+        scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         self._list_scroll = scrolled
         sidebar_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         self._sidebar_box = sidebar_box
@@ -1347,7 +1350,9 @@ class TodoWindow(Adw.ApplicationWindow):
             priority_label.add_css_class(f"tone-{priority.get('tone') or 'neutral'}")
         title = Gtk.Label(label=str(item.get("title") or key), xalign=0, hexpand=True)
         title.set_ellipsize(Pango.EllipsizeMode.END)
-        title.set_max_width_chars(48)
+        # One character of natural width, then the row fills the sidebar.
+        # The start-timer icon keeps its own width.
+        title.set_max_width_chars(1)
         top = Gtk.Box(spacing=8)
         if undo is not None and undo.get("live"):
             until = int(undo.get("until") or 0)
@@ -1624,6 +1629,10 @@ class TodoWindow(Adw.ApplicationWindow):
             return
         play = Gtk.Button(icon_name="media-playback-start-symbolic")
         play.add_css_class("tether-play")
+        play.set_hexpand(False)
+        play.set_halign(Gtk.Align.CENTER)
+        play.set_valign(Gtk.Align.CENTER)
+        play.set_can_shrink(False)
         play.set_tooltip_text(f"Start timer: {title}")
         play.update_property(
             [Gtk.AccessibleProperty.LABEL],
@@ -2602,7 +2611,7 @@ class TodoWindow(Adw.ApplicationWindow):
             pin.add_css_class("tether-pin-on")
         pin.connect("clicked", self._on_pin_clip, entry)
         tag_tip = "Hidden passwords are not tagged" if masked else "Tag"
-        tag_button = _clip_icon("tag-symbolic", tag_tip, not masked)
+        tag_button = _clip_icon("tetherbot-tag-symbolic", tag_tip, not masked)
         tag_button.connect("clicked", self._on_tag_clip, entry)
         edit_tip = "Images are not edited" if is_image else "Edit"
         edit = _clip_icon("document-edit-symbolic", edit_tip, not masked and not is_image)
@@ -3258,6 +3267,31 @@ def _install_css() -> None:
         provider,
         Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
     )
+    _install_icons(display)
+
+
+def extension_icon_root() -> Path | None:
+    """Icon theme root shipped with the extension, or the installed copy."""
+
+    bundled = Path(__file__).resolve().parents[2] / "extension" / "icons"
+    if (bundled / "hicolor").is_dir():
+        return bundled
+    data_home = os.environ.get("XDG_DATA_HOME")
+    base = Path(data_home) if data_home else Path.home() / ".local" / "share"
+    installed = base / "gnome-shell" / "extensions" / EXTENSION_UUID / "icons"
+    if (installed / "hicolor").is_dir():
+        return installed
+    return None
+
+
+def _install_icons(display: Gdk.Display) -> None:
+    root = extension_icon_root()
+    if root is None:
+        return
+    theme = Gtk.IconTheme.get_for_display(display)
+    path = str(root)
+    if path not in set(theme.get_search_path()):
+        theme.add_search_path(path)
 
 
 def _install_style_tags(buffer: Gtk.TextBuffer) -> None:

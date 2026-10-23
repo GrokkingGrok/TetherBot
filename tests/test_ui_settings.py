@@ -231,3 +231,7 @@ def test_compiled_schema_loads_the_defaults(tmp_path: Path):
     assert 'name="clipboard-lookalike"' in text
     assert 'name="clipboard-search-fallback"' in text
     assert 'name="clipboard-images"' in text
+    assert "<summary>Remember copied text</summary>" in text
+    assert "<summary>Remember copied images</summary>" in text
+    assert "Keep copied images" not in text
+    assert "Text and images share this limit." in text

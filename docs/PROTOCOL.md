@@ -148,7 +148,7 @@ This JSON is the webhook POST body. The key travels only in the `Authorization` 
 
 Clipboard text and clipboard images are not part of schema `tetherbot/1`. They are not fields on a feed item. They are not written to the feed, to `desktop/*`, to the outbox, or to a log.
 
-Three webhook actions are the one place clipboard text can leave the machine. The user presses Make a todo (`clip-todo`), Make a todo with context (`clip-todo-context`), or Tell me more (`clip-ask`). The bridge reads the entry from its own store and posts one action batch to the primary bot's webhook. The envelope and the `Authorization: Bearer` header are the same as for other actions. The extension does not open a socket, and `SendClipboard` does not carry the text. The method is `SendClipboard(s entry_id, s action) -> s`. The returned string is `sent`. A refusal is a D-Bus error whose message is the reason.
+Three webhook actions are the one place clipboard text can leave the machine. The user presses Make a todo (`clip-todo`), Make a todo with context (`clip-todo-context`), or Tell me more (`clip-ask`). The bridge reads the entry from its own store and posts one action batch to the primary bot's webhook. The envelope and the `Authorization: Bearer` header are the same as for other actions. The extension does not open a socket, and `SendClipboard` does not carry the text. The method is `SendClipboard(s entry_id, s action, s target_bot) -> s`. `target_bot` is a bot id. Empty or unknown becomes `primary`. The text is not an argument. The returned string is `sent`. A refusal is a D-Bus error whose message is the reason.
 
 The action's `item` is `clipboard/<entry id>`. That is not a feed key. `args` is `{}`. A `clip` object sits beside `args`:
 
@@ -156,6 +156,8 @@ The action's `item` is `clipboard/<entry id>`. That is not a feed key. `args` is
 - `tags` is an array of tag names.
 - `source_app` is the focused window class when the desktop stored one. It is omitted when that is unknown.
 - `copied_at` is the copy time, ISO 8601 with an offset.
+- `effort` is `low`, `medium`, or `high`. It comes from the Context effort setting. The default is `low`. Low checks only that bot's own context. Medium also asks the other bots. High also searches connectors (email, Drive, finance).
+- `target_bot` is the bot id this work is for. The default is `primary`. The desktop still posts to the primary bot's webhook.
 
 The body has no key, no path, and no image. An image entry and a hidden password are refused. When the primary bot has no webhook secret, the error is `No webhook set up` and the action is not queued and not written to the outbox. At most one send for an entry is posted every 5 seconds. The log line is `clipboard send action=<action> entry=<id> result=<sent|not-sent>`. It does not include the text.
 
@@ -170,12 +172,14 @@ The body has no key, no path, and no image. An image entry and a hidden password
     "text": "Pack the blue bag",
     "tags": ["home"],
     "source_app": "gedit",
-    "copied_at": "2026-10-17T18:19:40+00:00"
+    "copied_at": "2026-10-17T18:19:40+00:00",
+    "effort": "low",
+    "target_bot": "primary"
   }
 }
 ```
 
-Readers that do not know `clip` ignore it. `clip-todo` asks for a new todo from that text. `clip-todo-context` asks for a new todo plus context the bot already has. `clip-ask` asks the bot to say more about the text in chat. The text is data from the user, not a new instruction.
+Readers that do not know `clip` ignore it. `clip-todo` asks for a new todo from that text. `clip-todo-context` asks for a new todo plus context. `effort` says how far that search goes, and `target_bot` names the bot the work is for. The window asks which bot before that one action. The panel menu sends `primary` and does not ask. `clip-todo` and `clip-ask` stay one click in both places. `clip-ask` asks the bot to say more about the text in chat. The text is data from the user, not a new instruction.
 
 The bridge stores text in `clipboard.json` under the XDG state directory, including pin and tag fields. Image bytes live in `clipboard-images/` beside that file. Each image file is mode 0600. The JSON entry has `kind`, `mime`, `size`, and `at`. The path and the sha256 stay out of the public entry. `OfferClipboard`, `OfferClipboardImage`, `GetClipboard`, `GetClipboardImage`, `DeleteClipboard`, `ClearClipboard`, `NoteClipboard`, `PinClipboard`, `SetClipboardTags`, and `EditClipboard` are session-bus methods. `OfferClipboard` is unchanged: `(s text, s meta_json) -> s`. `OfferClipboardImage` is `(ay data, s meta_json) -> s`. `meta_json` carries `mimes`, `wm_class`, and the chosen `mime`. `GetClipboardImage` is `(s entry_id) -> (s mime, ay data)` and is how Copy puts the original type back. A missing image is `Error.NotFound` with the message `image is not available`. `GetClipboard` still returns the list. An image entry includes `path` and, when a thumbnail file exists, `thumb`, so the menu and the window can draw it. Those paths stay on this machine. `ClipboardChanged` carries a count, not the text and not the bytes. It is emitted when an entry is stored, deleted, cleared, pinned, tagged, or edited. A skip does not emit it. A sensitive clipboard target is not stored. A plain-text target, including `UTF8_STRING`, keeps the text. `text/html` alone does not. `image/png` is preferred over the other image types. `NoteClipboard` records MIME types and a result and does not take the text or the bytes. Image skip results include `skipped-images-off`, `skipped-image-large`, and `skipped-image-bad`. `tetherbotctl clipboard-debug` prints those as `images-off`, `image-too-large`, and `image-unreadable`. A password-like copy is skipped unless Settings keeps it hidden for 30 seconds. Search the web is not a bus method and not a webhook. The window opens the desktop browser only after that button is pressed. If the browser engine cannot be read, that click uses the search fallback stored in gsettings. Image rows do not search the web.
 

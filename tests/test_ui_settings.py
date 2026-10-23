@@ -29,6 +29,13 @@ from tetherbot.ui_settings import (
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def test_context_effort_defaults_to_low():
+    assert UiSettings().context_effort == "low"
+    assert UiSettings(context_effort="high").context_effort == "high"
+    assert UiSettings(context_effort="Medium").context_effort == "low"
+    assert UiSettings(context_effort="nope").context_effort == "low"
+
+
 def test_poll_and_undo_stay_inside_bounds():
     assert clamp_poll_seconds(120) == 120
     assert clamp_poll_seconds(10) == 60
@@ -180,6 +187,7 @@ def _settings_from_empty_backend(schema_dir: Path) -> dict:
             "    'clipboard_lookalike': loaded.clipboard_lookalike,",
             "    'clipboard_search_fallback': loaded.clipboard_search_fallback,",
             "    'clipboard_excluded': list(loaded.clipboard_excluded),",
+            "    'context_effort': loaded.context_effort,",
             "}))",
         ]
     )
@@ -219,6 +227,7 @@ def test_compiled_schema_loads_the_defaults(tmp_path: Path):
     assert loaded["clipboard_images"] is True
     assert loaded["clipboard_limit"] == 50
     assert loaded["clipboard_lookalike"] == "skip"
+    assert loaded["context_effort"] == "low"
     assert loaded["clipboard_search_fallback"].startswith("https://")
     assert "{searchTerms}" in loaded["clipboard_search_fallback"]
     assert "keepassxc" in {name.casefold() for name in loaded["clipboard_excluded"]}
@@ -231,6 +240,10 @@ def test_compiled_schema_loads_the_defaults(tmp_path: Path):
     assert 'name="clipboard-lookalike"' in text
     assert 'name="clipboard-search-fallback"' in text
     assert 'name="clipboard-images"' in text
+    assert 'name="context-effort"' in text
+    assert "<default>'low'</default>" in text.split('name="context-effort"', 1)[1].split(
+        "</key>", 1
+    )[0]
     assert "<summary>Remember copied text</summary>" in text
     assert "<summary>Remember copied images</summary>" in text
     assert "Keep copied images" not in text

@@ -114,6 +114,12 @@ def test_window_sources_do_not_touch_the_network_or_secrets():
     assert "clip-todo-context" in window
     assert "clip-ask" in window
     assert "SendClipboard" in window
+    assert '"(sss)"' in window
+    assert "tether-effort-low" in window
+    assert "tether-effort-medium" in window
+    assert "tether-effort-high" in window
+    assert "_prompt_clip_context" in window
+    assert '"Effort:"' in window
     assert '"Sent"' in window
     assert "Not sent" in window
     assert "Images are not sent" in window

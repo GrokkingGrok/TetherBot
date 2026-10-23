@@ -1420,6 +1420,142 @@ def test_clipboard_tag_filter_stops_after_one_rebuild():
     assert holder.get("ok") is True
 
 
+def test_context_send_opens_a_bot_picker():
+    gi = pytest.importorskip("gi")
+    try:
+        gi.require_version("Gtk", "4.0")
+        gi.require_version("Adw", "1")
+        from gi.repository import Adw, Gio, GLib
+    except ValueError as exc:
+        pytest.skip(str(exc))
+    if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
+        pytest.skip("GTK window test needs a display")
+
+    from tetherbot.window import WindowApp
+
+    class _Clip:
+        def __init__(self) -> None:
+            self.sent: list[tuple[str, str, str]] = []
+
+        def set_listener(self, listener) -> None:
+            return None
+
+        def set_clipboard_listener(self, listener) -> None:
+            return None
+
+        def get_items(self, spec):
+            return [
+                {
+                    "key": "notes/one",
+                    "kind": "todo",
+                    "title": "From notes",
+                    "status": "open",
+                    "source": {"bot": "notes"},
+                }
+            ]
+
+        def get_tags(self):
+            return []
+
+        def bots(self):
+            return [
+                {"name": "primary", "display_name": "Primary"},
+                {"name": "notes", "display_name": "Notes"},
+            ]
+
+        def get_clipboard(self):
+            return [
+                {
+                    "id": "c-11111111",
+                    "text": "alpha line",
+                    "at": 2,
+                    "pinned": False,
+                    "tags": [],
+                }
+            ]
+
+        def send_clipboard(self, entry_id: str, action: str, target_bot: str = "primary") -> str:
+            self.sent.append((entry_id, action, target_bot))
+            return "sent"
+
+    class _Isolated(WindowApp):
+        def __init__(self, client: _Clip) -> None:
+            Adw.Application.__init__(
+                self,
+                application_id="io.github.grokkinggrok.TetherBot.ContextPickerTest",
+                flags=Gio.ApplicationFlags.NON_UNIQUE,
+            )
+            self._client = client
+            self.window = None
+            self._linger = 0
+
+    client = _Clip()
+    app = _Isolated(client)
+    holder: dict = {}
+
+    def finish():
+        try:
+            window = app.window
+            assert window is not None
+            window._set_page("clipboard")
+            window._context_effort = lambda: "high"
+            window._items = [
+                {
+                    "key": "notes/one",
+                    "source": {"bot": "notes"},
+                }
+            ]
+            plain = _clip_rows(window)[0]
+            opens = {"n": 0}
+            original = window._prompt_clip_context
+
+            def wrapped(entry, label) -> None:
+                opens["n"] += 1
+                original(entry, label)
+
+            window._prompt_clip_context = wrapped
+            _icon(plain, "tetherbot-square-check-symbolic").emit("clicked")
+            assert opens["n"] == 1
+            dialog = window._clip_context_dialog
+            assert dialog is not None
+            assert dialog.get_heading() == "Make a todo with context"
+            level = dialog.effort_level
+            assert level.get_label() == "High"
+            assert "tether-effort-high" in level.get_css_classes()
+            buttons = {button.get_label(): button for button in dialog.bot_buttons}
+            assert list(buttons)[:1] == ["primary"]
+            assert "notes" in buttons
+            assert buttons["primary"].get_active()
+            dialog.emit("response", "cancel")
+            assert client.sent == []
+            buttons["notes"].set_active(True)
+            assert buttons["notes"].get_active()
+            assert not buttons["primary"].get_active()
+            dialog.emit("response", "send")
+            assert client.sent == [("c-11111111", "clip-todo-context", "notes")]
+            shown = _label_text(plain, "Sent")
+            assert shown is not None
+            _icon(plain, "tetherbot-check-symbolic").emit("clicked")
+            assert opens["n"] == 1
+            assert client.sent[-1] == ("c-11111111", "clip-todo", "primary")
+            dialog.close()
+            holder["ok"] = True
+        except Exception as exc:
+            holder["error"] = exc
+        app.quit()
+        return False
+
+    try:
+        app.connect("activate", lambda _app: GLib.idle_add(finish))
+        GLib.timeout_add(8000, app.quit)
+        app.run(["tetherbot-window"])
+    finally:
+        reset_tetherbot_logger()
+    if "error" in holder:
+        raise holder["error"]
+    assert holder.get("ok") is True
+
+
 def _clip_rows(window) -> list:
     rows = []
     index = 0

@@ -68,6 +68,120 @@ import {
     pickImageMime,
 } from './clipboard.js';
 
+function accentChannel(color, name) {
+    if (!color)
+        return null;
+    const getter = color[`get_${name}`];
+    if (typeof getter === 'function') {
+        const value = getter.call(color);
+        if (typeof value === 'number' && !Number.isNaN(value))
+            return Math.max(0, Math.min(255, Math.round(value * 255)));
+    }
+    const raw = color[name];
+    if (typeof raw !== 'number' || Number.isNaN(raw))
+        return null;
+    return Math.max(0, Math.min(255, Math.round(raw)));
+}
+
+function accentRgb(colors) {
+    const color = Array.isArray(colors) ? colors[0] : colors;
+    const red = accentChannel(color, 'red');
+    const green = accentChannel(color, 'green');
+    const blue = accentChannel(color, 'blue');
+    if (red === null || green === null || blue === null)
+        return null;
+    return [red, green, blue];
+}
+
+function pinSvgHasFill(source) {
+    return typeof source === 'string' && /fill=(["'])#[0-9A-Fa-f]{3,8}\1/.test(source);
+}
+
+function recolorPinSvg(source, hex) {
+    if (!pinSvgHasFill(source))
+        return null;
+    return source.replace(/fill=(["'])#[0-9A-Fa-f]{3,8}\1/g, `fill="#${hex}"`);
+}
+
+function readPinText(path) {
+    try {
+        const file = Gio.File.new_for_path(path);
+        if (!file.query_exists(null))
+            return '';
+        const [, bytes] = file.load_contents(null);
+        return new TextDecoder().decode(bytes);
+    } catch (error) {
+        return '';
+    }
+}
+
+function readPinSvg() {
+    const paths = ['/usr/share/icons/Adwaita/symbolic/actions/view-pin-symbolic.svg'];
+    try {
+        const display = Gdk.Display.get_default();
+        if (display) {
+            const theme = Gtk.IconTheme.get_for_display(display);
+            const flags = Gtk.IconLookupFlags ? Gtk.IconLookupFlags.NONE : 0;
+            const paintable = theme.lookup_icon(
+                'view-pin-symbolic', null, 16, 1, Gtk.TextDirection.LTR, flags);
+            const file = paintable && paintable.get_file ? paintable.get_file() : null;
+            const path = file && file.get_path ? file.get_path() : '';
+            if (path)
+                paths.unshift(path);
+        }
+    } catch (error) {
+        // The Adwaita pin file remains.
+    }
+    for (const path of paths) {
+        const text = readPinText(path);
+        if (pinSvgHasFill(text))
+            return text;
+    }
+    return '';
+}
+
+function accentPinFile() {
+    // A symbolic pin is recolored from the menu color. The active pin is the
+    // same drawing with the theme accent baked into the fill. The file name
+    // does not end in -symbolic.svg, so the shell keeps that fill.
+    let rgb = null;
+    try {
+        const theme = St.ThemeContext.get_for_stage(global.stage);
+        rgb = accentRgb(theme.get_accent_color());
+    } catch (error) {
+        rgb = null;
+    }
+    if (!rgb)
+        return null;
+    const hex = rgb.map((part) => part.toString(16).padStart(2, '0')).join('');
+    let dir;
+    try {
+        dir = Gio.File.new_for_path(GLib.build_filenamev([
+            GLib.get_user_cache_dir(), 'tetherbot']));
+        if (!dir.query_exists(null))
+            dir.make_directory_with_parents(null);
+    } catch (error) {
+        return null;
+    }
+    const dest = dir.get_child(`pin-accent-${hex}.svg`);
+    try {
+        if (!dest.query_exists(null)) {
+            const svg = recolorPinSvg(readPinSvg(), hex);
+            if (!svg)
+                return null;
+            dest.replace_contents(
+                new TextEncoder().encode(svg),
+                null,
+                false,
+                Gio.FileCreateFlags.REPLACE_DESTINATION,
+                null);
+        }
+    } catch (error) {
+        return null;
+    }
+    return dest;
+}
+
 function _windowIdentity(metaWindow) {
     let gtkId = '';
     let wmClass = '';
@@ -2425,17 +2539,14 @@ export default class TetherBotExtension extends Extension {
     }
 
     _clipIconButton(iconName, name, enabled, accent) {
-        const icon = this._menuIcon(iconName, '');
-        // Shell colors a symbolic icon from that icon's own color. A class on
-        // the icon alone keeps the menu color, so an active pin sets the
-        // accent on the icon and on the button.
+        let icon;
         if (accent)
-            icon.style = 'color: -st-accent-color;';
+            icon = this._accentPinIcon(iconName);
+        else
+            icon = this._menuIcon(iconName, '');
         let style_class = 'popup-menu-item-button tetherbot-clip-action';
         if (!enabled)
             style_class += ' tetherbot-dimmed';
-        if (accent)
-            style_class += ' tetherbot-clip-pin-on';
         const button = new St.Button({
             style_class,
             child: icon,
@@ -2450,12 +2561,24 @@ export default class TetherBotExtension extends Extension {
         return button;
     }
 
+    _accentPinIcon(iconName) {
+        const file = accentPinFile();
+        if (file) {
+            return new St.Icon({
+                gicon: Gio.FileIcon.new(file),
+                icon_size: 16,
+                style: '-st-icon-style: regular;',
+            });
+        }
+        return this._menuIcon(iconName, '');
+    }
+
     _sendClipboard(entryId, action, label) {
         if (!entryId || !this._proxy || !this._proxy.SendClipboardRemote) {
             this._showClipResult(label, 'Not sent: Bridge not running');
             return;
         }
-        this._proxy.SendClipboardRemote(entryId, action, (result, error) => {
+        this._proxy.SendClipboardRemote(entryId, action, 'primary', (result, error) => {
             if (!this._enabled)
                 return;
             if (error) {

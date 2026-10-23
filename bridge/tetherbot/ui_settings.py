@@ -1,9 +1,10 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 """UI settings from the extension schema.
 
-Poll interval, undo length, muted bots, hidden bots, and completed-todo
-history live in gsettings. Secrets do not. This module does not import
-PyGObject until a compiled schema is present, and it never reads a secret.
+Poll interval, undo length, muted bots, hidden bots, completed-todo
+history, and context effort live in gsettings. Secrets do not. This
+module does not import PyGObject until a compiled schema is present,
+and it never reads a secret.
 """
 
 from __future__ import annotations
@@ -39,6 +40,8 @@ HISTORY_AMOUNT_MIN = 1
 HISTORY_AMOUNT_MAX = 999
 HISTORY_UNIT_DEFAULT = "years"
 HISTORY_UNITS = ("hours", "days", "weeks", "months", "years")
+CONTEXT_EFFORT_DEFAULT = "low"
+CONTEXT_EFFORTS = ("low", "medium", "high")
 HISTORY_MAX_SECONDS = HISTORY_AMOUNT_MAX * YEAR_SECONDS
 _HISTORY_KEYS = frozenset({"history-enabled", "history-amount", "history-unit"})
 _HISTORY_SCALE = {
@@ -72,6 +75,7 @@ class UiSettings:
     clipboard_lookalike: str = LOOKALIKE_SKIP
     clipboard_search_fallback: str = FALLBACK_SEARCH_TEMPLATE
     clipboard_images: bool = True
+    context_effort: str = CONTEXT_EFFORT_DEFAULT
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "poll_seconds", clamp_poll_seconds(self.poll_seconds))
@@ -95,6 +99,7 @@ class UiSettings:
             clamp_search_fallback(self.clipboard_search_fallback),
         )
         object.__setattr__(self, "clipboard_images", self.clipboard_images is True)
+        object.__setattr__(self, "context_effort", clamp_context_effort(self.context_effort))
 
     @property
     def done_history_seconds(self) -> int | None:
@@ -176,6 +181,14 @@ def history_seconds(enabled: object, amount: object, unit: object) -> int | None
     return clamp_history_amount(amount) * scale
 
 
+def clamp_context_effort(value: object) -> str:
+    """Keep context effort to low, medium, or high. Anything else is low."""
+
+    if isinstance(value, str) and value in CONTEXT_EFFORTS:
+        return value
+    return CONTEXT_EFFORT_DEFAULT
+
+
 def bot_set(values: object) -> frozenset[str]:
     """Bot ids only. Other entries are dropped."""
 
@@ -238,6 +251,12 @@ def load_ui_settings(schema_dir: Path | None = None) -> UiSettings:
             _schema_string(settings, "clipboard-search-fallback", FALLBACK_SEARCH_TEMPLATE)
         ),
         clipboard_images=_schema_bool(settings, "clipboard-images", True),
+        context_effort=_schema_choice(
+            settings,
+            "context-effort",
+            CONTEXT_EFFORT_DEFAULT,
+            CONTEXT_EFFORTS,
+        ),
     )
 
 

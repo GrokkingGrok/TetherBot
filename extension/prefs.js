@@ -232,7 +232,7 @@ export default class TetherBotPreferences extends ExtensionPreferences {
     _buildClipboard(page, settings) {
         const group = new Adw.PreferencesGroup({
             title: 'Clipboard',
-            description: 'Copied text stays on this machine. It is not written to the feed and it is not sent to a bot.',
+            description: 'Copied text and images stay on this machine. They are not written to the feed and they are not sent to a bot.',
         });
         const enabled = new Adw.SwitchRow({
             title: 'Remember copied text',
@@ -252,6 +252,24 @@ export default class TetherBotPreferences extends ExtensionPreferences {
         settings.connect('changed::clipboard-enabled', applyEnabled);
         applyEnabled();
         group.add(enabled);
+        const images = new Adw.SwitchRow({
+            title: 'Keep copied images',
+            subtitle: 'When this is off, new images are not saved. Saved images stay until you delete them.',
+        });
+        const applyImages = () => {
+            this._applyingImages = true;
+            images.active = settings.get_boolean('clipboard-images');
+            this._applyingImages = false;
+        };
+        images.connect('notify::active', () => {
+            if (this._applyingImages)
+                return;
+            if (settings.get_boolean('clipboard-images') !== images.active)
+                settings.set_boolean('clipboard-images', images.active);
+        });
+        settings.connect('changed::clipboard-images', applyImages);
+        applyImages();
+        group.add(images);
         group.add(this._clipboardLookalike(settings));
         group.add(this._clipboardLimit(settings));
         group.add(this._clipboardApps(settings));

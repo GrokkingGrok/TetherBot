@@ -95,6 +95,7 @@ assert(!FEED_RESET_KEYS.includes('clipboard-limit'), 'reset does not clear the c
 assert(!FEED_RESET_KEYS.includes('clipboard-excluded-apps'), 'reset does not clear skipped apps');
 assert(!FEED_RESET_KEYS.includes('clipboard-lookalike'), 'reset does not clear password-like copies');
 assert(!FEED_RESET_KEYS.includes('clipboard-search-fallback'), 'reset does not clear the search fallback');
+assert(!FEED_RESET_KEYS.includes('clipboard-images'), 'reset does not clear copied images');
 assert(searchFallback(SEARCH_FALLBACK_DEFAULT) === SEARCH_FALLBACK_DEFAULT, 'the search fallback default is https');
 assert(searchFallback('http://example.test/?q={searchTerms}') === null, 'the search fallback rejects http');
 assert(searchFallback('https://example.test/search') === null, 'the search fallback needs a placeholder');
@@ -145,6 +146,7 @@ assert(prefsSource.includes('Keep completed todos'), 'prefs has the history togg
 assert(prefsSource.includes('history-unit'), 'prefs stores the history unit');
 assert(prefsSource.includes('Completed todos'), 'prefs has a completed-todo group');
 assert(prefsSource.includes('Remember copied text'), 'prefs has the clipboard toggle');
+assert(prefsSource.includes('Keep copied images'), 'prefs has the image toggle');
 assert(prefsSource.includes('clipboard-excluded-apps'), 'prefs stores skipped apps');
 assert(prefsSource.includes('Password-like copies'), 'prefs has the password-like choice');
 assert(prefsSource.includes('clipboard-lookalike'), 'prefs stores the password-like choice');

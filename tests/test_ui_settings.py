@@ -166,6 +166,7 @@ def test_compiled_schema_loads_the_defaults(tmp_path: Path):
     assert loaded.history_unit == "years"
     assert loaded.done_history_seconds == YEAR_SECONDS
     assert loaded.clipboard_enabled is True
+    assert loaded.clipboard_images is True
     assert loaded.clipboard_limit == 50
     assert loaded.clipboard_lookalike == "skip"
     assert loaded.clipboard_search_fallback.startswith("https://")
@@ -179,3 +180,4 @@ def test_compiled_schema_loads_the_defaults(tmp_path: Path):
     assert 'name="clipboard-excluded-apps"' in text
     assert 'name="clipboard-lookalike"' in text
     assert 'name="clipboard-search-fallback"' in text
+    assert 'name="clipboard-images"' in text

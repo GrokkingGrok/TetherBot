@@ -2047,6 +2047,17 @@ journalctl --user -b /usr/bin/gnome-shell --no-pager | tail -n 80
 
 **Reset.** Remove the tag you added.
 
+## M133. The panel menu shows the Lucide tag
+
+**Preconditions.** Log out and back in after this version is installed. Open the panel clipboard menu and the Clipboard page. The menu has a text entry.
+
+**Look for.**
+
+- After logout, the panel clipboard menu shows the Lucide tag icon, matching the window.
+- It is the same size and color as the pencil and the pin in that menu.
+
+**Reset.** None.
+
 ## When you are finished
 
 ```bash

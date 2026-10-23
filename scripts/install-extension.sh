@@ -103,12 +103,11 @@ while IFS= read -r module; do
   install -m 0644 "${ROOT}/extension/${module}" "${DEST}/${module}"
 done < <(collect_modules)
 if [[ -d "${ROOT}/extension/icons" ]]; then
-  install -d "${DEST}/icons"
-  for icon in "${ROOT}/extension/icons/"*.svg; do
-    if [[ -f "${icon}" ]]; then
-      install -m 0644 "${icon}" "${DEST}/icons/$(basename "${icon}")"
-    fi
-  done
+  while IFS= read -r icon; do
+    rel="${icon#"${ROOT}/extension/icons/"}"
+    install -d "${DEST}/icons/$(dirname "${rel}")"
+    install -m 0644 "${icon}" "${DEST}/icons/${rel}"
+  done < <(find "${ROOT}/extension/icons" -type f -name '*.svg' | sort)
 fi
 
 schema_dir="${ROOT}/extension/schemas"

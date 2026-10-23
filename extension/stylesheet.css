@@ -216,8 +216,12 @@
 .tetherbot-tone-neutral { color: #deddda; background-color: rgba(222, 221, 218, 0.12); }
 
 .tetherbot-clip-text {
-    width: 220px;
     spacing: 6px;
+    max-width: 22em;
+}
+
+.tetherbot-clip-actions {
+    spacing: 0px;
 }
 
 .tetherbot-clip-thumb {
@@ -227,6 +231,8 @@
 
 .tetherbot-clip-action {
     padding: 2px;
+    min-width: 16px;
+    min-height: 16px;
 }
 
 .tetherbot-clip-sep {

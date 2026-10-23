@@ -90,7 +90,10 @@ def test_window_sources_do_not_touch_the_network_or_secrets():
     assert "Search the web" in window
     assert '"Preview"' in window
     assert "document-edit-symbolic" in window
-    assert "tag-symbolic" in window
+    assert "tetherbot-tag-symbolic" in window
+    assert "set_max_width_chars(1)" in window
+    assert "set_can_shrink(False)" in window
+    assert "PolicyType.NEVER" in window
     assert "view-pin-symbolic" in window
     assert "edit-copy-symbolic" in window
     assert "system-search-symbolic" in window

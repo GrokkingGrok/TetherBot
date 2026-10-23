@@ -212,7 +212,9 @@ def test_clipboard_capture_filters_before_it_reads_text():
     assert "Unpin" in filled
     assert "view-pin-symbolic" in filled
     assert "document-edit-symbolic" in filled
-    assert "tag-symbolic" in filled
+    assert "tetherbot-tag-symbolic" in filled
+    assert "tetherbot-clip-actions" in filled
+    assert "x_expand: false" in filled
     assert "edit-copy-symbolic" in filled
     assert "system-search-symbolic" in filled
     assert "edit-delete-symbolic" in filled
@@ -224,7 +226,17 @@ def test_clipboard_capture_filters_before_it_reads_text():
     assert "Images are not edited" in filled
     assert "Images are not searched" in filled
     assert "tetherbot-clip-thumb" in text
-    assert ".tetherbot-clip-thumb" in (EXTENSION / "stylesheet.css").read_text(encoding="utf-8")
+    css = (EXTENSION / "stylesheet.css").read_text(encoding="utf-8")
+    assert ".tetherbot-clip-thumb" in css
+    assert ".tetherbot-clip-actions" in css
+    assert "width: 220px" not in css
+    tag = (
+        EXTENSION / "icons" / "hicolor" / "scalable" / "actions" / "tetherbot-tag-symbolic.svg"
+    ).read_text(encoding="utf-8")
+    assert "#2e3436" in tag
+    assert "currentColor" not in tag
+    assert "<circle " in tag
+    assert "rotate(-45" in tag
     assert "PinClipboardRemote" in text
     assert "DeleteClipboardRemote" in text
     assert "launch_default_for_uri" not in text

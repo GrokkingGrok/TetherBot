@@ -281,6 +281,9 @@ def test_extension_install_copies_the_uuid(tmp_path: Path):
     assert (dest / "schemas" / "org.gnome.shell.extensions.tetherbot.gschema.xml").is_file()
     assert (dest / "icons" / "face-symbolic.svg").is_file()
     assert (dest / "icons" / "face-slash-symbolic.svg").is_file()
+    assert (
+        dest / "icons" / "hicolor" / "scalable" / "actions" / "tetherbot-tag-symbolic.svg"
+    ).is_file()
     assert not (dest / "test_view.js").exists()
     subprocess.run(
         ["bash", str(ROOT / "scripts" / "uninstall.sh")],

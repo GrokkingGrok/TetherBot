@@ -1310,7 +1310,7 @@ def test_clipboard_tag_filter_stops_after_one_rebuild():
             order = [
                 "document-edit-symbolic",
                 "view-pin-symbolic",
-                "tag-symbolic",
+                "tetherbot-tag-symbolic",
                 "edit-copy-symbolic",
                 "system-search-symbolic",
                 "edit-delete-symbolic",
@@ -1320,12 +1320,12 @@ def test_clipboard_tag_filter_stops_after_one_rebuild():
             assert _icon(masked, "view-pin-symbolic").get_sensitive()
             assert "tether-pin-on" in _icon(masked, "view-pin-symbolic").get_css_classes()
             assert "tether-pin-on" not in _icon(plain, "view-pin-symbolic").get_css_classes()
-            assert not _icon(masked, "tag-symbolic").get_sensitive()
+            assert not _icon(masked, "tetherbot-tag-symbolic").get_sensitive()
             assert not _icon(masked, "document-edit-symbolic").get_sensitive()
             assert not _icon(masked, "system-search-symbolic").get_sensitive()
             assert _icon(masked, "edit-copy-symbolic").get_sensitive()
             assert _icon(masked, "edit-delete-symbolic").get_sensitive()
-            assert _icon(plain, "tag-symbolic").get_sensitive()
+            assert _icon(plain, "tetherbot-tag-symbolic").get_sensitive()
             assert _icon(plain, "document-edit-symbolic").get_sensitive()
             assert _icon(plain, "system-search-symbolic").get_sensitive()
             assert _css_count(plain, "tether-clip-sep") == 5
@@ -1338,7 +1338,7 @@ def test_clipboard_tag_filter_stops_after_one_rebuild():
             assert later is not None
             tips = [button.get_tooltip_text() or "" for button in _icon_buttons(masked)]
             assert all("hidden-secret" not in tip for tip in tips)
-            assert _icon(masked, "tag-symbolic").get_tooltip_text() == (
+            assert _icon(masked, "tetherbot-tag-symbolic").get_tooltip_text() == (
                 "Hidden passwords are not tagged"
             )
             assert _icon(masked, "system-search-symbolic").get_tooltip_text() == (
@@ -1350,7 +1350,7 @@ def test_clipboard_tag_filter_stops_after_one_rebuild():
             assert shown_image.get_ellipsize() == Pango.EllipsizeMode.END
             assert not _icon(image, "document-edit-symbolic").get_sensitive()
             assert not _icon(image, "system-search-symbolic").get_sensitive()
-            assert _icon(image, "tag-symbolic").get_sensitive()
+            assert _icon(image, "tetherbot-tag-symbolic").get_sensitive()
             assert _icon(image, "edit-copy-symbolic").get_sensitive()
             assert _icon(image, "view-pin-symbolic").get_sensitive()
             assert _icon(image, "edit-delete-symbolic").get_sensitive()
@@ -1485,3 +1485,83 @@ def _find_play(widget, tooltip: str):
             return found
         child = child.get_next_sibling()
     return None
+
+
+def test_a_long_todo_title_leaves_the_start_timer_button_visible():
+    gi = pytest.importorskip("gi")
+    try:
+        gi.require_version("Gtk", "4.0")
+        gi.require_version("Adw", "1")
+        from gi.repository import Adw, Gio, GLib, Gtk
+    except ValueError as exc:
+        pytest.skip(str(exc))
+    if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
+        pytest.skip("GTK window test needs a display")
+
+    from tetherbot.window import WindowApp
+
+    title = "Pack the bag " * 20
+    tip = f"Start timer: {title.strip()}"
+
+    class _Long(_TimerFake):
+        def __init__(self) -> None:
+            super().__init__()
+            self.items = [
+                {
+                    "key": "primary/long",
+                    "kind": "todo",
+                    "title": title.strip(),
+                    "body": "",
+                    "status": "open",
+                    "actions": ["done"],
+                    "source": {"bot": "primary"},
+                }
+            ]
+
+    class _Isolated(WindowApp):
+        def __init__(self, client: _Long) -> None:
+            Adw.Application.__init__(
+                self,
+                application_id="io.github.grokkinggrok.TetherBot.TimerRowTest",
+                flags=Gio.ApplicationFlags.NON_UNIQUE,
+            )
+            self._client = client
+            self.window = None
+            self._linger = 0
+
+    app = _Isolated(_Long())
+    holder: dict = {}
+
+    def finish():
+        try:
+            window = app.window
+            assert window is not None
+            play = _find_play(window.list, tip)
+            assert play is not None
+            scroll = window._list_scroll
+            assert scroll.get_policy()[0] == Gtk.PolicyType.NEVER
+            assert scroll.get_width() > 0
+            ok, bounds = play.compute_bounds(scroll)
+            assert ok
+            assert bounds.get_x() >= -1
+            assert bounds.get_x() + bounds.get_width() <= scroll.get_width() + 1
+            icon = play.get_child()
+            assert icon is not None
+            icon_natural = icon.measure(Gtk.Orientation.HORIZONTAL, -1).natural
+            assert icon.get_width() + 1 >= icon_natural
+            assert icon.get_height() + 1 >= icon.measure(Gtk.Orientation.VERTICAL, -1).natural
+            holder["ok"] = True
+        except Exception as exc:
+            holder["error"] = exc
+        app.quit()
+        return False
+
+    try:
+        app.connect("activate", lambda _app: GLib.idle_add(finish))
+        GLib.timeout_add(8000, app.quit)
+        app.run(["tetherbot-window"])
+    finally:
+        reset_tetherbot_logger()
+    if "error" in holder:
+        raise holder["error"]
+    assert holder.get("ok") is True

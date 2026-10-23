@@ -37,18 +37,18 @@
     <key name="clipboard-enabled" type="b">
       <default>true</default>
       <summary>Remember copied text</summary>
-      <description>When on, plain text copied on this machine is kept in local clipboard history. When off, new copies are not saved. The default is on.</description>
+      <description>When on, plain text copied on this machine is kept in local clipboard history. When off, new text is not saved. Text already in history stays until it is removed. Text and images share How many entries. The default is on.</description>
     </key>
     <key name="clipboard-images" type="b">
       <default>true</default>
-      <summary>Keep copied images</summary>
-      <description>When on, copied images are kept in local clipboard history. When off, new images are not saved. Text copies are unchanged. The default is on.</description>
+      <summary>Remember copied images</summary>
+      <description>When on, copied images are kept in local clipboard history. When off, new images are not saved. Images already in history stay until they are removed. Text and images share How many entries. The default is on.</description>
     </key>
     <key name="clipboard-limit" type="i">
       <default>50</default>
       <range min="1" max="500"/>
       <summary>Clipboard history size</summary>
-      <description>How many plain-text clipboard entries to keep. The default is 50. The minimum is 1 and the maximum is 500.</description>
+      <description>How many clipboard entries to keep. Text and images share this limit. The default is 50. The minimum is 1 and the maximum is 500.</description>
     </key>
     <key name="clipboard-excluded-apps" type="as">
       <default>['1password','bitwarden','keepassxc','keepass','org.keepassxc.KeePassXC','org.gnome.World.Secrets','gnome-keyring','seahorse','kwalletmanager','kwallet','proton-pass','protonpass','lastpass','dashlane','enpass','gopass']</default>

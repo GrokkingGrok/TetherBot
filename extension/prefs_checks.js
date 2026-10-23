@@ -146,7 +146,19 @@ assert(prefsSource.includes('Keep completed todos'), 'prefs has the history togg
 assert(prefsSource.includes('history-unit'), 'prefs stores the history unit');
 assert(prefsSource.includes('Completed todos'), 'prefs has a completed-todo group');
 assert(prefsSource.includes('Remember copied text'), 'prefs has the clipboard toggle');
-assert(prefsSource.includes('Keep copied images'), 'prefs has the image toggle');
+assert(prefsSource.includes('Remember copied images'), 'prefs has the image toggle');
+assert(
+    prefsSource.includes("When this is off, new text isn't saved. Text already in history stays until it's removed."),
+    'the text toggle matches the image sentence',
+);
+assert(
+    prefsSource.includes("When this is off, new images aren't saved. Images already in history stay until they're removed."),
+    'the image toggle says saved images stay',
+);
+assert(
+    prefsSource.includes('Text and images share this limit. 1 to 500. The default is 50.'),
+    'text and images share how many entries',
+);
 assert(prefsSource.includes('clipboard-excluded-apps'), 'prefs stores skipped apps');
 assert(prefsSource.includes('Password-like copies'), 'prefs has the password-like choice');
 assert(prefsSource.includes('clipboard-lookalike'), 'prefs stores the password-like choice');

@@ -261,7 +261,7 @@ def test_clipboard_capture_filters_before_it_reads_text():
     notice = (ROOT / "THIRD-PARTY.md").read_text(encoding="utf-8")
     assert "Lucide" in notice
     assert "https://lucide.dev/icons/tag" in notice
-    assert "https://lucide.dev/icons/clipboard" in notice
+    assert "https://lucide.dev/icons/copy" in notice
     assert "Copyright (c) 2026 Lucide Icons and Contributors" in notice
     assert "Permission to use, copy, modify, and/or distribute this software" in notice
     agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
@@ -299,7 +299,11 @@ def test_window_icon_is_the_face_and_the_clipboard_icon_wears_it():
     assert "stroke=" not in clip
     assert "stroke-width" not in clip
     assert clip.count("<circle ") == 2
-    assert "M5.67 0.67" in clip
+    assert "M5.67 0.67" not in clip
+    assert "M2.67 11.33" in clip
+    assert 'cx="8.25"' in clip
+    assert 'cx="11.75"' in clip
+    assert "Q10.00 12.91" in clip
     css = (EXTENSION / "stylesheet.css").read_text(encoding="utf-8")
     assert "background-image" not in css
 
@@ -333,8 +337,20 @@ def test_the_panel_menu_loads_tetherbot_icons_from_the_extension():
     assert "_clipIconButton(" in filled
     assert "view-pin-symbolic" in filled
     assert "'Pinned'" in filled
+    assert "'Unpinned'" in filled
     assert "PopupSeparatorMenuItem" in filled
     assert "Nothing copied yet" in filled
+    menu = text.split("    _fillClipboardMenu() {", 1)[1].split(
+        "    _appendClipboardRows(entries) {", 1
+    )[0]
+    assert menu.index("'Pinned'") < menu.index("PopupSeparatorMenuItem")
+    assert menu.index("PopupSeparatorMenuItem") < menu.index("'Unpinned'")
+    assert menu.index("'Unpinned'") < menu.index("Nothing copied yet")
+    built = text.split("    _appendClipboardRows(entries) {", 1)[1].split(
+        "\n    _installIconTheme()", 1
+    )[0]
+    assert "Unpinned" not in built
+    assert "button-press-event" in built
     assert "clip-edit" in filled
     assert "clip-tag" in filled
     assert "_searchClipboard(" in filled

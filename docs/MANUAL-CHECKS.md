@@ -1882,12 +1882,12 @@ journalctl --user -b /usr/bin/gnome-shell --no-pager | tail -n 80
 
 - Each menu row is one line. Pinning and unpinning does not wrap the row onto a second line.
 - The same icon columns are there, with the same tooltips and faint separators. Tag dots sit in the text area.
-- An unpinned pin is the ordinary foreground color, not faded. A pinned pin uses the accent color.
+- Pins are the ordinary symbolic icon. Pinned rows are grouped under a Pinned label, above a horizontal line. The label and the line stay when nothing is pinned.
 - On a Hidden password row, Edit, Tag, and Search the web are dimmed and the columns do not shift. The row says Hidden password.
 - Pressing an icon does not also copy the line.
 - Copy puts that line back on the clipboard.
 - Delete removes that row, including a pinned one.
-- Edit, Tag, and Search the web open the Clipboard page. They do not open a browser. Search the web on the page is unchanged: nothing opens until that page's button is pressed.
+- Edit opens the edit dialog for that line. Tag opens the tag dialog for that line. Search the web opens the default browser and does not require the window. Search the web on the page is unchanged: nothing opens until that page's button is pressed.
 
 **Reset.** Set Password-like copies back to Skip. Leave the history as you want it.
 
@@ -2058,18 +2058,21 @@ journalctl --user -b /usr/bin/gnome-shell --no-pager | tail -n 80
 
 **Reset.** None.
 
-## M134. An active pin in the panel menu uses the accent color
+## M134. The panel menu groups pins and runs each button
 
-**Preconditions.** Log out and back in after this version is installed. The active pin is a 16px widget background of the pin drawing, filled with the theme accent, the same kind of paint as the corner dot on the face. Open the panel clipboard menu. Pin one text entry and leave another unpinned.
+**Preconditions.** Log out and back in after this version is installed, so the menu loads. Restart the TetherBot window and the bridge, so Edit, Tag, and Search reach this version. Have one pinned text entry, one unpinned text entry, one image, and one hidden password if Hide for 30 seconds is on.
 
 **Look for.**
 
-- The pinned row's pin icon uses the theme accent color.
-- The unpinned row's pin icon stays the normal icon color.
-- The two pins are the same shape and size.
-- The other icons in that row stay the normal icon color.
+- The clipboard part of the menu starts with a Pinned label, then the pinned rows, then a horizontal line, then the other rows. The label and the line are there even when nothing is pinned.
+- Pin moves that row under Pinned. Unpin moves it back below the line. The pin icon is the ordinary symbolic pin in both places.
+- Edit on a text row opens the edit dialog for that line. Tag opens the tag dialog for that line.
+- Search the web opens the default browser with a search for that line. The window does not have to open for the search.
+- On an image row, Edit and Search the web are dimmed, about a third as strong, and do nothing. The tooltips still say images are not edited and are not searched. Pin, Tag, Copy, and Delete still work.
+- On a hidden password row, Edit, Tag, Search the web, and the three send buttons are dimmed the same way and do nothing. Pin, Copy, and Delete still work. The tooltips stay.
+- Pin and unpin the image in the window. The image stays in the history. The other rows stay too.
 
-**Reset.** Unpin the entry you pinned.
+**Reset.** Unpin what you pinned. Set Password-like copies back to Skip.
 
 ## M135. The three send icons match the other row icons
 

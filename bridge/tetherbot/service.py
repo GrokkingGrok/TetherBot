@@ -66,6 +66,7 @@ _CLIP_ACTIONS = frozenset({"clip-todo", "clip-todo-context", "clip-ask"})
 _CLIP_TEXT_MAX = 8000
 _CLIP_GAP_SECONDS = 5
 _CLIP_ID = re.compile(r"^c-[0-9a-f]{8}$")
+_CLIP_WINDOW = re.compile(r"^(?:clip-edit|clip-tag):c-[0-9a-f]{8}$")
 _BOT_ID = re.compile(r"^[a-z0-9-]{1,64}$")
 _CLIP_EFFORTS = frozenset({"low", "medium", "high"})
 _LOG = logging.getLogger("tetherbot")
@@ -123,6 +124,7 @@ METHOD_OUT: dict[str, str | None] = {
     "OfferClipboardImage": "(s)",
     "GetClipboardImage": "(say)",
     "SendClipboard": "(s)",
+    "SearchClipboard": "(b)",
 }
 
 PROPERTY_TYPES = {
@@ -301,9 +303,7 @@ class BridgeApi:
         return (_dumps(rows),)
 
     def _open_window(self, item_key: str) -> tuple[bool]:
-        if not isinstance(item_key, str) or (
-            item_key and item_key not in _WINDOW_TARGETS and _bad_item_key(item_key)
-        ):
+        if not isinstance(item_key, str) or not _window_key_ok(item_key):
             raise ServiceError(INVALID_ARGS, "item_key is invalid")
         hook = getattr(self._daemon, "launch_window", None)
         if hook is None:
@@ -857,6 +857,21 @@ class BridgeApi:
         if changed:
             self._emit("ClipboardChanged", len(history.entries))
         return (changed,)
+
+    def _search_clipboard(self, entry_id: str) -> tuple[bool]:
+        """Open a web search for one text entry. The text is not logged."""
+
+        if not isinstance(entry_id, str) or not _CLIP_ID.fullmatch(entry_id):
+            raise ServiceError(INVALID_ARGS, "entry_id is invalid")
+        history = self._clipboard_history()
+        row = history.send_source(entry_id)
+        if row is None or row["kind"] == "image" or row["masked"]:
+            return (False,)
+        text = row.get("text")
+        fallback = resolve_ui_settings(self._daemon).clipboard_search_fallback
+        from tetherbot.clipboard_search import open_clip_search
+
+        return (open_clip_search(text, fallback) == "opened",)
 
     def _send_clipboard(
         self,
@@ -1546,6 +1561,14 @@ def _recently_done(item: Any, now: datetime, seconds: int) -> bool:
     except ValueError:
         return False
     return (now - closed).total_seconds() <= seconds
+
+
+def _window_key_ok(item_key: str) -> bool:
+    if item_key in _WINDOW_TARGETS or item_key == "":
+        return True
+    if _CLIP_WINDOW.fullmatch(item_key):
+        return True
+    return not _bad_item_key(item_key)
 
 
 def _bad_item_key(key: str) -> bool:

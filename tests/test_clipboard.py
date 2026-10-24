@@ -392,6 +392,38 @@ def test_old_clipboard_file_loads_and_a_hidden_password_is_not_edited(tmp_path: 
     assert path.stat().st_mode & 0o777 == stat.S_IRUSR | stat.S_IWUSR
 
 
+def test_pin_toggles_keep_an_image_among_text(tmp_path: Path):
+    history = _history(tmp_path)
+    assert history.offer("alpha line", ["text/plain"], "gedit") == "stored"
+    assert history.offer("beta line", ["text/plain"], "gedit") == "stored"
+    blob = tiny_png(4, 5, 6)
+    assert history.offer_image(blob, ["image/png"], "gedit", "image/png") == "stored"
+    listed = history.list_entries()
+    image = next(row for row in listed if row.get("kind") == "image")
+    text_ids = [row["id"] for row in listed if row.get("kind") != "image"]
+    path = Path(image["path"])
+    assert path.is_file()
+    assert len(text_ids) == 2
+    for pinned in (True, False, True, False):
+        assert history.set_pinned(image["id"], pinned) is True
+        history.configure(
+            enabled=True,
+            limit=50,
+            excluded=DEFAULT_EXCLUDED_APPS,
+            lookalike="skip",
+            images=True,
+        )
+        again = history.list_entries()
+        ids = [row["id"] for row in again]
+        assert image["id"] in ids
+        assert set(text_ids) <= set(ids)
+        kept = next(row for row in again if row["id"] == image["id"])
+        assert kept["kind"] == "image"
+        assert kept["pinned"] is pinned
+        assert path.is_file()
+        assert blob == path.read_bytes()
+
+
 def test_a_hidden_password_can_be_pinned_but_not_tagged(tmp_path: Path):
     now = {"at": 1_700_000_000}
     history = _history(tmp_path, lookalike="mask", clock=lambda: now["at"])
@@ -440,6 +472,56 @@ def test_service_pin_edit_and_tags_do_not_log_text(tmp_path: Path):
     assert "alpha line" not in stream.getvalue()
     with pytest.raises(ServiceError):
         daemon.api.call("SetClipboardTags", (ident, LOOKALIKE))
+
+
+def test_search_clipboard_opens_text_and_skips_images(tmp_path: Path, monkeypatch):
+    launched: list[str] = []
+
+    def opened(text, fallback, home=None):
+        launched.append(text if isinstance(text, str) else "")
+        assert isinstance(fallback, str) and fallback.startswith("https://")
+        assert home is None
+        return "opened"
+
+    monkeypatch.setattr("tetherbot.clipboard_search.open_clip_search", opened)
+    stream = StringIO()
+    daemon = BridgeDaemon(
+        config_path=tmp_path / "config.toml",
+        state_dir=tmp_path / "state",
+        log_stream=stream,
+        clock=lambda: NOW,
+    )
+    daemon.start()
+    assert daemon.api is not None
+    assert daemon.api.call("OfferClipboard", ("alpha line", META)) == ("stored",)
+    ident = json.loads(daemon.api.call("GetClipboard", ("",))[0])[0]["id"]
+    assert daemon.api.call("SearchClipboard", (ident,)) == (True,)
+    assert launched == ["alpha line"]
+    blob = tiny_png(1, 2, 3)
+    meta = json.dumps({"mimes": ["image/png"], "wm_class": "gedit", "mime": "image/png"})
+    assert daemon.api.call("OfferClipboardImage", (blob, meta)) == ("stored",)
+    image = next(
+        row
+        for row in json.loads(daemon.api.call("GetClipboard", ("",))[0])
+        if row.get("kind") == "image"
+    )
+    assert daemon.api.call("SearchClipboard", (image["id"],)) == (False,)
+    daemon.ui_settings = UiSettings(clipboard_lookalike="mask")
+    assert daemon.api.call("OfferClipboard", (LOOKALIKE, META)) == ("stored-masked",)
+    hidden = next(
+        row
+        for row in json.loads(daemon.api.call("GetClipboard", ("",))[0])
+        if row.get("masked") is True
+    )
+    assert daemon.api.call("SearchClipboard", (hidden["id"],)) == (False,)
+    assert daemon.api.call("SearchClipboard", ("c-00000000",)) == (False,)
+    assert launched == ["alpha line"]
+    logged = stream.getvalue()
+    assert "alpha line" not in logged
+    assert "duckduckgo" not in logged
+    assert LOOKALIKE not in logged
+    with pytest.raises(ServiceError):
+        daemon.api.call("SearchClipboard", ("not-an-id",))
 
 
 def _png_chunk(tag: bytes, data: bytes) -> bytes:

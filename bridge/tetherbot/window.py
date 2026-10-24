@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import time
 from collections.abc import Callable
@@ -25,7 +26,11 @@ gi.require_version("Pango", "1.0")
 from gi.repository import Adw, Gdk, Gio, GLib, Graphene, Gsk, Gtk, Pango  # noqa: E402
 
 from tetherbot.clipboard_policy import image_label, list_preview  # noqa: E402
-from tetherbot.clipboard_search import choose_search_template, search_target  # noqa: E402
+from tetherbot.clipboard_search import (  # noqa: E402
+    choose_search_template,
+    desktop_search_inputs,
+    open_clip_search,
+)
 from tetherbot.markdown import Run, render  # noqa: E402
 from tetherbot.todos import PALETTE  # noqa: E402
 from tetherbot.ui_settings import EXTENSION_UUID, load_ui_settings  # noqa: E402
@@ -64,6 +69,18 @@ BUS_NAME = "io.github.grokkinggrok.TetherBot1"
 OBJECT_PATH = "/io/github/grokkinggrok/TetherBot1"
 INTERFACE = "io.github.grokkinggrok.TetherBot1"
 LINGER_MS = 60_000
+_CLIP_WINDOW = re.compile(r"^(clip-edit|clip-tag):(c-[0-9a-f]{8})$")
+
+
+def _clip_window_action(key: str) -> tuple[str, str] | None:
+    """``clip-edit:<id>`` or ``clip-tag:<id>`` for one clipboard row."""
+
+    if not isinstance(key, str):
+        return None
+    match = _CLIP_WINDOW.fullmatch(key)
+    if match is None:
+        return None
+    return match.group(1), match.group(2)
 _SORT_LABELS = ("Due", "Priority", "Created", "Updated")
 _VIEW_LABELS = {
     "all": "All",
@@ -608,6 +625,8 @@ class TodoWindow(Adw.ApplicationWindow):
         self._clip_search_kind = "none"
         self._clip_search_template: str | None = None
         self._clip_entries: list[dict[str, Any]] = []
+        self._clip_gen = 0
+        self._clip_pending: tuple[str, str] | None = None
         self._clip_dialog: Adw.AlertDialog | None = None
         self._sort = "due"
         self._query = ""
@@ -1017,6 +1036,12 @@ class TodoWindow(Adw.ApplicationWindow):
         """Raise the window. An empty key shows todos. ``bots`` opens the bot list."""
 
         self.present()
+        clip = _clip_window_action(key)
+        if clip is not None:
+            self._clip_pending = clip
+            self._set_page("clipboard")
+            return
+        self._clip_pending = None
         if key == "bots":
             self._set_page("bots")
             return
@@ -2481,8 +2506,14 @@ class TodoWindow(Adw.ApplicationWindow):
             self._fill_clipboard_rows()
 
     def _reload_clipboard(self) -> None:
+        self._clip_gen += 1
+        token = self._clip_gen
         if hasattr(self.client, "load_clipboard"):
-            self.client.load_clipboard(self._on_clipboard_loaded)
+            self.client.load_clipboard(
+                lambda entries, error, token=token: self._on_clipboard_loaded(
+                    entries, error, token
+                )
+            )
             return
         if hasattr(self.client, "get_clipboard"):
             try:
@@ -2492,12 +2523,16 @@ class TodoWindow(Adw.ApplicationWindow):
                 self.banner.set_revealed(True)
                 self._clip_entries = []
         self._fill_clipboard_rows()
+        self._apply_clip_pending(loaded=True)
 
     def _on_clipboard_loaded(
         self,
         entries: list[dict[str, Any]],
         error: BridgeError | None,
+        token: int | None = None,
     ) -> None:
+        if token is not None and token != self._clip_gen:
+            return
         if self._page != "clipboard":
             return
         if error is not None:
@@ -2508,6 +2543,7 @@ class TodoWindow(Adw.ApplicationWindow):
             self.banner.set_revealed(False)
             self._clip_entries = entries
         self._fill_clipboard_rows()
+        self._apply_clip_pending(loaded=True)
 
     def _fill_clipboard_rows(self) -> None:
         self._sync_clip_tags()
@@ -2920,7 +2956,7 @@ class TodoWindow(Adw.ApplicationWindow):
             return
         self._reload_clip_now()
 
-    def _on_edit_clip(self, _button: Gtk.Button, entry: dict[str, Any]) -> None:
+    def _on_edit_clip(self, _button: object, entry: dict[str, Any]) -> None:
         if entry.get("masked") is True or entry.get("kind") == "image":
             return
         ident = entry.get("id")
@@ -2929,7 +2965,7 @@ class TodoWindow(Adw.ApplicationWindow):
             return
         self._show_clip_text("Edit", text, editable=True, entry_id=ident)
 
-    def _on_tag_clip(self, _button: Gtk.Button, entry: dict[str, Any]) -> None:
+    def _on_tag_clip(self, _button: object, entry: dict[str, Any]) -> None:
         if entry.get("masked") is True:
             return
         ident = entry.get("id")
@@ -2946,14 +2982,15 @@ class TodoWindow(Adw.ApplicationWindow):
         if entry.get("masked") is True or entry.get("kind") == "image":
             return
         self._clip_search_ready = False
-        url = search_target(entry.get("text"), self._search_template())
-        if url is None:
-            self._toast("No default search engine")
-            return
         try:
-            Gio.AppInfo.launch_default_for_uri(url, None)
+            fallback = load_ui_settings().clipboard_search_fallback
         except Exception:
+            fallback = None
+        outcome = open_clip_search(entry.get("text"), fallback)
+        if outcome == "failed":
             self._toast("Could not open the browser")
+        elif outcome != "opened":
+            self._toast("No default search engine")
 
     def _preview_clipboard(self, row: Gtk.ListBoxRow) -> None:
         entry = getattr(row, "clip_entry", None)
@@ -3123,6 +3160,7 @@ class TodoWindow(Adw.ApplicationWindow):
         window.present()
 
     def _reload_clip_now(self) -> None:
+        self._clip_gen += 1
         if hasattr(self.client, "get_clipboard"):
             try:
                 self._clip_entries = self.client.get_clipboard()
@@ -3130,27 +3168,37 @@ class TodoWindow(Adw.ApplicationWindow):
                 self._toast(str(exc))
                 return
         self._fill_clipboard_rows()
+        self._apply_clip_pending(loaded=True)
+
+    def _apply_clip_pending(self, *, loaded: bool) -> None:
+        pending = self._clip_pending
+        if pending is None:
+            return
+        kind, ident = pending
+        entry = next(
+            (
+                row
+                for row in self._clip_entries
+                if isinstance(row, dict) and row.get("id") == ident
+            ),
+            None,
+        )
+        if entry is None:
+            if loaded:
+                self._clip_pending = None
+            return
+        self._clip_pending = None
+        if kind == "clip-edit":
+            self._on_edit_clip(None, entry)
+        elif kind == "clip-tag":
+            self._on_tag_clip(None, entry)
 
     def _search_template(self) -> str | None:
         if self._clip_search_ready:
             return self._clip_search_template
         self._clip_search_ready = True
-        desktop = ""
-        setting = None
         try:
-            info = Gio.AppInfo.get_default_for_uri_scheme("https")
-            if info is not None:
-                desktop = info.get_id() or ""
-        except Exception:
-            desktop = ""
-        try:
-            source = Gio.SettingsSchemaSource.get_default()
-            schema = None if source is None else source.lookup("org.gnome.Epiphany", True)
-            if schema is not None and schema.has_key("search-engine"):
-                setting = Gio.Settings.new("org.gnome.Epiphany").get_string("search-engine")
-        except Exception:
-            setting = None
-        try:
+            desktop, setting = desktop_search_inputs()
             fallback = load_ui_settings().clipboard_search_fallback
             chosen, kind = choose_search_template(Path.home(), desktop, setting, fallback)
         except Exception:

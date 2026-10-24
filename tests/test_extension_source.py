@@ -208,7 +208,7 @@ def test_clipboard_capture_filters_before_it_reads_text():
     assert "accessible_name = 'Clipboard'" in menu
     assert "Clear history" in menu
     assert "text:" not in menu or "count" not in menu
-    filled = text.split("    _fillClipboardMenu() {", 1)[1].split("\n    _", 1)[0]
+    filled = text.split("    _fillClipboardMenu() {", 1)[1].split("    _installIconTheme()", 1)[0]
     assert "Unpin" in filled
     assert "view-pin-symbolic" in filled
     assert "document-edit-symbolic" in filled
@@ -268,7 +268,10 @@ def test_clipboard_capture_filters_before_it_reads_text():
     ) in agents
     assert "PinClipboardRemote" in text
     assert "DeleteClipboardRemote" in text
+    assert "SearchClipboardRemote" in text
     assert "launch_default_for_uri" not in text
+    assert "'Pinned'" in filled
+    assert "clip-edit" in filled
 
 
 def test_the_panel_menu_loads_tetherbot_icons_from_the_extension():
@@ -281,31 +284,42 @@ def test_the_panel_menu_loads_tetherbot_icons_from_the_extension():
     assert "icon_name: iconName" in helper
     button = text.split("    _clipIconButton(", 1)[1].split("\n    _", 1)[0]
     assert "_menuIcon(" in button
-    assert "_accentPinIcon(" in button
+    assert "_accentPinIcon(" not in button
     assert "icon_size: 16" not in button
-    assert "if (accent)" in button
+    assert "if (accent)" not in button
     assert "color: -st-accent-color" not in button
-    accent = text.split("    _accentPinIcon(", 1)[1].split("\n    _", 1)[0]
-    assert "accentPinFile()" in accent
-    assert "new St.Widget(" in accent
-    assert "background-image: url(" in accent
-    assert "background-size: contain" in accent
-    assert "width: 16px" in accent
-    assert "height: 16px" in accent
-    assert "Gio.FileIcon.new" not in accent
-    assert "new St.Icon(" not in accent
-    assert "-st-icon-style" not in accent
-    assert "color: -st-accent-color" not in accent
-    painter = text.split("function accentPinFile()", 1)[1].split("\nfunction ", 1)[0]
-    assert "get_accent_color" in painter
-    assert "pin-accent-${hex}.svg" in painter
-    assert "pin-accent-${hex}-symbolic.svg" not in painter
-    filled = text.split("    _fillClipboardMenu() {", 1)[1].split("\n    _", 1)[0]
+    assert "reactive: enabled" in button
+    assert "track_hover: enabled" in button
+    assert "tetherbot-clip-off" in button
+    assert "tooltip_text = name" in button
+    assert "accessible_name = name" in button
+    assert "_accentPinIcon" not in text
+    assert "accentPinFile" not in text
+    assert "get_accent_color" not in text
+    assert "background-image" not in text
+    assert "pin-accent-" not in text
+    filled = text.split("    _fillClipboardMenu() {", 1)[1].split("    _installIconTheme()", 1)[0]
     assert "tetherbot-tag-symbolic" in filled
     assert "_clipIconButton(" in filled
     assert "view-pin-symbolic" in filled
+    assert "'Pinned'" in filled
+    assert "PopupSeparatorMenuItem" in filled
+    assert "Nothing copied yet" in filled
+    assert "clip-edit" in filled
+    assert "clip-tag" in filled
+    assert "_searchClipboard(" in filled
+    assert "MENU_LIMIT" in filled
+    assert "opacity:" not in filled
+    assert "SearchClipboardRemote" in text
+    search = text.split("    _searchClipboard(", 1)[1].split("\n    _", 1)[0]
+    assert "SearchClipboardRemote" in search
+    assert "launch_default_for_uri" not in search
     css = (EXTENSION / "stylesheet.css").read_text(encoding="utf-8")
     assert ".tetherbot-clip-pin-on StIcon" not in css
+    assert ".tetherbot-clip-off" in css
+    assert "opacity: 0.35" in css
+    assert ".tetherbot-dimmed" in css
+    assert "opacity: 0.45" in css
 
 
 def test_clipboard_send_icons_are_filled_and_credited():

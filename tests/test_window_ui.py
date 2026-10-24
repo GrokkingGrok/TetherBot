@@ -1420,6 +1420,136 @@ def test_clipboard_tag_filter_stops_after_one_rebuild():
     assert holder.get("ok") is True
 
 
+def test_a_stale_clipboard_load_keeps_an_image_and_routes_edit_and_tag():
+    gi = pytest.importorskip("gi")
+    try:
+        gi.require_version("Gtk", "4.0")
+        gi.require_version("Adw", "1")
+        from gi.repository import Adw, Gio, GLib
+    except ValueError as exc:
+        pytest.skip(str(exc))
+    if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
+        pytest.skip("GTK window test needs a display")
+
+    from tetherbot.window import WindowApp
+
+    image = {
+        "id": "c-aaaaaaa1",
+        "kind": "image",
+        "mime": "image/png",
+        "size": 12,
+        "at": 3,
+        "pinned": False,
+        "tags": [],
+        "text": "",
+        "path": "/tetherbot-missing/clipboard-image.png",
+    }
+    text = {
+        "id": "c-aaaaaaa2",
+        "text": "alpha line",
+        "at": 2,
+        "pinned": False,
+        "tags": [],
+    }
+    other = {
+        "id": "c-aaaaaaa3",
+        "text": "beta line",
+        "at": 1,
+        "pinned": False,
+        "tags": [],
+    }
+
+    class _Clip:
+        def __init__(self) -> None:
+            self.loads: list = []
+            self.current = [image, text, other]
+            self.stale = [text, other]
+
+        def set_listener(self, listener) -> None:
+            return None
+
+        def set_clipboard_listener(self, listener) -> None:
+            return None
+
+        def get_items(self, spec):
+            return []
+
+        def get_tags(self):
+            return []
+
+        def bots(self):
+            return []
+
+        def load_clipboard(self, callback) -> None:
+            self.loads.append(callback)
+
+        def get_clipboard(self):
+            return [dict(row) for row in self.current]
+
+    class _Isolated(WindowApp):
+        def __init__(self, client: _Clip) -> None:
+            Adw.Application.__init__(
+                self,
+                application_id="io.github.grokkinggrok.TetherBot.ClipGenTest",
+                flags=Gio.ApplicationFlags.NON_UNIQUE,
+            )
+            self._client = client
+            self.window = None
+            self._linger = 0
+
+    fake = _Clip()
+    app = _Isolated(fake)
+    holder: dict = {}
+
+    def finish():
+        try:
+            window = app.window
+            assert window is not None
+            window._set_page("clipboard")
+            assert fake.loads
+            fake.loads[-1](list(fake.current), None)
+            assert any(row.get("kind") == "image" for row in window._clip_entries)
+            window._reload_clipboard()
+            stale = fake.loads[-1]
+            window._reload_clip_now()
+            assert any(row.get("kind") == "image" for row in window._clip_entries)
+            stale(list(fake.stale), None)
+            assert [row.get("id") for row in window._clip_entries] == [
+                "c-aaaaaaa1",
+                "c-aaaaaaa2",
+                "c-aaaaaaa3",
+            ]
+            opened: list[tuple[str, str]] = []
+            window._on_edit_clip = lambda _button, entry: opened.append(("edit", entry["id"]))
+            window._on_tag_clip = lambda _button, entry: opened.append(("tag", entry["id"]))
+            window.select_key("clip-edit:c-aaaaaaa2")
+            fake.loads[-1]([dict(row) for row in fake.current], None)
+            window.select_key("clip-tag:c-aaaaaaa1")
+            fake.loads[-1]([dict(row) for row in fake.current], None)
+            window.select_key("clip-edit:c-aaaaaaa1")
+            fake.loads[-1]([dict(row) for row in fake.current], None)
+            assert opened == [
+                ("edit", "c-aaaaaaa2"),
+                ("tag", "c-aaaaaaa1"),
+                ("edit", "c-aaaaaaa1"),
+            ]
+            holder["ok"] = True
+        except Exception as exc:
+            holder["error"] = exc
+        app.quit()
+        return False
+
+    try:
+        app.connect("activate", lambda _app: GLib.idle_add(finish))
+        GLib.timeout_add(8000, app.quit)
+        app.run(["tetherbot-window"])
+    finally:
+        reset_tetherbot_logger()
+    if "error" in holder:
+        raise holder["error"]
+    assert holder.get("ok") is True
+
+
 def test_context_send_opens_a_bot_picker():
     gi = pytest.importorskip("gi")
     try:

@@ -3,8 +3,9 @@
 
 A Chromium profile stores Google as ``{google:baseURL}``. That token
 is expanded to the base Chromium uses. When no browser engine can be
-read, the Settings fallback is used. This module does not open a
-browser, a socket, or a log.
+read, the Settings fallback is used. Building a URL does not open a
+browser or write a log. ``open_clip_search`` is the one function that
+launches the default browser, and it does not log the text or the URL.
 """
 
 from __future__ import annotations
@@ -68,6 +69,63 @@ def discover_search_template(home: Path, desktop_id: str, setting: str | None = 
     if "chrome" in ident or "chromium" in ident or "brave" in ident or "edge" in ident:
         return _chromium_template(home, ident)
     return None
+
+
+def desktop_search_inputs() -> tuple[str, str | None]:
+    """The default https app id, and Epiphany's search engine when it is set."""
+
+    desktop = ""
+    setting = None
+    try:
+        import gi
+
+        gi.require_version("Gio", "2.0")
+        from gi.repository import Gio
+    except (ImportError, ValueError):
+        return desktop, setting
+    try:
+        info = Gio.AppInfo.get_default_for_uri_scheme("https")
+        if info is not None:
+            desktop = info.get_id() or ""
+    except Exception:
+        desktop = ""
+    try:
+        source = Gio.SettingsSchemaSource.get_default()
+        schema = None if source is None else source.lookup("org.gnome.Epiphany", True)
+        if schema is not None and schema.has_key("search-engine"):
+            setting = Gio.Settings.new("org.gnome.Epiphany").get_string("search-engine")
+    except Exception:
+        setting = None
+    return desktop, setting
+
+
+def open_clip_search(text: object, fallback: object, home: Path | None = None) -> str:
+    """Open the default browser. ``opened``, ``no-engine``, or ``failed``.
+
+    The text and the address are not logged.
+    """
+
+    root = home if isinstance(home, Path) else Path.home()
+    desktop, setting = desktop_search_inputs()
+    chosen = fallback if isinstance(fallback, str) else None
+    template, _kind = choose_search_template(root, desktop, setting, chosen)
+    url = search_target(text, template)
+    if url is None:
+        return "no-engine"
+    return "opened" if _launch_https(url) else "failed"
+
+
+def _launch_https(url: str) -> bool:
+    try:
+        import gi
+
+        gi.require_version("Gio", "2.0")
+        from gi.repository import Gio
+
+        Gio.AppInfo.launch_default_for_uri(url, None)
+    except Exception:
+        return False
+    return True
 
 
 def choose_search_template(

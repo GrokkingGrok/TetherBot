@@ -25,6 +25,10 @@
     opacity: 0.45;
 }
 
+.tetherbot-clip-off {
+    opacity: 0.35;
+}
+
 .panel-button.tetherbot-panel {
     padding-left: 2px;
     padding-right: 2px;

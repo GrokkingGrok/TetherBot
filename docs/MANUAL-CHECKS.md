@@ -2060,13 +2060,14 @@ journalctl --user -b /usr/bin/gnome-shell --no-pager | tail -n 80
 
 ## M134. An active pin in the panel menu uses the accent color
 
-**Preconditions.** Log out and back in after this version is installed. Open the panel clipboard menu. Pin one text entry and leave another unpinned.
+**Preconditions.** Log out and back in after this version is installed. The active pin is a 16px widget background of the pin drawing, filled with the theme accent, the same kind of paint as the corner dot on the face. Open the panel clipboard menu. Pin one text entry and leave another unpinned.
 
 **Look for.**
 
 - The pinned row's pin icon uses the theme accent color.
 - The unpinned row's pin icon stays the normal icon color.
 - The two pins are the same shape and size.
+- The other icons in that row stay the normal icon color.
 
 **Reset.** Unpin the entry you pinned.
 

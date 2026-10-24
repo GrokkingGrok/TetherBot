@@ -203,4 +203,16 @@ def test_open_window_uses_the_bridge_launcher(tmp_path: Path):
     assert daemon.api.call("OpenWindow", ("primary/todo-01",)) == (True,)
     assert daemon.api.call("OpenWindow", ("",)) == (True,)
     assert daemon.api.call("OpenWindow", ("bots",)) == (True,)
-    assert seen == ["primary/todo-01", "", "bots"]
+    assert daemon.api.call("OpenWindow", ("clip-edit:c-abcdef01",)) == (True,)
+    assert daemon.api.call("OpenWindow", ("clip-tag:c-abcdef01",)) == (True,)
+    assert seen == [
+        "primary/todo-01",
+        "",
+        "bots",
+        "clip-edit:c-abcdef01",
+        "clip-tag:c-abcdef01",
+    ]
+    with pytest.raises(ServiceError):
+        daemon.api.call("OpenWindow", ("clip-edit:nope",))
+    with pytest.raises(ServiceError):
+        daemon.api.call("OpenWindow", ("clip-tag:c-zzzzzzzz",))

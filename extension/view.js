@@ -88,6 +88,7 @@ export const PROXY_METHODS = [
     'SendClipboardRemote',
     'SetClipboardTagsRemote',
     'EditClipboardRemote',
+    'SearchClipboardRemote',
 ];
 
 export const PROXY_SIGNALS = [

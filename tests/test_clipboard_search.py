@@ -12,6 +12,7 @@ from tetherbot.clipboard_search import (
     decode_mozlz4,
     discover_search_template,
     normalize_search_url,
+    open_clip_search,
     search_target,
     template_from_chromium,
     template_from_firefox,
@@ -26,6 +27,24 @@ def test_list_preview_keeps_one_line_and_shortens_a_long_item():
     assert "\n" not in preview
     assert len(preview) <= 180
     assert preview.endswith("…")
+
+
+def test_open_clip_search_launches_https_and_skips_a_blank(monkeypatch, tmp_path: Path):
+    launched: list[str] = []
+    monkeypatch.setattr(
+        "tetherbot.clipboard_search.desktop_search_inputs",
+        lambda: ("", None),
+    )
+    monkeypatch.setattr(
+        "tetherbot.clipboard_search._launch_https",
+        lambda url: launched.append(url) or True,
+    )
+    assert open_clip_search("hello world", FALLBACK_SEARCH_TEMPLATE, tmp_path) == "opened"
+    assert launched == ["https://duckduckgo.com/?q=hello%20world"]
+    assert open_clip_search("   ", FALLBACK_SEARCH_TEMPLATE, tmp_path) == "no-engine"
+    assert open_clip_search("hello", "not a template", tmp_path) == "no-engine"
+    monkeypatch.setattr("tetherbot.clipboard_search._launch_https", lambda _url: False)
+    assert open_clip_search("hello", FALLBACK_SEARCH_TEMPLATE, tmp_path) == "failed"
 
 
 def test_search_target_uses_the_template_and_rejects_a_missing_engine():

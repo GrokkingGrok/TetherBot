@@ -68,119 +68,6 @@ import {
     pickImageMime,
 } from './clipboard.js';
 
-function accentChannel(color, name) {
-    if (!color)
-        return null;
-    const getter = color[`get_${name}`];
-    if (typeof getter === 'function') {
-        const value = getter.call(color);
-        if (typeof value === 'number' && !Number.isNaN(value))
-            return Math.max(0, Math.min(255, Math.round(value * 255)));
-    }
-    const raw = color[name];
-    if (typeof raw !== 'number' || Number.isNaN(raw))
-        return null;
-    return Math.max(0, Math.min(255, Math.round(raw)));
-}
-
-function accentRgb(colors) {
-    const color = Array.isArray(colors) ? colors[0] : colors;
-    const red = accentChannel(color, 'red');
-    const green = accentChannel(color, 'green');
-    const blue = accentChannel(color, 'blue');
-    if (red === null || green === null || blue === null)
-        return null;
-    return [red, green, blue];
-}
-
-function pinSvgHasFill(source) {
-    return typeof source === 'string' && /fill=(["'])#[0-9A-Fa-f]{3,8}\1/.test(source);
-}
-
-function recolorPinSvg(source, hex) {
-    if (!pinSvgHasFill(source))
-        return null;
-    return source.replace(/fill=(["'])#[0-9A-Fa-f]{3,8}\1/g, `fill="#${hex}"`);
-}
-
-function readPinText(path) {
-    try {
-        const file = Gio.File.new_for_path(path);
-        if (!file.query_exists(null))
-            return '';
-        const [, bytes] = file.load_contents(null);
-        return new TextDecoder().decode(bytes);
-    } catch (error) {
-        return '';
-    }
-}
-
-function readPinSvg() {
-    const paths = ['/usr/share/icons/Adwaita/symbolic/actions/view-pin-symbolic.svg'];
-    try {
-        const display = Gdk.Display.get_default();
-        if (display) {
-            const theme = Gtk.IconTheme.get_for_display(display);
-            const flags = Gtk.IconLookupFlags ? Gtk.IconLookupFlags.NONE : 0;
-            const paintable = theme.lookup_icon(
-                'view-pin-symbolic', null, 16, 1, Gtk.TextDirection.LTR, flags);
-            const file = paintable && paintable.get_file ? paintable.get_file() : null;
-            const path = file && file.get_path ? file.get_path() : '';
-            if (path)
-                paths.unshift(path);
-        }
-    } catch (error) {
-        // The Adwaita pin file remains.
-    }
-    for (const path of paths) {
-        const text = readPinText(path);
-        if (pinSvgHasFill(text))
-            return text;
-    }
-    return '';
-}
-
-function accentPinFile() {
-    // The active pin is the Adwaita pin with the theme accent written into
-    // the fill. The menu paints that file as a widget background.
-    let rgb = null;
-    try {
-        const theme = St.ThemeContext.get_for_stage(global.stage);
-        rgb = accentRgb(theme.get_accent_color());
-    } catch (error) {
-        rgb = null;
-    }
-    if (!rgb)
-        return null;
-    const hex = rgb.map((part) => part.toString(16).padStart(2, '0')).join('');
-    let dir;
-    try {
-        dir = Gio.File.new_for_path(GLib.build_filenamev([
-            GLib.get_user_cache_dir(), 'tetherbot']));
-        if (!dir.query_exists(null))
-            dir.make_directory_with_parents(null);
-    } catch (error) {
-        return null;
-    }
-    const dest = dir.get_child(`pin-accent-${hex}.svg`);
-    try {
-        if (!dest.query_exists(null)) {
-            const svg = recolorPinSvg(readPinSvg(), hex);
-            if (!svg)
-                return null;
-            dest.replace_contents(
-                new TextEncoder().encode(svg),
-                null,
-                false,
-                Gio.FileCreateFlags.REPLACE_DESTINATION,
-                null);
-        }
-    } catch (error) {
-        return null;
-    }
-    return dest;
-}
-
 function _windowIdentity(metaWindow) {
     let gtkId = '';
     let wmClass = '';
@@ -2345,12 +2232,28 @@ export default class TetherBotExtension extends Extension {
         if (!this._clipSection)
             return;
         this._clipSection.removeAll();
-        const entries = (this._clipEntries || []).slice(0, MENU_LIMIT);
-        if (!entries.length) {
+        const entries = Array.isArray(this._clipEntries) ? this._clipEntries : [];
+        const shown = entries.filter((entry) => {
+            if (!entry)
+                return false;
+            if (entry.kind === 'image')
+                return true;
+            return typeof entry.text === 'string';
+        });
+        const pinned = shown.filter((entry) => entry.pinned === true);
+        const regular = shown.filter((entry) => entry.pinned !== true).slice(0, MENU_LIMIT);
+        this._clipSection.addMenuItem(new PopupMenu.PopupMenuItem('Pinned', {reactive: false}));
+        this._appendClipboardRows(pinned);
+        this._clipSection.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+        if (!pinned.length && !regular.length) {
             const empty = new PopupMenu.PopupMenuItem('Nothing copied yet', {reactive: false});
             this._clipSection.addMenuItem(empty);
             return;
         }
+        this._appendClipboardRows(regular);
+    }
+
+    _appendClipboardRows(entries) {
         for (const entry of entries) {
             const isImage = entry?.kind === 'image';
             if (!entry || (!isImage && typeof entry.text !== 'string'))
@@ -2407,51 +2310,66 @@ export default class TetherBotExtension extends Extension {
                     this._recopyClipboard(entry.text);
             };
             const columns = [
-                ['document-edit-symbolic', editTip, !masked && !isImage, false, () => {
-                    this._openClipboardWindow();
+                ['document-edit-symbolic', editTip, !masked && !isImage, () => {
+                    this._openClipAction('clip-edit', entry.id);
                 }],
-                ['view-pin-symbolic', pinned ? 'Unpin' : 'Pin', true, pinned, () => {
+                ['view-pin-symbolic', pinned ? 'Unpin' : 'Pin', true, () => {
                     this._pinClipboard(entry.id, !pinned);
                 }],
-                ['tetherbot-tag-symbolic', tagTip, !masked, false, () => this._openClipboardWindow()],
-                ['edit-copy-symbolic', 'Copy', true, false, copyBack],
-                ['system-search-symbolic', searchTip, !masked && !isImage, false, () => {
-                    this._openClipboardWindow();
+                ['tetherbot-tag-symbolic', tagTip, !masked, () => {
+                    this._openClipAction('clip-tag', entry.id);
                 }],
-                ['tetherbot-check-symbolic', sendTip('Make a todo'), canSend, false, () => {
+                ['edit-copy-symbolic', 'Copy', true, copyBack],
+                ['system-search-symbolic', searchTip, !masked && !isImage, () => {
+                    this._searchClipboard(entry.id);
+                }],
+                ['tetherbot-check-symbolic', sendTip('Make a todo'), canSend, () => {
                     this._sendClipboard(entry.id, 'clip-todo', label);
                 }],
-                ['tetherbot-square-check-symbolic', sendTip('Make a todo with context'), canSend, false, () => {
+                ['tetherbot-square-check-symbolic', sendTip('Make a todo with context'), canSend, () => {
                     this._sendClipboard(entry.id, 'clip-todo-context', label);
                 }],
-                ['tetherbot-circle-help-symbolic', sendTip('Tell me more'), canSend, false, () => {
+                ['tetherbot-circle-help-symbolic', sendTip('Tell me more'), canSend, () => {
                     this._sendClipboard(entry.id, 'clip-ask', label);
                 }],
-                ['edit-delete-symbolic', 'Delete', true, false, () => this._deleteClipboard(entry.id)],
+                ['edit-delete-symbolic', 'Delete', true, () => this._deleteClipboard(entry.id)],
             ];
             const actions = new St.BoxLayout({
                 style_class: 'tetherbot-clip-actions',
                 y_align: Clutter.ActorAlign.CENTER,
                 x_expand: false,
+                reactive: true,
             });
-            columns.forEach(([iconName, tip, enabled, accent, onPress], index) => {
+            const holdClipClick = () => {
+                this._clipPinHold = true;
+                GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
+                    this._clipPinHold = false;
+                    return GLib.SOURCE_REMOVE;
+                });
+            };
+            actions.connect('button-press-event', () => {
+                holdClipClick();
+                return Clutter.EVENT_PROPAGATE;
+            });
+            actions.connect('button-release-event', () => {
+                holdClipClick();
+                return Clutter.EVENT_STOP;
+            });
+            columns.forEach(([iconName, tip, enabled, onPress], index) => {
                 if (index > 0) {
                     actions.add_child(new St.Widget({
                         style_class: 'tetherbot-clip-sep',
                         y_align: Clutter.ActorAlign.CENTER,
                     }));
                 }
-                const button = this._clipIconButton(iconName, tip, enabled, accent);
-                button.connect('button-press-event', () => {
-                    this._clipPinHold = true;
-                    GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
-                        this._clipPinHold = false;
-                        return GLib.SOURCE_REMOVE;
-                    });
-                    if (enabled)
+                const button = this._clipIconButton(iconName, tip, enabled);
+                if (enabled) {
+                    button.connect('button-press-event', () => {
+                        holdClipClick();
                         onPress();
-                    return Clutter.EVENT_STOP;
-                });
+                        return Clutter.EVENT_STOP;
+                    });
+                }
                 actions.add_child(button);
             });
             row.add_child(actions);
@@ -2537,20 +2455,16 @@ export default class TetherBotExtension extends Extension {
         });
     }
 
-    _clipIconButton(iconName, name, enabled, accent) {
-        let icon;
-        if (accent)
-            icon = this._accentPinIcon(iconName);
-        else
-            icon = this._menuIcon(iconName, '');
+    _clipIconButton(iconName, name, enabled) {
+        const icon = this._menuIcon(iconName, '');
         let style_class = 'popup-menu-item-button tetherbot-clip-action';
         if (!enabled)
-            style_class += ' tetherbot-dimmed';
+            style_class += ' tetherbot-clip-off';
         const button = new St.Button({
             style_class,
             child: icon,
-            can_focus: true,
-            reactive: true,
+            can_focus: enabled,
+            reactive: enabled,
             track_hover: enabled,
             x_expand: false,
             y_align: Clutter.ActorAlign.CENTER,
@@ -2558,21 +2472,6 @@ export default class TetherBotExtension extends Extension {
         button.accessible_name = name;
         button.tooltip_text = name;
         return button;
-    }
-
-    _accentPinIcon(iconName) {
-        // Same paint as the panel dot: a widget background. The shell leaves that paint alone.
-        const file = accentPinFile();
-        if (!file)
-            return this._menuIcon(iconName, '');
-        const uri = file.get_uri();
-        return new St.Widget({
-            x_align: Clutter.ActorAlign.CENTER,
-            y_align: Clutter.ActorAlign.CENTER,
-            x_expand: false,
-            y_expand: false,
-            style: `width: 16px; height: 16px; background-size: contain; background-image: url("${uri}");`,
-        });
     }
 
     _sendClipboard(entryId, action, label) {
@@ -2733,6 +2632,21 @@ export default class TetherBotExtension extends Extension {
             return;
         const call = openWindowCall('clipboard');
         this._proxy.OpenWindowRemote(...call.args, () => {});
+        this._clipIndicator?.menu.close();
+    }
+
+    _openClipAction(action, entryId) {
+        if (!this._proxy || !entryId)
+            return;
+        const call = openWindowCall(`${action}:${entryId}`);
+        this._proxy.OpenWindowRemote(...call.args, () => {});
+        this._clipIndicator?.menu.close();
+    }
+
+    _searchClipboard(entryId) {
+        if (!entryId || !this._proxy || !this._proxy.SearchClipboardRemote)
+            return;
+        this._proxy.SearchClipboardRemote(entryId, () => {});
         this._clipIndicator?.menu.close();
     }
 }

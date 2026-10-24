@@ -207,10 +207,10 @@ export function menuLabel(text, masked = false) {
 
 function isSensitiveMime(mime) {
     const folded = String(mime || '').toLowerCase();
-    return folded.includes('passwordmanagerhint')
-        || folded.includes('concealed')
-        || folded.includes('confidential')
-        || folded.includes('sensitive');
+    return folded.includes('passwordmanagerhint') ||
+        folded.includes('concealed') ||
+        folded.includes('confidential') ||
+        folded.includes('sensitive');
 }
 
 function singleLine(text) {

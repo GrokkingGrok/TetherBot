@@ -16,13 +16,15 @@ TetherBot is pre-alpha. Read [docs/SPEC.md](docs/SPEC.md) first, then take the n
 python -m pip install pytest ruff
 pytest
 ruff check .
+npm ci
+npm run lint:js
 ```
 
-The package metadata targets Python 3.13. The scaffold tests use only the standard library.
+The package metadata targets Python 3.13. The scaffold tests use only the standard library. `npm run lint:js` is ESLint for `extension/`. Those packages are development tools. The extension does not load them.
 
 ## CI
 
-GitHub Actions is [.github/workflows/ci.yml](.github/workflows/ci.yml). It runs `ruff check .` and `pytest` on Python 3.13.
+GitHub Actions is [.github/workflows/ci.yml](.github/workflows/ci.yml). It runs `ruff check .` and `pytest` on Python 3.13, and ESLint for the extension on Node 22.
 
 ## Changes
 

@@ -222,10 +222,10 @@ export function formatElapsed(seconds) {
     const hours = Math.floor(whole / 3600);
     const minutes = Math.floor((whole % 3600) / 60);
     const secs = whole % 60;
-    const pad = value => String(value).padStart(2, '0');
+    const twoDigits = value => String(value).padStart(2, '0');
     if (hours >= 1)
-        return `${hours}:${pad(minutes)}:${pad(secs)}`;
-    return `${minutes}:${pad(secs)}`;
+        return `${hours}:${twoDigits(minutes)}:${twoDigits(secs)}`;
+    return `${minutes}:${twoDigits(secs)}`;
 }
 
 export function formatTopBar(seconds) {
@@ -865,7 +865,7 @@ export function noticeKey(payload, reason) {
     if (typeof payload === 'string') {
         try {
             item = JSON.parse(payload);
-        } catch (error) {
+        } catch {
             return '';
         }
     }

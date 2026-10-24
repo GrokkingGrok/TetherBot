@@ -69,24 +69,24 @@ import {
 } from './clipboard.js';
 
 function _windowIdentity(metaWindow) {
-    let gtkId = '';
-    let wmClass = '';
-    let title = '';
+    let gtkId;
+    let wmClass;
+    let title;
     try {
         gtkId = metaWindow.gtk_application_id || '';
         if (!gtkId && metaWindow.get_gtk_application_id)
             gtkId = metaWindow.get_gtk_application_id() || '';
-    } catch (error) {
+    } catch {
         gtkId = '';
     }
     try {
-        wmClass = metaWindow.get_wm_class ? (metaWindow.get_wm_class() || '') : (metaWindow.wm_class || '');
-    } catch (error) {
+        wmClass = metaWindow.get_wm_class ? metaWindow.get_wm_class() || '' : metaWindow.wm_class || '';
+    } catch {
         wmClass = '';
     }
     try {
-        title = metaWindow.get_title ? (metaWindow.get_title() || '') : (metaWindow.title || '');
-    } catch (error) {
+        title = metaWindow.get_title ? metaWindow.get_title() || '' : metaWindow.title || '';
+    } catch {
         title = '';
     }
     return {gtkId, wmClass, title};
@@ -98,7 +98,7 @@ function _frameRect(metaWindow) {
         if (!frame)
             return null;
         return {x: frame.x, y: frame.y, width: frame.width, height: frame.height};
-    } catch (error) {
+    } catch {
         return null;
     }
 }
@@ -116,7 +116,7 @@ function _workArea(metaWindow) {
         if (!area)
             return null;
         return {x: area.x, y: area.y, width: area.width, height: area.height};
-    } catch (error) {
+    } catch {
         return null;
     }
 }
@@ -225,7 +225,7 @@ export default class TetherBotExtension extends Extension {
             const xmlFile = this.dir.get_child('io.github.grokkinggrok.TetherBot1.xml');
             const [, bytes] = xmlFile.load_contents(null);
             this._Proxy = Gio.DBusProxy.makeProxyWrapper(new TextDecoder().decode(bytes));
-        } catch (error) {
+        } catch {
             console.debug('TetherBot: interface XML did not load');
             this._Proxy = null;
         }
@@ -238,7 +238,7 @@ export default class TetherBotExtension extends Extension {
             this._settingsId = this._settings.connect('changed', () => {
                 this._reloadBridgeSettings();
             });
-        } catch (error) {
+        } catch {
             this._settings = null;
             this._settingsId = 0;
         }
@@ -254,7 +254,7 @@ export default class TetherBotExtension extends Extension {
             BUS_NAME,
             Gio.BusNameWatcherFlags.NONE,
             () => this._onNameAppeared(),
-            () => this._onNameVanished(),
+            () => this._onNameVanished()
         );
         this._render();
     }
@@ -357,7 +357,7 @@ export default class TetherBotExtension extends Extension {
         for (const id of state.signals || []) {
             try {
                 metaWindow.disconnect(id);
-            } catch (error) {
+            } catch {
                 // The window may already be gone.
             }
         }
@@ -389,13 +389,13 @@ export default class TetherBotExtension extends Extension {
         for (const name of ['shown', 'notify::title', 'notify::gtk-application-id', 'notify::wm-class']) {
             try {
                 state.signals.push(metaWindow.connect(name, consider));
-            } catch (error) {
+            } catch {
                 // This Shell build has no such signal.
             }
         }
         try {
             state.signals.push(metaWindow.connect('unmanaged', drop));
-        } catch (error) {
+        } catch {
             // Nothing to undo if the window cannot tell us it closed.
         }
         consider();
@@ -423,12 +423,12 @@ export default class TetherBotExtension extends Extension {
         };
         try {
             state.signals.push(metaWindow.connect('position-changed', noteMove));
-        } catch (error) {
+        } catch {
             // Placement still runs once; we just cannot tell a later drag apart.
         }
         try {
             state.signals.push(metaWindow.connect('size-changed', noteSize));
-        } catch (error) {
+        } catch {
             // The first placement still uses the size at map.
         }
         try {
@@ -436,7 +436,7 @@ export default class TetherBotExtension extends Extension {
                 this._disconnectWindow(metaWindow, state);
                 this._mainWindows.delete(metaWindow);
             }));
-        } catch (error) {
+        } catch {
             // The map entry is dropped on disable.
         }
         this._placeMainWindow(metaWindow, state);
@@ -460,7 +460,7 @@ export default class TetherBotExtension extends Extension {
                 metaWindow.move_resize_frame(true, next.x, next.y, next.width, next.height);
             else if (metaWindow.move_frame)
                 metaWindow.move_frame(true, next.x, next.y);
-        } catch (error) {
+        } catch {
             console.debug('TetherBot: could not place the window');
         }
         if (state.placeIdle)
@@ -566,10 +566,10 @@ export default class TetherBotExtension extends Extension {
         if (!this._enabled || this._running || this._activatePending)
             return;
         const call = startServiceCall();
-        let session = null;
+        let session;
         try {
             session = Gio.DBus.session;
-        } catch (error) {
+        } catch {
             session = null;
         }
         if (!session) {
@@ -591,9 +591,9 @@ export default class TetherBotExtension extends Extension {
                 Gio.DBusCallFlags.NONE,
                 5000,
                 null,
-                (connection, result) => this._onActivateResult(connection, result),
+                (connection, result) => this._onActivateResult(connection, result)
             );
-        } catch (error) {
+        } catch {
             this._activatePending = false;
             this._activationFailed = true;
             this._scheduleActivate();
@@ -609,7 +609,7 @@ export default class TetherBotExtension extends Extension {
             connection.call_finish(result);
             if (!this._running)
                 this._scheduleActivate();
-        } catch (error) {
+        } catch {
             this._activationFailed = true;
             this._scheduleActivate();
         }
@@ -652,7 +652,7 @@ export default class TetherBotExtension extends Extension {
                 this._captureClipboard();
             },
             null,
-            Gio.DBusProxyFlags.DO_NOT_AUTO_START,
+            Gio.DBusProxyFlags.DO_NOT_AUTO_START
         );
     }
 
@@ -733,7 +733,7 @@ export default class TetherBotExtension extends Extension {
         try {
             const parsed = JSON.parse(bots);
             this._bots = Array.isArray(parsed) ? parsed : [];
-        } catch (error) {
+        } catch {
             this._bots = [];
         }
     }
@@ -760,7 +760,7 @@ export default class TetherBotExtension extends Extension {
             try {
                 const parsed = JSON.parse(result[0]);
                 this._items = Array.isArray(parsed) ? parsed : [];
-            } catch (parseError) {
+            } catch {
                 return;
             }
             this._render();
@@ -788,7 +788,7 @@ export default class TetherBotExtension extends Extension {
             try {
                 const parsed = JSON.parse(result[0]);
                 this._searched = Array.isArray(parsed) ? parsed : [];
-            } catch (parseError) {
+            } catch {
                 return;
             }
             this._render();
@@ -950,7 +950,7 @@ export default class TetherBotExtension extends Extension {
 
     _syncTick(view) {
         const want = Boolean(
-            view && view.textStyle === 'run' && view.text && view.text !== '--:--' && this._running,
+            view && view.textStyle === 'run' && view.text && view.text !== '--:--' && this._running
         );
         if (want) {
             if (!this._tickSource) {
@@ -1111,14 +1111,13 @@ export default class TetherBotExtension extends Extension {
         if (row.pick)
             item.connect('activate', () => this._activateTodo(row));
         const heading = new St.BoxLayout({x_expand: true});
-        if (row.chips && row.chips.priority) {
+        if (row.chips && row.chips.priority)
             heading.add_child(chipLabel(row.chips.priority, row.chips.priorityTone));
-        }
         heading.add_child(title);
         text.add_child(heading);
-        if (row.chips)
+        if (row.chips) {
             text.add_child(this._chipRow(row.chips, row.tracked, row.botLabel));
-        else {
+        } else {
             const meta = [row.botLabel || row.bot, row.due].filter(Boolean).join(' · ');
             text.add_child(new St.Label({text: meta, style_class: 'tetherbot-subtle'}));
             if (row.tracked)
@@ -1134,11 +1133,10 @@ export default class TetherBotExtension extends Extension {
         } else if (row.canStart && !row.pick) {
             top.add_child(this._playButton(row));
         }
-        if (row.undo) {
+        if (row.undo)
             top.add_child(this._undoButton(row.undoUntil, () => this._undo(row.key)));
-        } else if (row.canSendDone) {
+        else if (row.canSendDone)
             top.add_child(this._actionButton('Done', () => this._markDone(row), false));
-        }
         box.add_child(top);
         item.add_child(box);
         return item;
@@ -1222,9 +1220,8 @@ export default class TetherBotExtension extends Extension {
             box.add_child(this._timerActions(block.actions || []));
         } else if (block.kind === 'stopped') {
             box.add_child(new St.Label({text: block.title || 'Stopped'}));
-            if (block.undo) {
+            if (block.undo)
                 box.add_child(this._undoButton(block.undo.untilMs, () => this._undoStop()));
-            }
             if (block.assigning) {
                 box.add_child(new St.Label({
                     text: 'Choose a todo',
@@ -1303,9 +1300,9 @@ export default class TetherBotExtension extends Extension {
         } else if (block.kind === 'switch' || block.kind === 'undo' || block.kind === 'assign') {
             const row = new St.BoxLayout({x_expand: true});
             row.add_child(new St.Label({text: block.title, x_expand: true}));
-            if (block.kind === 'switch')
+            if (block.kind === 'switch') {
                 row.add_child(this._timerActions(block.actions || []));
-            else if (block.action) {
+            } else if (block.action) {
                 const press = () => this._timerAction(block.action);
                 if (block.kind === 'undo')
                     row.add_child(this._undoButton(block.untilMs, press));
@@ -1345,41 +1342,41 @@ export default class TetherBotExtension extends Extension {
     }
 
     _timerAction(label) {
-        if (label === 'Pause')
+        if (label === 'Pause') {
             this._timerCall('PauseTimerRemote');
-        else if (label === 'Resume')
+        } else if (label === 'Resume') {
             this._timerCall('ResumeTimerRemote');
-        else if (label === 'Stop')
+        } else if (label === 'Stop') {
             this._timerCall('StopTimerRemote');
-        else if (label === 'Undo')
+        } else if (label === 'Undo') {
             this._undoStop();
-        else if (label === 'Add to a todo') {
+        } else if (label === 'Add to a todo') {
             this._assigning = true;
             this._editingStart = false;
             this._render();
-        } else if (label === 'Dismiss')
+        } else if (label === 'Dismiss') {
             this._timerCall('DismissTimerRemote');
-        else if (label === 'Edit start') {
+        } else if (label === 'Edit start') {
             this._editingStart = true;
             this._assigning = false;
             this._setHint = '';
             this._render();
-        } else if (label === '-5m')
+        } else if (label === '-5m') {
             this._adjustStart(-300);
-        else if (label === '-15m')
+        } else if (label === '-15m') {
             this._adjustStart(-900);
-        else if (label === '-30m')
+        } else if (label === '-30m') {
             this._adjustStart(-1800);
-        else if (label === 'Keep')
+        } else if (label === 'Keep') {
             this._resolveWarning('keep', 0);
-        else if (label === 'Discard')
+        } else if (label === 'Discard') {
             this._resolveWarning('discard', 0);
-        else if (label === 'Set time...') {
+        } else if (label === 'Set time...') {
             this._settingTime = true;
             this._render();
-        } else if (label === 'Switch')
+        } else if (label === 'Switch') {
             this._confirmSwitch();
-        else if (label === 'Cancel') {
+        } else if (label === 'Cancel') {
             this._switchAsk = null;
             this._assigning = false;
             this._editingStart = false;
@@ -1564,10 +1561,10 @@ export default class TetherBotExtension extends Extension {
     }
 
     _applyTimerJson(raw) {
-        let parsed = null;
+        let parsed;
         try {
             parsed = JSON.parse(raw || '{}');
-        } catch (error) {
+        } catch {
             parsed = {state: 'idle', read_error: 'The saved timer could not be read'};
         }
         this._timer = parsed && typeof parsed === 'object' ? parsed : {state: 'idle'};
@@ -1883,7 +1880,7 @@ export default class TetherBotExtension extends Extension {
         let model;
         try {
             model = notificationModel(payload, reason, botLabels(this._bots));
-        } catch (error) {
+        } catch {
             return;
         }
         const source = this._ensureSource();
@@ -1903,9 +1900,8 @@ export default class TetherBotExtension extends Extension {
             body: model.body,
             urgency: MessageTray.Urgency.NORMAL,
         });
-        for (const action of model.actions) {
+        for (const action of model.actions)
             notification.addAction(action.label, () => this._runNotificationAction(action));
-        }
         source.addNotification(notification);
     }
 
@@ -1933,7 +1929,7 @@ export default class TetherBotExtension extends Extension {
         source.policy = new MessageTray.NotificationApplicationPolicy('tetherbot');
         try {
             Main.messageTray.add(source);
-        } catch (error) {
+        } catch {
             console.debug('TetherBot: notification source was not added');
             return null;
         }
@@ -1980,7 +1976,7 @@ export default class TetherBotExtension extends Extension {
             this._clipOwnerId = this._clipSelection.connect('owner-changed', (_selection, type) => {
                 this._onClipboardOwner(type);
             });
-        } catch (error) {
+        } catch {
             this._clipSelection = null;
             this._clipOwnerId = 0;
         }
@@ -1992,7 +1988,7 @@ export default class TetherBotExtension extends Extension {
         if (selection && this._clipOwnerId) {
             try {
                 selection.disconnect(this._clipOwnerId);
-            } catch (error) {
+            } catch {
                 // The selection owner is already gone with the shell.
             }
         }
@@ -2001,10 +1997,10 @@ export default class TetherBotExtension extends Extension {
     }
 
     _onClipboardOwner(type) {
-        let clipboardType = null;
+        let clipboardType;
         try {
             clipboardType = Meta.SelectionType.SELECTION_CLIPBOARD;
-        } catch (error) {
+        } catch {
             clipboardType = 1;
         }
         if (type !== clipboardType)
@@ -2032,9 +2028,9 @@ export default class TetherBotExtension extends Extension {
             lookalike: options.lookalike,
         });
         if (
-            decision === 'skipped-sensitive'
-            || decision === 'skipped-app'
-            || decision === 'skipped-disabled'
+            decision === 'skipped-sensitive' ||
+            decision === 'skipped-app' ||
+            decision === 'skipped-disabled'
         ) {
             this._noteClipboard(mimes, wmClass, decision);
             return;
@@ -2048,10 +2044,10 @@ export default class TetherBotExtension extends Extension {
             this._noteClipboard(mimes, wmClass, decision);
             return;
         }
-        let clipboard = null;
+        let clipboard;
         try {
             clipboard = St.Clipboard.get_default();
-        } catch (error) {
+        } catch {
             clipboard = null;
         }
         if (!clipboard)
@@ -2086,10 +2082,10 @@ export default class TetherBotExtension extends Extension {
             this._noteClipboard(mimes, wmClass, 'skipped-images-off');
             return;
         }
-        let clipboard = null;
+        let clipboard;
         try {
             clipboard = St.Clipboard.get_default();
-        } catch (error) {
+        } catch {
             clipboard = null;
         }
         if (!clipboard || typeof clipboard.get_content !== 'function') {
@@ -2126,12 +2122,11 @@ export default class TetherBotExtension extends Extension {
                         if (this._enabled)
                             this._loadClipboard();
                     });
-                } catch (error) {
-                    payload = null;
+                } catch {
                     this._noteClipboard(mimes, wmClass, 'skipped-image-bad');
                 }
             });
-        } catch (error) {
+        } catch {
             this._noteClipboard(mimes, wmClass, 'skipped-image-bad');
         }
     }
@@ -2146,30 +2141,30 @@ export default class TetherBotExtension extends Extension {
                 images: true,
             };
         }
-        let enabled = true;
+        let enabled;
         let excluded = DEFAULT_EXCLUDED_APPS;
-        let lookalike = LOOKALIKE_SKIP;
-        let images = true;
+        let lookalike;
+        let images;
         try {
             enabled = settings.get_boolean('clipboard-enabled') === true;
-        } catch (error) {
+        } catch {
             enabled = true;
         }
         try {
             const list = settings.get_strv('clipboard-excluded-apps');
             if (Array.isArray(list))
                 excluded = list;
-        } catch (error) {
+        } catch {
             excluded = DEFAULT_EXCLUDED_APPS;
         }
         try {
             lookalike = lookalikeMode(settings.get_string('clipboard-lookalike'));
-        } catch (error) {
+        } catch {
             lookalike = LOOKALIKE_SKIP;
         }
         try {
             images = settings.get_boolean('clipboard-images') === true;
-        } catch (error) {
+        } catch {
             images = true;
         }
         return {enabled, excluded, lookalike, images};
@@ -2181,7 +2176,7 @@ export default class TetherBotExtension extends Extension {
         const meta = JSON.stringify({mimes, wm_class: wmClass, result});
         try {
             this._proxy.NoteClipboardRemote(meta, () => {});
-        } catch (error) {
+        } catch {
             // An older bridge has no note method. The text stays here.
         }
     }
@@ -2192,7 +2187,7 @@ export default class TetherBotExtension extends Extension {
             const type = Meta.SelectionType.SELECTION_CLIPBOARD;
             if (selection && selection.get_mimetypes)
                 return selection.get_mimetypes(type) || [];
-        } catch (error) {
+        } catch {
             return [];
         }
         return [];
@@ -2206,7 +2201,7 @@ export default class TetherBotExtension extends Extension {
             if (win.get_wm_class)
                 return win.get_wm_class() || '';
             return win.wm_class || '';
-        } catch (error) {
+        } catch {
             return '';
         }
     }
@@ -2217,11 +2212,11 @@ export default class TetherBotExtension extends Extension {
         this._proxy.GetClipboardRemote('', (result, error) => {
             if (!this._enabled || error || !result)
                 return;
-            let parsed = [];
+            let parsed;
             try {
                 const raw = result[0];
                 parsed = JSON.parse(typeof raw === 'string' ? raw : '[]');
-            } catch (parseError) {
+            } catch {
                 parsed = [];
             }
             this._clipEntries = Array.isArray(parsed) ? parsed : [];
@@ -2234,15 +2229,15 @@ export default class TetherBotExtension extends Extension {
             return;
         this._clipSection.removeAll();
         const entries = Array.isArray(this._clipEntries) ? this._clipEntries : [];
-        const shown = entries.filter((entry) => {
+        const shown = entries.filter(entry => {
             if (!entry)
                 return false;
             if (entry.kind === 'image')
                 return true;
             return typeof entry.text === 'string';
         });
-        const pinned = shown.filter((entry) => entry.pinned === true);
-        const regular = shown.filter((entry) => entry.pinned !== true).slice(0, MENU_LIMIT);
+        const pinned = shown.filter(entry => entry.pinned === true);
+        const regular = shown.filter(entry => entry.pinned !== true).slice(0, MENU_LIMIT);
         this._clipSection.addMenuItem(new PopupMenu.PopupMenuItem('Pinned', {reactive: false}));
         this._appendClipboardRows(pinned);
         this._clipSection.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
@@ -2296,13 +2291,17 @@ export default class TetherBotExtension extends Extension {
             row.add_child(textBox);
             const editTip = isImage ? 'Images are not edited' : 'Edit';
             const tagTip = masked ? 'Hidden passwords are not tagged' : 'Tag';
-            const searchTip = isImage
-                ? 'Images are not searched'
-                : (masked ? 'Hidden passwords are not searched' : 'Search the web');
-            const sendBlocked = isImage
-                ? 'Images are not sent'
-                : (masked ? 'Hidden passwords are not sent' : '');
-            const sendTip = (name) => (sendBlocked || name);
+            let searchTip = 'Search the web';
+            if (isImage)
+                searchTip = 'Images are not searched';
+            else if (masked)
+                searchTip = 'Hidden passwords are not searched';
+            let sendBlocked = '';
+            if (isImage)
+                sendBlocked = 'Images are not sent';
+            else if (masked)
+                sendBlocked = 'Hidden passwords are not sent';
+            const sendTip = name => sendBlocked || name;
             const canSend = !sendBlocked;
             const copyBack = () => {
                 if (isImage)
@@ -2397,7 +2396,7 @@ export default class TetherBotExtension extends Extension {
             const current = theme.get_search_path() || [];
             if (!current.includes(path))
                 theme.add_search_path(path);
-        } catch (error) {
+        } catch {
             console.debug('TetherBot: icon theme path was not added');
         }
     }
@@ -2411,16 +2410,16 @@ export default class TetherBotExtension extends Extension {
             const area = Main.layoutManager.getWorkAreaForMonitor(monitor);
             if (area && area.width)
                 budget = area.width;
-        } catch (error) {
+        } catch {
             budget = 0;
         }
         if (!(budget > 0))
             return;
-        let icons = 0;
+        let icons;
         try {
             const [, natural] = actions.get_preferred_width(-1);
             icons = natural || 0;
-        } catch (error) {
+        } catch {
             icons = 0;
         }
         if (!(icons >= 40))
@@ -2433,7 +2432,7 @@ export default class TetherBotExtension extends Extension {
         // The shell looks up icon names in its own theme, not the GTK search
         // path the window uses. Our files end in -symbolic.svg, so St still
         // recolors them.
-        const style_class = styleClass || '';
+        const styleClassName = styleClass || '';
         if (typeof iconName === 'string' && iconName.startsWith('tetherbot-')) {
             try {
                 const file = this.dir.get_child(
@@ -2442,27 +2441,27 @@ export default class TetherBotExtension extends Extension {
                     return new St.Icon({
                         gicon: Gio.FileIcon.new(file),
                         icon_size: 16,
-                        style_class,
+                        style_class: styleClassName,
                     });
                 }
-            } catch (error) {
+            } catch {
                 console.debug('TetherBot: menu icon file was not used');
             }
         }
         return new St.Icon({
             icon_name: iconName,
             icon_size: 16,
-            style_class,
+            style_class: styleClassName,
         });
     }
 
     _clipIconButton(iconName, name, enabled) {
         const icon = this._menuIcon(iconName, '');
-        let style_class = 'popup-menu-item-button tetherbot-clip-action';
+        let buttonClass = 'popup-menu-item-button tetherbot-clip-action';
         if (!enabled)
-            style_class += ' tetherbot-clip-off';
+            buttonClass += ' tetherbot-clip-off';
         const button = new St.Button({
-            style_class,
+            style_class: buttonClass,
             child: icon,
             can_focus: enabled,
             reactive: enabled,
@@ -2505,7 +2504,7 @@ export default class TetherBotExtension extends Extension {
             try {
                 if (label.text === message)
                     label.text = previous;
-            } catch (error) {
+            } catch {
                 // The row was rebuilt.
             }
             return GLib.SOURCE_REMOVE;
@@ -2532,7 +2531,7 @@ export default class TetherBotExtension extends Extension {
                 style_class: 'tetherbot-clip-thumb',
                 y_align: Clutter.ActorAlign.CENTER,
             });
-        } catch (error) {
+        } catch {
             return null;
         }
     }
@@ -2560,7 +2559,7 @@ export default class TetherBotExtension extends Extension {
             return;
         try {
             St.Clipboard.get_default().set_text(St.ClipboardType.CLIPBOARD, text);
-        } catch (error) {
+        } catch {
             console.debug('TetherBot: clipboard was not written');
         }
         this._clipIndicator?.menu.close();
@@ -2590,9 +2589,9 @@ export default class TetherBotExtension extends Extension {
                 St.Clipboard.get_default().set_content(
                     St.ClipboardType.CLIPBOARD,
                     mime,
-                    clipboardBytes(data),
+                    clipboardBytes(data)
                 );
-            } catch (writeError) {
+            } catch {
                 console.debug('TetherBot: image was not written');
                 Main.notify('TetherBot', 'Could not copy the image');
             }
@@ -2603,7 +2602,7 @@ export default class TetherBotExtension extends Extension {
     _armClipboardEcho() {
         try {
             this._clipEchoUntil = GLib.get_monotonic_time() + 1500000;
-        } catch (error) {
+        } catch {
             this._clipEchoUntil = 0;
         }
     }
@@ -2613,7 +2612,7 @@ export default class TetherBotExtension extends Extension {
             return false;
         try {
             return GLib.get_monotonic_time() < this._clipEchoUntil;
-        } catch (error) {
+        } catch {
             return false;
         }
     }
@@ -2655,11 +2654,11 @@ export default class TetherBotExtension extends Extension {
 function imageBytes(bytes) {
     if (!bytes || typeof bytes.get_size !== 'function')
         return {result: 'skipped-image-bad', data: null};
-    let size = 0;
+    let size;
     try {
         const raw = bytes.get_size();
         size = typeof raw === 'number' ? raw : Number(raw);
-    } catch (error) {
+    } catch {
         return {result: 'skipped-image-bad', data: null};
     }
     if (!Number.isFinite(size))
@@ -2668,10 +2667,10 @@ function imageBytes(bytes) {
         return {result: 'skipped-empty', data: null};
     if (!imageWithinCap(size))
         return {result: 'skipped-image-large', data: null};
-    let data = null;
+    let data;
     try {
         data = typeof bytes.get_data === 'function' ? bytes.get_data() : null;
-    } catch (error) {
+    } catch {
         data = null;
     }
     if (data && typeof data.toArray === 'function')
@@ -2695,7 +2694,7 @@ function clipThumbActor(file) {
         let paintScale = 1;
         try {
             paintScale = St.ThemeContext.get_for_stage(global.stage).scale_factor || 1;
-        } catch (error) {
+        } catch {
             paintScale = 1;
         }
         const actor = cache.load_file_async(file, 48, 48, paintScale, 1);
@@ -2710,7 +2709,7 @@ function clipThumbActor(file) {
         });
         box.add_child(actor);
         return box;
-    } catch (error) {
+    } catch {
         return null;
     }
 }

@@ -59,8 +59,10 @@ def test_credential_in_remote_url_is_rejected(tmp_path: Path):
         ),
         encoding="utf-8",
     )
-    with pytest.raises(ConfigError, match="without credentials"):
+    with pytest.raises(ConfigError, match="looks like a secret") as caught:
         load_config(path)
+    assert "user:secret" not in str(caught.value)
+    assert "OWNER" not in str(caught.value)
 
 
 def test_file_remote_is_absolute_and_only_for_the_poller(tmp_path: Path):

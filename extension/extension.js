@@ -1950,8 +1950,9 @@ export default class TetherBotExtension extends Extension {
         this._clipPinHold = false;
         this._clipIndicator = new PanelMenu.Button(0.0, 'Clipboard', false);
         this._clipIndicator.add_style_class_name('tetherbot-clipboard');
+        const clipFile = this.dir.get_child('icons/clipboard-symbolic.svg');
         const icon = new St.Icon({
-            icon_name: 'edit-copy-symbolic',
+            gicon: Gio.FileIcon.new(clipFile),
             style_class: 'system-status-icon',
             y_align: Clutter.ActorAlign.CENTER,
         });

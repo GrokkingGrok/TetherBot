@@ -2,7 +2,7 @@
 
 ## Lucide
 
-These clipboard icons are Lucide icons. Their strokes are converted to filled paths so GNOME can recolor them the same way as an Adwaita symbolic icon. The files are under `extension/icons/hicolor/scalable/actions/`.
+These clipboard icons are Lucide icons. Their strokes are converted to filled paths so GNOME can recolor them the same way as an Adwaita symbolic icon. The row icons are under `extension/icons/hicolor/scalable/actions/`. The panel clipboard icon is `extension/icons/clipboard-symbolic.svg`: the clip tab is the Lucide clipboard, and the board is the TetherBot face.
 
 - Name: Lucide
 - Project: https://lucide.dev
@@ -11,6 +11,7 @@ These clipboard icons are Lucide icons. Their strokes are converted to filled pa
 
 | Icon | File | Page |
 |---|---|---|
+| clipboard (clip tab) | `clipboard-symbolic.svg` | https://lucide.dev/icons/clipboard |
 | tag | `tetherbot-tag-symbolic.svg` | https://lucide.dev/icons/tag |
 | check | `tetherbot-check-symbolic.svg` | https://lucide.dev/icons/check |
 | square-check | `tetherbot-square-check-symbolic.svg` | https://lucide.dev/icons/square-check |

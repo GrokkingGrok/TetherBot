@@ -302,6 +302,28 @@ def test_secret_guard_rejects_without_writing(capsys):
     assert "sk-" not in err
 
 
+def test_writer_keeps_a_long_link_id_and_rejects_a_token_query(capsys):
+    fake = FakeGitHub()
+    link = "https://boards.greenhouse.io/example/jobs/412345678901"
+    code = _run(fake, "add-todo", "--title", "Read the role", "--body", link)
+    assert code == 0
+    assert fake.document()["items"][0]["body"] == link
+    assert "redacted" not in capsys.readouterr().err
+
+    fake = FakeGitHub()
+    code = _run(
+        fake,
+        "add-todo",
+        "--title", "Skip this",
+        "--body", "https://example.com/file?token=abc",
+    )
+    assert code == 1
+    assert fake.docs == {}
+    err = capsys.readouterr().err
+    assert "body looks like a secret" in err
+    assert "token=abc" not in err
+
+
 def test_auth_failure_is_one_line(capsys):
     for status in (401, 403):
         fake = FakeGitHub()

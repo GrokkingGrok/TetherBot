@@ -63,7 +63,7 @@ assert(JSON.stringify(parsed).includes('do-not-copy') === false, 'secret text is
 const bots = botChoices(
     [{name: 'primary', display_name: 'Primary'}],
     ['notes'],
-    [],
+    []
 );
 assert(bots.map(bot => bot.name).join(',') === 'primary,notes', 'hidden bot stays listed');
 assert(bots[0].displayName === 'Primary', 'display name is the label');
@@ -134,7 +134,7 @@ assert(!sameBotList(listed, [{name: 'primary'}]), 'a changed bot list is rebuilt
 
 const prefsSource = readFileSync(
     join(dirname(fileURLToPath(import.meta.url)), 'prefs.js'),
-    'utf8',
+    'utf8'
 );
 assert(prefsSource.includes('set_default_size(756, 820)'), 'prefs opens at 756 by 820');
 assert(prefsSource.includes('Reset to defaults'), 'prefs has a reset button');
@@ -150,15 +150,15 @@ assert(prefsSource.includes('Remember copied text'), 'prefs has the clipboard to
 assert(prefsSource.includes('Remember copied images'), 'prefs has the image toggle');
 assert(
     prefsSource.includes("When this is off, new text isn't saved. Text already in history stays until it's removed."),
-    'the text toggle matches the image sentence',
+    'the text toggle matches the image sentence'
 );
 assert(
     prefsSource.includes("When this is off, new images aren't saved. Images already in history stay until they're removed."),
-    'the image toggle says saved images stay',
+    'the image toggle says saved images stay'
 );
 assert(
     prefsSource.includes('Text and images share this limit. 1 to 500. The default is 50.'),
-    'text and images share how many entries',
+    'text and images share how many entries'
 );
 assert(prefsSource.includes('clipboard-excluded-apps'), 'prefs stores skipped apps');
 assert(prefsSource.includes('Password-like copies'), 'prefs has the password-like choice');
@@ -171,7 +171,7 @@ assert(prefsSource.includes('The bot checks only its own context.'), 'low effort
 assert(prefsSource.includes('The bot also asks the other bots.'), 'medium effort is one line');
 assert(
     prefsSource.includes('The bot also searches connectors (email, Drive, finance).'),
-    'high effort is one line',
+    'high effort is one line'
 );
 const searchFn = prefsSource.split('_clipboardSearch(group, settings) {')[1].split('_clipboardApps')[0];
 assert(searchFn.includes('new Adw.ActionRow'), 'the search hint is its own row');
@@ -180,11 +180,11 @@ assert(searchFn.includes('tooltip_text: hint'), 'the search address has the hint
 assert(!/new Adw\.EntryRow\(\{[^}]*subtitle/.test(searchFn), 'an entry row does not take subtitle');
 assert(
     prefsSource.includes('1 month = 30 days, 1 year = 365 days'),
-    'how many names a month and a year',
+    'how many names a month and a year'
 );
 assert(
     !prefsSource.includes('A month is 30 days and a year is 365 days.'),
-    'the completed-todo description does not repeat the units',
+    'the completed-todo description does not repeat the units'
 );
 
 console.log('prefs checks ok');

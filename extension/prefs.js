@@ -60,10 +60,10 @@ export default class TetherBotPreferences extends ExtensionPreferences {
         this._userExpand = false;
         this._applyingExpand = false;
         this._applyingBots = false;
-        let settings = null;
+        let settings;
         try {
             settings = this.getSettings();
-        } catch (error) {
+        } catch {
             settings = null;
         }
         const page = new Adw.PreferencesPage({
@@ -119,7 +119,7 @@ export default class TetherBotPreferences extends ExtensionPreferences {
             'Seconds between checks. 60 to 900. The default is 120.',
             POLL_MIN,
             POLL_MAX,
-            10,
+            10
         ));
         group.add(this._spin(
             settings,
@@ -128,7 +128,7 @@ export default class TetherBotPreferences extends ExtensionPreferences {
             'Seconds before Done is sent. 2 to 30. The default is 5.',
             UNDO_MIN,
             UNDO_MAX,
-            1,
+            1
         ));
         const reset = new Adw.ActionRow({
             title: 'Feed check and undo timer',
@@ -492,10 +492,10 @@ export default class TetherBotPreferences extends ExtensionPreferences {
     _installSpinCss() {
         if (this._spinCss)
             return;
-        let display = null;
+        let display;
         try {
             display = Gdk.Display.get_default();
-        } catch (error) {
+        } catch {
             display = null;
         }
         if (!display)
@@ -507,13 +507,13 @@ export default class TetherBotPreferences extends ExtensionPreferences {
                 provider.load_from_string(css);
             else
                 provider.load_from_data(new TextEncoder().encode(css));
-        } catch (error) {
+        } catch {
             return;
         }
         Gtk.StyleContext.add_provider_for_display(
             display,
             provider,
-            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
+            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
         );
         this._spinCss = provider;
     }
@@ -566,18 +566,18 @@ export default class TetherBotPreferences extends ExtensionPreferences {
         const settings = this._settings;
         if (!settings || typeof settings.get_user_value !== 'function')
             return null;
-        let variant = null;
+        let variant;
         try {
             variant = settings.get_user_value(key);
-        } catch (error) {
+        } catch {
             variant = null;
         }
         if (!variant)
             return null;
-        let value = null;
+        let value;
         try {
             value = typeof variant.unpack === 'function' ? variant.unpack() : null;
-        } catch (error) {
+        } catch {
             value = null;
         }
         if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0)
@@ -614,10 +614,10 @@ export default class TetherBotPreferences extends ExtensionPreferences {
 
     _startBridge() {
         const call = startServiceCall();
-        let session = null;
+        let session;
         try {
             session = Gio.DBus.session;
-        } catch (error) {
+        } catch {
             session = null;
         }
         if (!session) {
@@ -634,17 +634,17 @@ export default class TetherBotPreferences extends ExtensionPreferences {
             Gio.DBusCallFlags.NONE,
             5000,
             null,
-            () => this._openProxy(),
+            () => this._openProxy()
         );
     }
 
     _openProxy() {
-        let xml = '';
+        let xml;
         try {
             const file = this.dir.get_child('io.github.grokkinggrok.TetherBot1.xml');
             const [, bytes] = file.load_contents(null);
             xml = new TextDecoder().decode(bytes);
-        } catch (error) {
+        } catch {
             this._showKeysMessage('The bridge interface did not load.');
             return;
         }
@@ -662,7 +662,7 @@ export default class TetherBotPreferences extends ExtensionPreferences {
                 this._loadSetup();
             },
             null,
-            Gio.DBusProxyFlags.DO_NOT_AUTO_START,
+            Gio.DBusProxyFlags.DO_NOT_AUTO_START
         );
     }
 
@@ -672,10 +672,10 @@ export default class TetherBotPreferences extends ExtensionPreferences {
         this._bridge.GetSetupRemote((result, error) => {
             if (error || !result)
                 return;
-            let payload = null;
+            let payload;
             try {
                 payload = JSON.parse(result[0]);
-            } catch (parseError) {
+            } catch {
                 return;
             }
             this._fillKeys(setupSlots(payload));
@@ -691,7 +691,7 @@ export default class TetherBotPreferences extends ExtensionPreferences {
             this._applyBots(botChoices(
                 payload && Array.isArray(payload.bots) ? payload.bots : [],
                 this._settings.get_strv('hidden-bots'),
-                this._settings.get_strv('muted-bots'),
+                this._settings.get_strv('muted-bots')
             ));
         });
     }
@@ -793,7 +793,7 @@ export default class TetherBotPreferences extends ExtensionPreferences {
                 this._settings.set_strv('hidden-bots', idList(
                     this._settings.get_strv('hidden-bots'),
                     bot.name,
-                    show.active,
+                    show.active
                 ));
                 this._reloadBridge();
             });
@@ -807,7 +807,7 @@ export default class TetherBotPreferences extends ExtensionPreferences {
                 this._settings.set_strv('muted-bots', idList(
                     this._settings.get_strv('muted-bots'),
                     bot.name,
-                    notify.active,
+                    notify.active
                 ));
                 this._reloadBridge();
             });
@@ -835,7 +835,7 @@ export default class TetherBotPreferences extends ExtensionPreferences {
         if (header) {
             try {
                 header.connect('activated', markUser);
-            } catch (error) {
+            } catch {
                 row.connect('activate', markUser);
             }
         } else {

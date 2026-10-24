@@ -97,7 +97,7 @@ export function resetFeedSettings(settings, configPoll) {
 
 export function sameBotList(current, next) {
     const names = rows => (rows || [])
-        .map(row => (row && typeof row.name === 'string' ? row.name : ''))
+        .map(row => row && typeof row.name === 'string' ? row.name : '')
         .join('\0');
     return names(current) === names(next);
 }
@@ -146,7 +146,7 @@ export function botChoices(setupBots, hidden, muted) {
             : bot.name;
         rows.set(bot.name, display);
     }
-    const extra = [...(hidden || []), ...(muted || [])];
+    const extra = [...hidden || [], ...muted || []];
     for (const name of extra.sort()) {
         if (typeof name === 'string' && name && !rows.has(name))
             rows.set(name, name);

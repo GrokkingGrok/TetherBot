@@ -35,7 +35,7 @@ const proxy = new Wrapper(
     OBJECT_PATH,
     null,
     null,
-    Gio.DBusProxyFlags.DO_NOT_AUTO_START,
+    Gio.DBusProxyFlags.DO_NOT_AUTO_START
 );
 for (const name of PROXY_METHODS) {
     if (typeof proxy[name] !== 'function')

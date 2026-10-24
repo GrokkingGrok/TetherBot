@@ -491,7 +491,7 @@ export function runViewChecks() {
             index: 1,
             row: {key: 'b', title: 'B'},
         }],
-        NOW,
+        NOW
     );
     assert(stayed.todos.map(row => row.key).join(',') === 'a,b,c', 'undo stays where it was');
     assert(stayed.todos[1].undoFraction === 1, 'a new undo has the full window');
@@ -524,7 +524,7 @@ export function runViewChecks() {
         [{key: 'c', title: 'C'}],
         [{key: 'a', until: NOW, sent: true, index: 0, row: {key: 'a', title: 'A'}}],
         NOW,
-        true,
+        true
     );
     assert(pinned.todos.map(row => row.key).join(',') === 'a,c', 'hover keeps the expired row');
     assert(pinned.todos[0].undo === false, 'the expired button is gone');
@@ -537,7 +537,7 @@ export function runViewChecks() {
         [],
         NOW,
         false,
-        ['a'],
+        ['a']
     );
     assert(hidden.todos.map(row => row.key).join(',') === 'c', 'a sent row stays out of the list');
 
@@ -547,7 +547,7 @@ export function runViewChecks() {
     assert(filtered.include_snoozed === false, 'search hides snoozed');
     const asksKept = mergeTodoSearch(
         [ask(), {key: 'primary/todo-1', kind: 'todo', title: 'Old', status: 'open'}],
-        [{key: 'primary/todo-9', kind: 'todo', title: 'Found', status: 'open'}],
+        [{key: 'primary/todo-9', kind: 'todo', title: 'Found', status: 'open'}]
     );
     assert(asksKept.length === 2, 'search keeps asks');
     assert(asksKept[0].kind === 'ask', 'ask stays first');
@@ -577,7 +577,7 @@ export function runViewChecks() {
     assert(withTime.text === '1:42', 'time shows beside the dot');
     assert(withTime.accessibleName ===
         'TetherBot: timer running, 1 hour 42 minutes. an ask is waiting',
-        'timer and approval name');
+    'timer and approval name');
     const overdueItem = {
         key: 'primary/fair',
         kind: 'todo',
@@ -666,7 +666,7 @@ export function runViewChecks() {
     assert(paused.text === '25m', 'paused time');
     assert(paused.accessibleName ===
         'TetherBot: timer paused at 25 minutes, Email venue about deposit',
-        'paused name');
+    'paused name');
     const warned = indicatorView({
         running: true,
         state: 'ok',

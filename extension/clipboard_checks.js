@@ -34,7 +34,7 @@ assert(
         enabled: true,
         excluded: DEFAULT_EXCLUDED_APPS,
     }) === 'skipped-sensitive',
-    'a password-manager hint is skipped before the text is read',
+    'a password-manager hint is skipped before the text is read'
 );
 assert(
     classifyClipboard({
@@ -44,7 +44,7 @@ assert(
         enabled: true,
         excluded: DEFAULT_EXCLUDED_APPS,
     }) === 'skipped-sensitive',
-    'a concealed type is skipped',
+    'a concealed type is skipped'
 );
 assert(
     classifyClipboard({
@@ -54,7 +54,7 @@ assert(
         enabled: true,
         excluded: DEFAULT_EXCLUDED_APPS,
     }) === 'skipped-app',
-    'KeePassXC is excluded before the text is read',
+    'KeePassXC is excluded before the text is read'
 );
 assert(
     classifyClipboard({
@@ -64,7 +64,7 @@ assert(
         enabled: true,
         excluded: DEFAULT_EXCLUDED_APPS,
     }) === 'skipped-app',
-    'an excluded class matches ignoring case',
+    'an excluded class matches ignoring case'
 );
 assert(
     classifyClipboard({
@@ -74,7 +74,7 @@ assert(
         enabled: false,
         excluded: DEFAULT_EXCLUDED_APPS,
     }) === 'skipped-disabled',
-    'the toggle skips a new copy',
+    'the toggle skips a new copy'
 );
 assert(
     classifyClipboard({
@@ -84,7 +84,7 @@ assert(
         enabled: true,
         excluded: DEFAULT_EXCLUDED_APPS,
     }) === 'skipped-binary',
-    'an image is not stored as text',
+    'an image is not stored as text'
 );
 assert(pickImageMime(['image/png']) === 'image/png', 'a png offer is an image');
 assert(pickImageMime(['image/jpeg', 'image/png']) === 'image/png', 'png wins over jpeg');
@@ -127,7 +127,7 @@ assert(!looksLikePassword('User@example.com'), 'an email address is kept');
 assert(!looksLikePassword('password1'), 'one letter class and a digit are kept');
 assert(
     classifyClipboard({text: null, mimes: chrome, wmClass: 'google-chrome'}) === 'needs-text',
-    'Chrome plain text is not a sensitive type',
+    'Chrome plain text is not a sensitive type'
 );
 assert(
     classifyClipboard({
@@ -135,11 +135,11 @@ assert(
         mimes: [...chrome, 'application/x-chromium-password-sensitive'],
         wmClass: 'google-chrome',
     }) === 'skipped-sensitive',
-    'a chromium sensitive type is skipped before the text is read',
+    'a chromium sensitive type is skipped before the text is read'
 );
 assert(
     classifyClipboard({text: 'aB3!xxxx', mimes: chrome, wmClass: 'Google-Chrome'}) === 'skipped-lookalike',
-    'a Chrome password copy is a lookalike',
+    'a Chrome password copy is a lookalike'
 );
 assert(
     classifyClipboard({
@@ -148,11 +148,11 @@ assert(
         wmClass: 'google-chrome',
         lookalike: 'mask',
     }) === 'stored-masked',
-    'mask mode keeps a lookalike hidden',
+    'mask mode keeps a lookalike hidden'
 );
 assert(
     classifyClipboard({text: 'hello world', mimes: chrome, wmClass: 'chromium'}) === 'stored',
-    'ordinary Chrome text is stored',
+    'ordinary Chrome text is stored'
 );
 
 if (failed) {

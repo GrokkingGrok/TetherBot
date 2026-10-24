@@ -84,9 +84,11 @@ The extension UUID is `tetherbot@grokkinggrok.github.io`. The D-Bus bus name and
 python -m pip install pytest ruff
 pytest
 ruff check .
+npm ci
+npm run lint:js
 ```
 
-Runtime Python dependencies are none. PyGObject, libsecret, and git come from the operating system. GitHub Actions runs the same lint and tests on Python 3.13 from [.github/workflows/ci.yml](.github/workflows/ci.yml).
+Runtime Python dependencies are none. PyGObject, libsecret, and git come from the operating system. GitHub Actions runs the same Python lint and tests on Python 3.13, and ESLint for `extension/`, from [.github/workflows/ci.yml](.github/workflows/ci.yml). `make lint-js` is the same extension lint.
 
 `scripts/install.sh` copies the app, launchers, unit, and D-Bus activation file. It does not enable the service unless you pass `--enable`. `scripts/uninstall.sh` removes those files and leaves the secret service alone. `--purge` also removes config, state, and clones. From a checkout, `python -m tetherbot` is the bridge and `python -m tetherbot.ctl` is `tetherbotctl`. `make install-extension` copies the extension into your user extensions directory. Log out and back in before enabling it on Wayland.
 

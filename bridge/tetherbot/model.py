@@ -15,6 +15,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import datetime
 from typing import Any
+from urllib.parse import parse_qsl, urlsplit
 
 SECRET_REPLACEMENT = "[redacted: looked like a secret]"
 
@@ -37,6 +38,39 @@ _HEX = re.compile(r"(?<![0-9A-Fa-f])[0-9A-Fa-f]{32,}(?![0-9A-Fa-f])")
 _B64 = re.compile(r"(?<![A-Za-z0-9+/])[A-Za-z0-9+/]{40,}={0,2}(?![A-Za-z0-9+/=])")
 _BEARER = re.compile(r"(?i)\bBearer\s+\S+")
 _AUTHORIZATION = re.compile(r"(?i)\bAuthorization:\s*\S+")
+# Ordinary https links are blanked before the blob checks. A token query,
+# userinfo, or a known webhook host stays in the text and is a secret.
+# The same rules are duplicated in tools/feed_write.py.
+_URL = re.compile(r"https?://[^\s<>\"'`]+", re.IGNORECASE)
+_SECRET_PARAMS = frozenset(
+    {
+        "access-token",
+        "access_token",
+        "api-key",
+        "api_key",
+        "apikey",
+        "auth",
+        "authorization",
+        "client-secret",
+        "client_secret",
+        "id-token",
+        "id_token",
+        "key",
+        "passwd",
+        "password",
+        "pwd",
+        "refresh-token",
+        "refresh_token",
+        "secret",
+        "sig",
+        "signature",
+        "token",
+        "webhook",
+        "x-api-key",
+        "x_api_key",
+    }
+)
+_URL_CLOSERS = {")": "(", "]": "[", "}": "{"}
 
 _KNOWN_FIELDS = frozenset(
     {
@@ -66,13 +100,24 @@ _KNOWN_FIELDS = frozenset(
 
 
 def looks_like_secret(text: str, extra: Sequence[str] = ()) -> bool:
-    """Return whether ``text`` matches the protocol secret guard."""
+    """Return whether ``text`` matches the protocol secret guard.
 
-    if _PREFIX.search(text) or _DIGITS.search(text):
+    A long hex, base64, or digit run inside a normal ``http(s)`` link is
+    not a secret. Those runs are how job ids and file ids are written.
+    A link is still a secret when it carries userinfo, a token-style query
+    (``token``, ``key``, ``sig``, and the same kind of name), or a Slack
+    or Discord webhook host. Token prefixes are always a secret.
+    """
+
+    if _PREFIX.search(text):
         return True
-    if _HEX.search(text) or _B64.search(text):
+    if any(secret and secret in text for secret in extra):
         return True
-    return any(secret and secret in text for secret in extra)
+    for _start, _end, url in _url_spans(text):
+        if _classify_url(url) == "blocked":
+            return True
+    stripped = _without_safe_urls(text)
+    return bool(_DIGITS.search(stripped) or _HEX.search(stripped) or _B64.search(stripped))
 
 
 def redact_field(text: str, extra: Sequence[str] = ()) -> str:
@@ -84,18 +129,128 @@ def redact_field(text: str, extra: Sequence[str] = ()) -> str:
 
 
 def mask_secrets(text: str, extra: Sequence[str] = ()) -> str:
-    """Mask secret-shaped spans inside a log line."""
+    """Mask secret-shaped spans inside a log line.
+
+    A normal ``http(s)`` link is left intact, including a long id in its
+    path. A webhook link, a ``user:pass@`` link, and a token-style query
+    are replaced as a whole.
+    """
 
     masked = _TOKEN.sub(SECRET_REPLACEMENT, text)
     masked = _BEARER.sub("Bearer " + SECRET_REPLACEMENT, masked)
     masked = _AUTHORIZATION.sub("Authorization: " + SECRET_REPLACEMENT, masked)
-    masked = _B64.sub(SECRET_REPLACEMENT, masked)
-    masked = _HEX.sub(SECRET_REPLACEMENT, masked)
-    masked = _DIGITS.sub(SECRET_REPLACEMENT, masked)
     for secret in extra:
         if secret:
             masked = masked.replace(secret, SECRET_REPLACEMENT)
-    return masked
+    return _mask_outside_safe_urls(masked)
+
+
+def _trim_url(raw: str) -> str:
+    """Drop punctuation that a sentence sticks to the end of a link."""
+
+    trimmed = raw.rstrip(".,;:!?")
+    while trimmed:
+        last = trimmed[-1]
+        opener = _URL_CLOSERS.get(last)
+        if opener is None or trimmed.count(last) <= trimmed.count(opener):
+            break
+        trimmed = trimmed[:-1].rstrip(".,;:!?")
+    return trimmed
+
+
+def _url_spans(text: str) -> list[tuple[int, int, str]]:
+    spans: list[tuple[int, int, str]] = []
+    for match in _URL.finditer(text):
+        trimmed = _trim_url(match.group(0))
+        if not trimmed.casefold().startswith(("http://", "https://")):
+            continue
+        if len(trimmed) < len("http://x"):
+            continue
+        start = match.start()
+        spans.append((start, start + len(trimmed), trimmed))
+    return spans
+
+
+def _secret_params(raw: str) -> bool:
+    if not raw:
+        return False
+    text = raw[1:] if raw[:1] in "?#" else raw
+    for name, _value in parse_qsl(text, keep_blank_values=True):
+        if name.casefold() in _SECRET_PARAMS:
+            return True
+    return False
+
+
+def _webhook_host(host: str, path: str) -> bool:
+    folded = host.casefold().rstrip(".")
+    if folded == "hooks.slack.com" or folded.endswith(".hooks.slack.com"):
+        return True
+    discord = (
+        folded == "discord.com"
+        or folded.endswith(".discord.com")
+        or folded == "discordapp.com"
+        or folded.endswith(".discordapp.com")
+    )
+    if not discord:
+        return False
+    route = path.casefold()
+    return "/webhooks/" in route or route.rstrip("/").endswith("/webhooks")
+
+
+def _classify_url(url: str) -> str:
+    """``safe``, ``blocked``, or ``plain``.
+
+    ``plain`` is not a link the guard understands, so the blob checks
+    still see it. ``blocked`` is a secret even when the path is short.
+    """
+
+    parts = urlsplit(url)
+    if parts.scheme.casefold() not in {"http", "https"} or not parts.hostname:
+        return "plain"
+    if parts.username or parts.password or "@" in parts.netloc:
+        return "blocked"
+    if _webhook_host(parts.hostname, parts.path):
+        return "blocked"
+    if _secret_params(parts.query) or _secret_params(parts.fragment):
+        return "blocked"
+    return "safe"
+
+
+def _without_safe_urls(text: str) -> str:
+    parts: list[str] = []
+    cursor = 0
+    for start, end, url in _url_spans(text):
+        parts.append(text[cursor:start])
+        if _classify_url(url) == "safe":
+            parts.append(" ")
+        else:
+            parts.append(text[start:end])
+        cursor = end
+    parts.append(text[cursor:])
+    return "".join(parts)
+
+
+def _mask_blobs(text: str) -> str:
+    masked = _B64.sub(SECRET_REPLACEMENT, text)
+    masked = _HEX.sub(SECRET_REPLACEMENT, masked)
+    return _DIGITS.sub(SECRET_REPLACEMENT, masked)
+
+
+def _mask_outside_safe_urls(text: str) -> str:
+    parts: list[str] = []
+    cursor = 0
+    for start, end, url in _url_spans(text):
+        parts.append(_mask_blobs(text[cursor:start]))
+        kind = _classify_url(url)
+        if kind == "blocked":
+            parts.append(SECRET_REPLACEMENT)
+        elif kind == "safe":
+            parts.append(text[start:end])
+        else:
+            parts.append(_mask_blobs(text[start:end]))
+        cursor = end
+    parts.append(_mask_blobs(text[cursor:]))
+    return "".join(parts)
 
 
 def global_key(bot: str, item_id: str) -> str:

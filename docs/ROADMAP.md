@@ -37,7 +37,7 @@ TetherBot is pre-alpha. Check items off as they land. Design detail is in [SPEC.
 - [ ] More than one desktop can read the same feed, for example a second, rarely used machine. macOS is not GNOME, so a non-GNOME client is out of scope for now. On a second machine the bot side is the entry point for adding todos.
 - [ ] Proposed, not urgent: each desktop writes only `desktop/<machine-id>.json` (see Open checks). Matters once a second GNOME desktop exists.
 - [ ] Optional later: an always-on local device, for example a single-board computer, as a physical attention indicator or a hub. Not required, because the private repo is already the always-on middle.
-- [ ] The feed writer's secret filter (`looks_like_secret` in tools/feed_write.py and the matching guard in the bridge) lets ordinary http(s) URLs through. Right now a GitHub link such as the MANUAL-CHECKS.md URL trips the 40-or-more-character letter-run rule, so bots have to pad links with `./` segments. Strip or exempt URLs before the check, and keep real tokens blocked.
+- [x] The feed writer's secret filter (`looks_like_secret` in tools/feed_write.py and the matching guard in the bridge) lets ordinary http(s) URLs through. A long id in the path of a normal link is kept. Token-style query values, `user:pass@` links, webhook hosts, and the existing prefixes stay blocked.
 - [x] Rich todos, [RICH-TODOS.md](RICH-TODOS.md) (#19–#21). Bots still create and edit item text. The desktop reads, filters, searches, opens, and checks off.
 - [x] Optional feed fields: `tags`, `body_format`, Markdown bodies up to 8000 characters on todos, `owner` of `user` or `bot`, `waiting.since`, and feed `tag_colors`
 - [x] Bridge search and filters (`@tag`, `due:today`, `due:overdue`, `p:1`), quick views, `GetTags`, and sort. Popup and window share that result
@@ -124,9 +124,9 @@ TetherBot is pre-alpha. Check items off as they land. Design detail is in [SPEC.
 - [ ] Money and watch section. Todo filters cover the need for now. A visual money overview is a possible future teaser, not part of v0.2.
 - [ ] Webhook-only mode copy in the popup. Webhook-only mode is not being pursued.
 - [ ] Lint the GNOME Shell extension JavaScript. Python is already linted with ruff in CI and passes. The `extension/*.js` files have no linter. Add ESLint (GJS/GNOME Shell globals, ES modules) to the Makefile and CI, then fix what it reports.
-- [ ] Main icon (polish, later). Make the icon GNOME shows for the TetherBot window in the workspace/app icon area the main TetherBot icon, replacing the one changed during the badge work. Keep the attention badges on it in the toolbar.
-- [ ] Clipboard toolbar icon (polish, later). Put the TetherBot face (the main icon above) on the front square of the clipboard icon, so the two icons read as one family.
-- [ ] Secret filter allows URLs (polish, next batch). In `bridge/tetherbot/model.py` `looks_like_secret` (and the matching guard in the bot-side feed writer), stop flagging long hex/base64 runs that sit in the path of an `http(s)://` link (e.g. model IDs). Still flag: secret-looking query values (`token=`, `key=`, `sig=`, etc.), userinfo (`user:pass@`), known webhook hosts (Slack/Discord hooks), and the existing prefixes. Add tests both ways.
+- [x] Main icon (polish, later). Make the icon GNOME shows for the TetherBot window in the workspace/app icon area the main TetherBot icon, replacing the one changed during the badge work. Keep the attention badges on it in the toolbar.
+- [x] Clipboard toolbar icon (polish, later). Put the TetherBot face (the main icon above) on the front square of the clipboard icon, so the two icons read as one family.
+- [x] Secret filter allows URLs (polish, next batch). In `bridge/tetherbot/model.py` `looks_like_secret` (and the matching guard in the bot-side feed writer), stop flagging long hex/base64 runs that sit in the path of an `http(s)://` link (e.g. model IDs). Still flag: secret-looking query values (`token=`, `key=`, `sig=`, etc.), userinfo (`user:pass@`), known webhook hosts (Slack/Discord hooks), and the existing prefixes. Add tests both ways.
 
 ## Clipboard history
 

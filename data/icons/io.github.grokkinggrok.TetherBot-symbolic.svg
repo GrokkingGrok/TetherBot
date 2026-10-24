@@ -1,10 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
-  <g fill="#000000" stroke="#000000" stroke-linecap="round">
-    <rect x="1.5" y="4" width="13" height="10.5" rx="3" fill="none" stroke-width="1.6"/>
-    <circle cx="5.5" cy="9.2" r="1.35" stroke="none"/>
-    <circle cx="10.5" cy="9.2" r="1.35" stroke="none"/>
-    <path d="M8 4V1.6" fill="none" stroke-width="1.5"/>
-    <circle cx="8" cy="1.4" r="1.2" stroke="none"/>
-  </g>
+  <path fill="#2e3436" fill-rule="evenodd" d="M5.45 1.35 H10.55 A4.1 4.1 0 0 1 14.65 5.45 V10.55 A4.1 4.1 0 0 1 10.55 14.65 H5.45 A4.1 4.1 0 0 1 1.35 10.55 V5.45 A4.1 4.1 0 0 1 5.45 1.35 Z M5.45 3.05 A2.4 2.4 0 0 0 3.05 5.45 V10.55 A2.4 2.4 0 0 0 5.45 12.95 H10.55 A2.4 2.4 0 0 0 12.95 10.55 V5.45 A2.4 2.4 0 0 0 10.55 3.05 Z"/>
+  <circle cx="5.5" cy="6.55" r="1.55" fill="#2e3436"/>
+  <circle cx="10.5" cy="6.55" r="1.55" fill="#2e3436"/>
+  <path fill="#2e3436" d="M5.05 9.5 Q8 12.15 10.95 9.5 Q8 13.05 5.05 10.7 Z"/>
 </svg>

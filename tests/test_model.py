@@ -1,10 +1,25 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 """Field rules, the secret guard, and unknown kinds."""
 
+import importlib.util
+from pathlib import Path
+
 import pytest
 
 from tests.helpers import make_item
-from tetherbot.model import SECRET_REPLACEMENT, Item, global_key
+from tetherbot.model import SECRET_REPLACEMENT, Item, global_key, looks_like_secret, mask_secrets
+
+_ROOT = Path(__file__).resolve().parents[1]
+_SPEC = importlib.util.spec_from_file_location("feed_write", _ROOT / "tools" / "feed_write.py")
+assert _SPEC is not None and _SPEC.loader is not None
+_feed_write = importlib.util.module_from_spec(_SPEC)
+_SPEC.loader.exec_module(_feed_write)
+
+_GREENHOUSE = "https://boards.greenhouse.io/example/jobs/412345678901"
+_DRIVE = "https://drive.google.com/file/d/1abcdefghijklmnopqrstuvwxyz0123456789ABCD/view"
+_HEX_PATH = "https://example.com/models/abcdef0123456789abcdef0123456789"
+_LONG_NAME = "https://example.com/thisisaverylongfilenamewithoutanybreaksat"
+_HEX_BLOB = "abcdef0123456789abcdef0123456789"
 
 
 def test_global_key_and_fixture_shape():
@@ -101,6 +116,70 @@ def test_waiting_on_secret_is_redacted():
     assert item.waiting is not None
     assert item.waiting["on"] == SECRET_REPLACEMENT
     assert "waiting.on" in item.redacted_fields
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        _GREENHOUSE,
+        f"See the role: {_GREENHOUSE}.",
+        _DRIVE,
+        f"({_DRIVE})",
+        _HEX_PATH,
+        _LONG_NAME,
+        "http://example.com/jobs/412345678901",
+        "https://example.com/file?id=" + _HEX_BLOB,
+        "https://discord.com/channels/1234567890123/1234567890123",
+        "https://example.slack.com/archives/C123456789/p1234567890123456",
+        "https://en.wikipedia.org/wiki/Foo_(bar)",
+    ],
+)
+def test_long_ids_in_normal_links_are_not_secrets(text: str):
+    assert looks_like_secret(text) is False
+    assert _feed_write.looks_like_secret(text) is False
+    item = make_item(body=text)
+    assert item.body == text
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "https://example.com/jobs/12?token=abc",
+        "https://example.com/file?key=abc",
+        "https://example.com/file?sig=abc",
+        "https://example.com/file?Token=abc",
+        "https://example.com/doc#access_token=abc",
+        "https://user:pass@example.com/notes",
+        "https://token@example.com/notes",
+        "https://hooks.slack.com/services/T0/B0/notarealhook",
+        "https://discord.com/api/webhooks/1/ab",
+        "https://discordapp.com/api/webhooks/1/ab",
+        "https://canary.discord.com/api/webhooks/1/ab",
+        f"Notes {_GREENHOUSE} and also {_HEX_BLOB}",
+        "https://example.com/ghp_abcdefghijklmnopqrstuvwxyz",
+        "call 555123456 now",
+        _HEX_BLOB,
+    ],
+)
+def test_token_queries_userinfo_and_webhook_hosts_stay_secrets(text: str):
+    assert looks_like_secret(text) is True
+    assert _feed_write.looks_like_secret(text) is True
+
+
+def test_mask_secrets_keeps_a_normal_link_and_hides_a_webhook():
+    kept = mask_secrets(f"open {_DRIVE} today")
+    assert _DRIVE in kept
+    assert SECRET_REPLACEMENT not in kept
+    hidden = mask_secrets("post https://hooks.slack.com/services/T0/B0/notarealhook now")
+    assert "hooks.slack.com" not in hidden
+    assert "notarealhook" not in hidden
+    assert SECRET_REPLACEMENT in hidden
+    userinfo = mask_secrets("see https://user:pass@example.com/notes")
+    assert "user:pass" not in userinfo
+    assert SECRET_REPLACEMENT in userinfo
+    query = mask_secrets("see https://example.com/file?token=abc")
+    assert "token=abc" not in query
+    assert _HEX_BLOB not in mask_secrets(f"code {_HEX_BLOB}")
 
 
 def test_cache_round_trip_keeps_local_state_and_extra():

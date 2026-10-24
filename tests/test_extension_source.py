@@ -204,7 +204,10 @@ def test_clipboard_capture_filters_before_it_reads_text():
     assert "Could not copy the image" in text
     assert "That image is not available" in text
     menu = text.split("    _buildClipboardIndicator() {", 1)[1].split("\n    _", 1)[0]
-    assert "edit-copy-symbolic" in menu
+    assert "icons/clipboard-symbolic.svg" in menu
+    assert "edit-copy-symbolic" not in menu
+    assert "icon_size" not in menu
+    assert "background-image" not in menu
     assert "accessible_name = 'Clipboard'" in menu
     assert "Clear history" in menu
     assert "text:" not in menu or "count" not in menu
@@ -216,6 +219,8 @@ def test_clipboard_capture_filters_before_it_reads_text():
     assert "tetherbot-clip-actions" in filled
     assert "x_expand: false" in filled
     assert "edit-copy-symbolic" in filled
+    assert "background-image" not in filled
+    assert "St.Button" in text.split("    _clipIconButton(", 1)[1].split("\n    _", 1)[0]
     assert "system-search-symbolic" in filled
     assert "edit-delete-symbolic" in filled
     assert "EllipsizeMode.END" in filled
@@ -256,6 +261,7 @@ def test_clipboard_capture_filters_before_it_reads_text():
     notice = (ROOT / "THIRD-PARTY.md").read_text(encoding="utf-8")
     assert "Lucide" in notice
     assert "https://lucide.dev/icons/tag" in notice
+    assert "https://lucide.dev/icons/clipboard" in notice
     assert "Copyright (c) 2026 Lucide Icons and Contributors" in notice
     assert "Permission to use, copy, modify, and/or distribute this software" in notice
     agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
@@ -272,6 +278,30 @@ def test_clipboard_capture_filters_before_it_reads_text():
     assert "launch_default_for_uri" not in text
     assert "'Pinned'" in filled
     assert "clip-edit" in filled
+
+
+def test_window_icon_is_the_face_and_the_clipboard_icon_wears_it():
+    app = (ROOT / "data" / "icons" / "io.github.grokkinggrok.TetherBot.svg").read_text(
+        encoding="utf-8"
+    )
+    symbolic = (
+        ROOT / "data" / "icons" / "io.github.grokkinggrok.TetherBot-symbolic.svg"
+    ).read_text(encoding="utf-8")
+    clip = (EXTENSION / "icons" / "clipboard-symbolic.svg").read_text(encoding="utf-8")
+    for icon in (app, symbolic):
+        assert icon.count("<circle ") == 2
+        assert 'r="1.55"' in icon
+        assert "Q8 12.15" in icon
+        assert "M8 4V1.6" not in icon
+    assert 'fill="#000000"' in app
+    assert 'fill="#2e3436"' in symbolic
+    assert "currentColor" in clip
+    assert "stroke=" not in clip
+    assert "stroke-width" not in clip
+    assert clip.count("<circle ") == 2
+    assert "M5.67 0.67" in clip
+    css = (EXTENSION / "stylesheet.css").read_text(encoding="utf-8")
+    assert "background-image" not in css
 
 
 def test_the_panel_menu_loads_tetherbot_icons_from_the_extension():

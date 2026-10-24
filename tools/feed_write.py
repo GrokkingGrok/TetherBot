@@ -53,6 +53,37 @@ _PREFIX = re.compile(r"(?:^|(?<=[^A-Za-z0-9]))(?:ghp_|github_pat_|sk-|AKIA)")
 _DIGITS = re.compile(r"\d{9,}")
 _HEX = re.compile(r"(?<![0-9A-Fa-f])[0-9A-Fa-f]{32,}(?![0-9A-Fa-f])")
 _B64 = re.compile(r"(?<![A-Za-z0-9+/])[A-Za-z0-9+/]{40,}={0,2}(?![A-Za-z0-9+/=])")
+# Keep this URL exemption in step with bridge/tetherbot/model.py.
+_URL = re.compile(r"https?://[^\s<>\"'`]+", re.IGNORECASE)
+_SECRET_PARAMS = frozenset(
+    {
+        "access-token",
+        "access_token",
+        "api-key",
+        "api_key",
+        "apikey",
+        "auth",
+        "authorization",
+        "client-secret",
+        "client_secret",
+        "id-token",
+        "id_token",
+        "key",
+        "passwd",
+        "password",
+        "pwd",
+        "refresh-token",
+        "refresh_token",
+        "secret",
+        "sig",
+        "signature",
+        "token",
+        "webhook",
+        "x-api-key",
+        "x_api_key",
+    }
+)
+_URL_CLOSERS = {")": "(", "]": "[", "}": "{"}
 
 _STATES = frozenset({"idle", "working", "needs_you", "error"})
 _KINDS = frozenset({"ask", "todo", "watch", "notification", "status"})
@@ -80,11 +111,96 @@ class _Conflict(Exception):
 
 
 def looks_like_secret(text: str) -> bool:
-    """Return whether ``text`` matches the protocol secret guard."""
+    """Return whether ``text`` matches the protocol secret guard.
 
-    if _PREFIX.search(text) or _DIGITS.search(text):
+    A long id in the path of a normal ``http(s)`` link is not a secret.
+    Userinfo, a token-style query, and Slack or Discord webhook hosts are.
+    """
+
+    if _PREFIX.search(text):
         return True
-    return bool(_HEX.search(text) or _B64.search(text))
+    for _start, _end, url in _url_spans(text):
+        if _classify_url(url) == "blocked":
+            return True
+    stripped = _without_safe_urls(text)
+    return bool(_DIGITS.search(stripped) or _HEX.search(stripped) or _B64.search(stripped))
+
+
+def _trim_url(raw: str) -> str:
+    trimmed = raw.rstrip(".,;:!?")
+    while trimmed:
+        last = trimmed[-1]
+        opener = _URL_CLOSERS.get(last)
+        if opener is None or trimmed.count(last) <= trimmed.count(opener):
+            break
+        trimmed = trimmed[:-1].rstrip(".,;:!?")
+    return trimmed
+
+
+def _url_spans(text: str) -> list[tuple[int, int, str]]:
+    spans: list[tuple[int, int, str]] = []
+    for match in _URL.finditer(text):
+        trimmed = _trim_url(match.group(0))
+        if not trimmed.casefold().startswith(("http://", "https://")):
+            continue
+        if len(trimmed) < len("http://x"):
+            continue
+        start = match.start()
+        spans.append((start, start + len(trimmed), trimmed))
+    return spans
+
+
+def _secret_params(raw: str) -> bool:
+    if not raw:
+        return False
+    text = raw[1:] if raw[:1] in "?#" else raw
+    for name, _value in urllib.parse.parse_qsl(text, keep_blank_values=True):
+        if name.casefold() in _SECRET_PARAMS:
+            return True
+    return False
+
+
+def _webhook_host(host: str, path: str) -> bool:
+    folded = host.casefold().rstrip(".")
+    if folded == "hooks.slack.com" or folded.endswith(".hooks.slack.com"):
+        return True
+    discord = (
+        folded == "discord.com"
+        or folded.endswith(".discord.com")
+        or folded == "discordapp.com"
+        or folded.endswith(".discordapp.com")
+    )
+    if not discord:
+        return False
+    route = path.casefold()
+    return "/webhooks/" in route or route.rstrip("/").endswith("/webhooks")
+
+
+def _classify_url(url: str) -> str:
+    parts = urllib.parse.urlsplit(url)
+    if parts.scheme.casefold() not in {"http", "https"} or not parts.hostname:
+        return "plain"
+    if parts.username or parts.password or "@" in parts.netloc:
+        return "blocked"
+    if _webhook_host(parts.hostname, parts.path):
+        return "blocked"
+    if _secret_params(parts.query) or _secret_params(parts.fragment):
+        return "blocked"
+    return "safe"
+
+
+def _without_safe_urls(text: str) -> str:
+    parts: list[str] = []
+    cursor = 0
+    for start, end, url in _url_spans(text):
+        parts.append(text[cursor:start])
+        if _classify_url(url) == "safe":
+            parts.append(" ")
+        else:
+            parts.append(text[start:end])
+        cursor = end
+    parts.append(text[cursor:])
+    return "".join(parts)
 
 
 def assert_feed_path(path: str) -> None:

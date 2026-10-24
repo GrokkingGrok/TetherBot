@@ -141,9 +141,8 @@ function readPinSvg() {
 }
 
 function accentPinFile() {
-    // A symbolic pin is recolored from the menu color. The active pin is the
-    // same drawing with the theme accent baked into the fill. The file name
-    // does not end in -symbolic.svg, so the shell keeps that fill.
+    // The active pin is the Adwaita pin with the theme accent written into
+    // the fill. The menu paints that file as a widget background.
     let rgb = null;
     try {
         const theme = St.ThemeContext.get_for_stage(global.stage);
@@ -2562,15 +2561,18 @@ export default class TetherBotExtension extends Extension {
     }
 
     _accentPinIcon(iconName) {
+        // Same paint as the panel dot: a widget background. The shell leaves that paint alone.
         const file = accentPinFile();
-        if (file) {
-            return new St.Icon({
-                gicon: Gio.FileIcon.new(file),
-                icon_size: 16,
-                style: '-st-icon-style: regular;',
-            });
-        }
-        return this._menuIcon(iconName, '');
+        if (!file)
+            return this._menuIcon(iconName, '');
+        const uri = file.get_uri();
+        return new St.Widget({
+            x_align: Clutter.ActorAlign.CENTER,
+            y_align: Clutter.ActorAlign.CENTER,
+            x_expand: false,
+            y_expand: false,
+            style: `width: 16px; height: 16px; background-size: contain; background-image: url("${uri}");`,
+        });
     }
 
     _sendClipboard(entryId, action, label) {

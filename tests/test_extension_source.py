@@ -287,9 +287,15 @@ def test_the_panel_menu_loads_tetherbot_icons_from_the_extension():
     assert "color: -st-accent-color" not in button
     accent = text.split("    _accentPinIcon(", 1)[1].split("\n    _", 1)[0]
     assert "accentPinFile()" in accent
-    assert "Gio.FileIcon.new" in accent
-    assert "icon_size: 16" in accent
-    assert "-st-icon-style: regular" in accent
+    assert "new St.Widget(" in accent
+    assert "background-image: url(" in accent
+    assert "background-size: contain" in accent
+    assert "width: 16px" in accent
+    assert "height: 16px" in accent
+    assert "Gio.FileIcon.new" not in accent
+    assert "new St.Icon(" not in accent
+    assert "-st-icon-style" not in accent
+    assert "color: -st-accent-color" not in accent
     painter = text.split("function accentPinFile()", 1)[1].split("\nfunction ", 1)[0]
     assert "get_accent_color" in painter
     assert "pin-accent-${hex}.svg" in painter

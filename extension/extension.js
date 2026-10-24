@@ -2241,6 +2241,7 @@ export default class TetherBotExtension extends Extension {
         this._clipSection.addMenuItem(new PopupMenu.PopupMenuItem('Pinned', {reactive: false}));
         this._appendClipboardRows(pinned);
         this._clipSection.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+        this._clipSection.addMenuItem(new PopupMenu.PopupMenuItem('Unpinned', {reactive: false}));
         if (!pinned.length && !regular.length) {
             const empty = new PopupMenu.PopupMenuItem('Nothing copied yet', {reactive: false});
             this._clipSection.addMenuItem(empty);

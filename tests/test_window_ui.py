@@ -1301,10 +1301,20 @@ def test_clipboard_tag_filter_stops_after_one_rebuild():
             assert window._clip_tag == "Later"
             shown = _clip_rows(window)
             assert [row.clip_text for row in shown] == ["alpha line"]
+            assert _clip_marks(window) == ["Pinned", "|", "Unpinned", "c-11111111"]
             assert all(getattr(row, "clip_kind", "") != "image" for row in shown)
             window.clip_tag.set_selected(0)
             assert window._clip_tag == ""
             rows = _clip_rows(window)
+            assert _clip_marks(window) == [
+                "Pinned",
+                "c-33333333",
+                "|",
+                "Unpinned",
+                "c-11111111",
+                "c-22222222",
+                "c-44444444",
+            ]
             masked = next(row for row in rows if row.clip_masked)
             plain = next(row for row in rows if row.clip_text == "alpha line")
             order = [
@@ -1321,8 +1331,10 @@ def test_clipboard_tag_filter_stops_after_one_rebuild():
             assert [button.get_icon_name() for button in _icon_buttons(plain)] == order
             assert [button.get_icon_name() for button in _icon_buttons(masked)] == order
             assert _icon(masked, "view-pin-symbolic").get_sensitive()
-            assert "tether-pin-on" in _icon(masked, "view-pin-symbolic").get_css_classes()
+            assert "tether-pin-on" not in _icon(masked, "view-pin-symbolic").get_css_classes()
             assert "tether-pin-on" not in _icon(plain, "view-pin-symbolic").get_css_classes()
+            assert _icon(masked, "view-pin-symbolic").get_tooltip_text() == "Unpin"
+            assert _icon(plain, "view-pin-symbolic").get_tooltip_text() == "Pin"
             assert not _icon(masked, "tetherbot-tag-symbolic").get_sensitive()
             assert not _icon(masked, "document-edit-symbolic").get_sensitive()
             assert not _icon(masked, "system-search-symbolic").get_sensitive()
@@ -1392,9 +1404,11 @@ def test_clipboard_tag_filter_stops_after_one_rebuild():
             window._fill_clipboard_rows()
             matched = _clip_rows(window)
             assert [getattr(row, "clip_kind", "") for row in matched] == ["image"]
+            assert _clip_marks(window) == ["Pinned", "|", "Unpinned", "c-44444444"]
             window._clip_query = "zz-bytes"
             window._fill_clipboard_rows()
             assert _clip_rows(window) == []
+            assert _clip_marks(window) == ["Pinned", "|", "Unpinned", "No matches"]
             window._clip_query = ""
             window._on_edit_clip(None, image.clip_entry)
             assert getattr(window, "_clip_dialog", None) is None
@@ -1695,6 +1709,25 @@ def _clip_rows(window) -> list:
             return rows
         if getattr(row, "clip_id", ""):
             rows.append(row)
+        index += 1
+
+
+def _clip_marks(window) -> list:
+    marks = []
+    index = 0
+    while True:
+        row = window.list.get_row_at_index(index)
+        if row is None:
+            return marks
+        heading = getattr(row, "clip_heading", "")
+        if heading:
+            marks.append(heading)
+        elif getattr(row, "clip_separator", False):
+            marks.append("|")
+        elif getattr(row, "clip_note", ""):
+            marks.append(row.clip_note)
+        elif getattr(row, "clip_id", ""):
+            marks.append(row.clip_id)
         index += 1
 
 

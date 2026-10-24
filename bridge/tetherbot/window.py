@@ -136,9 +136,6 @@ _CSS = """
   min-width: 48px;
   min-height: 48px;
 }
-.tether-pin-on {
-  color: @accent_color;
-}
 .tether-effort-low { color: @success_color; }
 .tether-effort-medium { color: @warning_color; }
 .tether-effort-high { color: @error_color; }
@@ -2545,11 +2542,47 @@ class TodoWindow(Adw.ApplicationWindow):
         self._fill_clipboard_rows()
         self._apply_clip_pending(loaded=True)
 
+    def _clip_heading_row(self, title: str) -> Gtk.ListBoxRow:
+        label = Gtk.Label(label=title, xalign=0)
+        label.set_margin_top(8)
+        label.set_margin_bottom(2)
+        label.set_margin_start(8)
+        label.set_margin_end(8)
+        row = Gtk.ListBoxRow(child=label)
+        row.set_selectable(False)
+        row.set_activatable(False)
+        row.clip_heading = title
+        return row
+
+    def _clip_separator_row(self) -> Gtk.ListBoxRow:
+        line = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+        line.set_hexpand(True)
+        line.set_margin_top(6)
+        line.set_margin_bottom(6)
+        row = Gtk.ListBoxRow(child=line)
+        row.set_selectable(False)
+        row.set_activatable(False)
+        row.clip_separator = True
+        return row
+
+    def _clip_note_row(self, text: str) -> Gtk.ListBoxRow:
+        empty = Gtk.Label(label=text, xalign=0)
+        empty.add_css_class("dim-label")
+        empty.set_margin_top(8)
+        empty.set_margin_bottom(8)
+        empty.set_margin_start(8)
+        row = Gtk.ListBoxRow(child=empty)
+        row.set_selectable(False)
+        row.set_activatable(False)
+        row.clip_note = text
+        return row
+
     def _fill_clipboard_rows(self) -> None:
         self._sync_clip_tags()
         query = self._clip_query.casefold().strip()
         tag_filter = self._clip_tag
-        rows: list[Gtk.ListBoxRow] = []
+        pinned_rows: list[Gtk.ListBoxRow] = []
+        regular_rows: list[Gtk.ListBoxRow] = []
         for entry in self._clip_entries:
             text = entry.get("text")
             ident = entry.get("id")
@@ -2574,18 +2607,22 @@ class TodoWindow(Adw.ApplicationWindow):
                         continue
                 elif not tag_hit and query not in text.casefold():
                     continue
-            rows.append(self._make_clip_row(entry, text, masked))
-        if not rows:
-            empty_text = "No matches" if query or tag_filter else "Nothing copied yet"
-            empty = Gtk.Label(label=empty_text, xalign=0)
-            empty.add_css_class("dim-label")
-            empty.set_margin_top(8)
-            empty.set_margin_bottom(8)
-            empty.set_margin_start(8)
-            row = Gtk.ListBoxRow(child=empty)
-            row.set_selectable(False)
-            row.set_activatable(False)
-            rows.append(row)
+            row = self._make_clip_row(entry, text, masked)
+            if entry.get("pinned") is True:
+                pinned_rows.append(row)
+            else:
+                regular_rows.append(row)
+        rows: list[Gtk.ListBoxRow] = [
+            self._clip_heading_row("Pinned"),
+            *pinned_rows,
+            self._clip_separator_row(),
+            self._clip_heading_row("Unpinned"),
+        ]
+        if not pinned_rows and not regular_rows:
+            note = "No matches" if query or tag_filter else "Nothing copied yet"
+            rows.append(self._clip_note_row(note))
+        else:
+            rows.extend(regular_rows)
         self._install_rows(rows, "", clear_missing=False)
 
     def _sync_clip_tags(self) -> None:
@@ -2664,8 +2701,6 @@ class TodoWindow(Adw.ApplicationWindow):
             text_box.append(dots)
         pin_tip = "Unpin" if pinned else "Pin"
         pin = _clip_icon("view-pin-symbolic", pin_tip)
-        if pinned:
-            pin.add_css_class("tether-pin-on")
         pin.connect("clicked", self._on_pin_clip, entry)
         tag_tip = "Hidden passwords are not tagged" if masked else "Tag"
         tag_button = _clip_icon("tetherbot-tag-symbolic", tag_tip, not masked)

@@ -100,7 +100,13 @@ def test_window_sources_do_not_touch_the_network_or_secrets():
     assert "edit-delete-symbolic" in window
     assert '"Edit"' in window
     assert '"Unpin" if pinned else "Pin"' in window
-    assert "tether-pin-on" in window
+    assert "tether-pin-on" not in window
+    fill = window.split("def _fill_clipboard_rows", 1)[1].split("\n    def _sync_clip_tags", 1)[0]
+    assert '"Pinned"' in fill
+    assert '"Unpinned"' in fill
+    assert fill.index('"Pinned"') < fill.index('"Unpinned"')
+    assert "_clip_separator_row" in fill
+    assert "_clip_heading_row" in fill
     assert "tether-clip-sep" in window
     assert "EllipsizeMode.END" in window
     assert "set_max_children_per_line(6)" not in window

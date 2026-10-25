@@ -25,13 +25,6 @@
     opacity: 0.45;
 }
 
-.tetherbot-clip-off,
-.tetherbot-clip-off:hover,
-.tetherbot-clip-off:active,
-.tetherbot-clip-off:focus {
-    opacity: 0.35;
-}
-
 .panel-button.tetherbot-panel {
     padding-left: 2px;
     padding-right: 2px;
@@ -232,19 +225,19 @@
 }
 
 .tetherbot-clip-thumb {
-    width: 48px;
-    height: 48px;
+    width: 58px;
+    height: 58px;
 }
 
 .tetherbot-clip-action {
-    padding: 2px;
-    min-width: 16px;
-    min-height: 16px;
+    padding: 3px;
+    min-width: 19px;
+    min-height: 19px;
 }
 
 .tetherbot-clip-sep {
     width: 1px;
-    height: 16px;
+    height: 19px;
     margin-left: 2px;
     margin-right: 2px;
     background-color: rgba(255, 255, 255, 0.18);

@@ -25,7 +25,10 @@
     opacity: 0.45;
 }
 
-.tetherbot-clip-off {
+.tetherbot-clip-off,
+.tetherbot-clip-off:hover,
+.tetherbot-clip-off:active,
+.tetherbot-clip-off:focus {
     opacity: 0.35;
 }
 

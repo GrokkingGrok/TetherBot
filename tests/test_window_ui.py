@@ -1891,3 +1891,93 @@ def test_a_long_todo_title_leaves_the_start_timer_button_visible():
     if "error" in holder:
         raise holder["error"]
     assert holder.get("ok") is True
+
+
+def test_a_secret_looking_note_stays_in_the_field():
+    gi = pytest.importorskip("gi")
+    try:
+        gi.require_version("Gtk", "4.0")
+        gi.require_version("Adw", "1")
+        from gi.repository import Adw, Gio, GLib
+    except ValueError as exc:
+        pytest.skip(str(exc))
+    if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
+        pytest.skip("GTK window test needs a display")
+
+    from tetherbot.bridge_errors import SECRET_NOTE_MESSAGE
+    from tetherbot.window import BridgeError, WindowApp
+
+    phrase = "ghp_notarealtoken"
+    raw = (
+        "GDBus.Error:io.github.grokkinggrok.TetherBot1.Error.InvalidArgs: "
+        "refusing to queue an action that looks like a secret"
+    )
+
+    class _Notes(_Fake):
+        pass
+
+    class _Isolated(WindowApp):
+        def __init__(self, client: _Notes) -> None:
+            Adw.Application.__init__(
+                self,
+                application_id="io.github.grokkinggrok.TetherBot.SecretNoteTest",
+                flags=Gio.ApplicationFlags.NON_UNIQUE,
+            )
+            self._client = client
+            self.window = None
+            self._linger = 0
+
+    fake = _Notes()
+    app = _Isolated(fake)
+    holder: dict = {}
+
+    def finish():
+        try:
+            window = app.window
+            assert window is not None
+            toasts: list[str] = []
+            window._toast = lambda message: toasts.append(message)
+            window.select_key("primary/one")
+            window.note_buffer.set_text(phrase)
+            window._done_with_note()
+            assert toasts == [SECRET_NOTE_MESSAGE]
+            assert phrase not in toasts[0]
+            assert "GDBus" not in toasts[0]
+            assert window._note_text() == phrase
+            assert "primary/one" not in window._undo_holds
+            assert fake.done == []
+            window.note_buffer.set_text("Packed the blue bag")
+            window._done_with_note()
+            assert window._note_text() == ""
+            assert "primary/one" in window._undo_holds
+            window._undo_holds["primary/one"]["until"] = 0
+
+            def refuse(key, note=""):
+                fake.done.append(key)
+                fake.done_notes.append(note)
+                raise BridgeError(f"{raw} {phrase}")
+
+            fake.mark_done = refuse
+            window._flush_due(False)
+            assert toasts[-1] == SECRET_NOTE_MESSAGE
+            assert phrase not in toasts[-1]
+            assert "Packed" not in toasts[-1]
+            assert "GDBus" not in toasts[-1]
+            assert "primary/one" not in window._undo_holds
+            window._show_item(fake.get_item("primary/one"))
+            assert window._note_text() == "Packed the blue bag"
+            holder["ok"] = True
+        except Exception as exc:
+            holder["error"] = exc
+        app.quit()
+        return False
+
+    try:
+        app.connect("activate", lambda _app: GLib.idle_add(finish))
+        GLib.timeout_add(8000, app.quit)
+        app.run(["tetherbot-window"])
+    finally:
+        reset_tetherbot_logger()
+    if "error" in holder:
+        raise holder["error"]
+    assert holder.get("ok") is True

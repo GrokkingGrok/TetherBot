@@ -25,6 +25,11 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Pango", "1.0")
 from gi.repository import Adw, Gdk, Gio, GLib, Graphene, Gsk, Gtk, Pango  # noqa: E402
 
+from tetherbot.bridge_errors import (  # noqa: E402
+    SECRET_NOTE_MESSAGE,
+    clip_send_message,
+    friendly_bridge_message,
+)
 from tetherbot.clipboard_policy import image_label, list_preview  # noqa: E402
 from tetherbot.clipboard_search import (  # noqa: E402
     choose_search_template,
@@ -32,6 +37,7 @@ from tetherbot.clipboard_search import (  # noqa: E402
     open_clip_search,
 )
 from tetherbot.markdown import Run, render  # noqa: E402
+from tetherbot.model import looks_like_secret  # noqa: E402
 from tetherbot.todos import PALETTE  # noqa: E402
 from tetherbot.ui_settings import EXTENSION_UUID, load_ui_settings  # noqa: E402
 from tetherbot.window_launch import APP_ID  # noqa: E402
@@ -643,6 +649,7 @@ class TodoWindow(Adw.ApplicationWindow):
         self._timer_generation = 0
         self._link_tags: dict[str, Gtk.TextTag] = {}
         self._undo_holds: dict[str, dict[str, Any]] = {}
+        self._kept_secret_note: tuple[str, str] | None = None
         self._undo_span = 5000
         self._undo_bars: list[tuple[Gtk.ProgressBar, int]] = []
         self._undo_source = 0
@@ -981,7 +988,7 @@ class TodoWindow(Adw.ApplicationWindow):
             tags = self.client.get_tags()
             bots = self.client.bots()
         except BridgeError as exc:
-            self.banner.set_title(str(exc))
+            self.banner.set_title(friendly_bridge_message(exc))
             self.banner.set_revealed(True)
             return GLib.SOURCE_REMOVE
         self._apply_list(items, tags, bots)
@@ -995,7 +1002,7 @@ class TodoWindow(Adw.ApplicationWindow):
         error: BridgeError | None,
     ) -> None:
         if error is not None:
-            self.banner.set_title(str(error))
+            self.banner.set_title(friendly_bridge_message(error))
             self.banner.set_revealed(True)
             return
         self._apply_list(items, tags, bots)
@@ -1452,6 +1459,7 @@ class TodoWindow(Adw.ApplicationWindow):
         incoming = item.get("key") if isinstance(item, dict) else None
         if previous != incoming:
             self.note_buffer.set_text("")
+        self._restore_kept_note(incoming)
         if item is None:
             self.detail_title.set_label("Select a todo")
             _clear_box(self.detail_chips)
@@ -1493,6 +1501,18 @@ class TodoWindow(Adw.ApplicationWindow):
         self._sync_start_button(item)
         self._sync_detail_undo(key)
 
+    def _restore_kept_note(self, key: object) -> None:
+        """Put a refused note back when this todo is the one that was kept."""
+
+        kept = self._kept_secret_note
+        if not isinstance(kept, tuple) or len(kept) != 2:
+            return
+        kept_key, text = kept
+        if kept_key != key or not isinstance(text, str) or not text:
+            return
+        self.note_buffer.set_text(text)
+        self._kept_secret_note = None
+
     def _sync_time_editor(self, item: dict[str, Any] | None) -> None:
         if (
             not isinstance(item, dict)
@@ -1512,7 +1532,7 @@ class TodoWindow(Adw.ApplicationWindow):
             self.time_box.set_visible(True)
             self.time_entry.set_text("")
             _clear_box(self.time_records)
-            self._toast(str(exc) or "Could not save the timer")
+            self._toast(friendly_bridge_message(exc, fallback="Could not save the timer"))
             return
         self._show_time_payload(payload if isinstance(payload, dict) else {})
 
@@ -1552,7 +1572,7 @@ class TodoWindow(Adw.ApplicationWindow):
         try:
             payload = self.client.set_tracked_total(key, total)
         except BridgeError as exc:
-            self._toast(str(exc) or "Could not save the timer")
+            self._toast(friendly_bridge_message(exc, fallback="Could not save the timer"))
             return
         self._apply_tracked(payload)
 
@@ -1588,7 +1608,7 @@ class TodoWindow(Adw.ApplicationWindow):
         try:
             payload = self.client.delete_time_record(key, record_id)
         except BridgeError as exc:
-            self._toast(str(exc) or "Could not save the timer")
+            self._toast(friendly_bridge_message(exc, fallback="Could not save the timer"))
             return
         self._apply_tracked(payload)
 
@@ -1706,7 +1726,7 @@ class TodoWindow(Adw.ApplicationWindow):
         try:
             updated = self.client.stop_timer()
         except BridgeError as exc:
-            self._toast(str(exc) or "Could not save the timer")
+            self._toast(friendly_bridge_message(exc, fallback="Could not save the timer"))
             return
         if isinstance(updated, dict) and updated.get("state"):
             self._apply_timer_result(updated)
@@ -1741,7 +1761,7 @@ class TodoWindow(Adw.ApplicationWindow):
         try:
             started = self.client.start_timer(key)
         except BridgeError as exc:
-            self._toast(str(exc) or "Could not save the timer")
+            self._toast(friendly_bridge_message(exc, fallback="Could not save the timer"))
             return
         if isinstance(started, dict) and started:
             self._timer = started
@@ -1771,7 +1791,7 @@ class TodoWindow(Adw.ApplicationWindow):
                     self.client.dismiss_timer()
             started = self.client.start_timer(key)
         except BridgeError as exc:
-            self._toast(str(exc) or "Could not save the timer")
+            self._toast(friendly_bridge_message(exc, fallback="Could not save the timer"))
             self._request_timer()
             return
         if isinstance(started, dict) and started:
@@ -1868,7 +1888,7 @@ class TodoWindow(Adw.ApplicationWindow):
         try:
             updated = self.client.adjust_start(int(delta))
         except BridgeError as exc:
-            self._toast(str(exc) or "Could not save the timer")
+            self._toast(friendly_bridge_message(exc, fallback="Could not save the timer"))
             return
         self._apply_timer_result(updated)
 
@@ -1882,7 +1902,7 @@ class TodoWindow(Adw.ApplicationWindow):
         try:
             updated = self.client.set_start(started)
         except BridgeError as exc:
-            self._toast(str(exc) or "Could not save the timer")
+            self._toast(friendly_bridge_message(exc, fallback="Could not save the timer"))
             return
         self.start_entry.set_text("")
         self._apply_timer_result(updated)
@@ -1897,7 +1917,7 @@ class TodoWindow(Adw.ApplicationWindow):
         try:
             updated = self.client.attach_timer(key)
         except BridgeError as exc:
-            self._toast(str(exc) or "Could not save the timer")
+            self._toast(friendly_bridge_message(exc, fallback="Could not save the timer"))
             return
         if not isinstance(updated, dict) or not updated.get("state"):
             self._request_timer()
@@ -1910,7 +1930,7 @@ class TodoWindow(Adw.ApplicationWindow):
         try:
             updated = self.client.dismiss_timer()
         except BridgeError as exc:
-            self._toast(str(exc) or "Could not save the timer")
+            self._toast(friendly_bridge_message(exc, fallback="Could not save the timer"))
             return
         self._apply_timer_result(updated)
 
@@ -2003,6 +2023,9 @@ class TodoWindow(Adw.ApplicationWindow):
         outbound = self._outbound.get(key.split("/", 1)[0], False)
         if not can_mark_done(item, outbound):
             return
+        if looks_like_secret(note):
+            self._toast(SECRET_NOTE_MESSAGE)
+            return
         self._mark_done(key, note)
         self.note_buffer.set_text("")
 
@@ -2074,7 +2097,7 @@ class TodoWindow(Adw.ApplicationWindow):
             try:
                 result = self.client.undo(key)
             except BridgeError as exc:
-                self._toast(str(exc))
+                self._toast(friendly_bridge_message(exc))
                 return
             if result.get("result") == "dropped":
                 self._toast("Brought back. Nothing was sent.")
@@ -2094,7 +2117,7 @@ class TodoWindow(Adw.ApplicationWindow):
         try:
             self.client.send_note(item["key"])
         except BridgeError as exc:
-            self._toast(str(exc))
+            self._toast(friendly_bridge_message(exc))
             return
         self._toast("Sent a note about this item")
 
@@ -2204,7 +2227,21 @@ class TodoWindow(Adw.ApplicationWindow):
                 else:
                     self.client.mark_done(key)
             except BridgeError as exc:
-                self._toast(str(exc))
+                raw = str(exc)
+                self._toast(friendly_bridge_message(raw))
+                if "looks like a secret" in raw.casefold():
+                    self._undo_holds.pop(key, None)
+                    restored = note.strip() if isinstance(note, str) else ""
+                    if restored:
+                        self._kept_secret_note = (key, restored)
+                        current = (
+                            self._current.get("key") if isinstance(self._current, dict) else None
+                        )
+                        if current == key:
+                            self.note_buffer.set_text(restored)
+                    needs_ui = True
+                    self._after_send_refresh = True
+                    continue
                 hold["failed"] = True
                 needs_ui = True
                 self._after_send_refresh = True
@@ -2516,7 +2553,7 @@ class TodoWindow(Adw.ApplicationWindow):
             try:
                 self._clip_entries = self.client.get_clipboard()
             except BridgeError as exc:
-                self.banner.set_title(str(exc))
+                self.banner.set_title(friendly_bridge_message(exc))
                 self.banner.set_revealed(True)
                 self._clip_entries = []
         self._fill_clipboard_rows()
@@ -2533,7 +2570,7 @@ class TodoWindow(Adw.ApplicationWindow):
         if self._page != "clipboard":
             return
         if error is not None:
-            self.banner.set_title(str(error))
+            self.banner.set_title(friendly_bridge_message(error))
             self.banner.set_revealed(True)
             self._clip_entries = []
         else:
@@ -2811,8 +2848,7 @@ class TodoWindow(Adw.ApplicationWindow):
         try:
             result = self.client.send_clipboard(ident, action, bot)
         except BridgeError as exc:
-            reason = str(exc).strip() or "Could not send"
-            self._flash_clip_label(label, f"Not sent: {reason}")
+            self._flash_clip_label(label, clip_send_message(exc))
             return
         if result == "sent":
             self._flash_clip_label(label, "Sent")
@@ -2987,7 +3023,7 @@ class TodoWindow(Adw.ApplicationWindow):
         try:
             self.client.pin_clipboard(ident, entry.get("pinned") is not True)
         except BridgeError as exc:
-            self._toast(str(exc))
+            self._toast(friendly_bridge_message(exc))
             return
         self._reload_clip_now()
 
@@ -3111,7 +3147,7 @@ class TodoWindow(Adw.ApplicationWindow):
         try:
             saved = self.client.edit_clipboard(entry_id, text)
         except BridgeError as exc:
-            self._toast(str(exc))
+            self._toast(friendly_bridge_message(exc))
             return
         if not saved:
             self._toast("That line could not be edited")
@@ -3167,7 +3203,7 @@ class TodoWindow(Adw.ApplicationWindow):
             try:
                 saved = self.client.set_clipboard_tags(entry_id, working)
             except BridgeError as exc:
-                self._toast(str(exc))
+                self._toast(friendly_bridge_message(exc))
                 return
             if not saved:
                 self._toast("Tags could not be saved")
@@ -3200,7 +3236,7 @@ class TodoWindow(Adw.ApplicationWindow):
             try:
                 self._clip_entries = self.client.get_clipboard()
             except BridgeError as exc:
-                self._toast(str(exc))
+                self._toast(friendly_bridge_message(exc))
                 return
         self._fill_clipboard_rows()
         self._apply_clip_pending(loaded=True)
@@ -3248,7 +3284,7 @@ class TodoWindow(Adw.ApplicationWindow):
         try:
             self.client.delete_clipboard(entry_id)
         except BridgeError as exc:
-            self._toast(str(exc))
+            self._toast(friendly_bridge_message(exc))
             return
         self._clip_entries = [
             entry for entry in self._clip_entries if entry.get("id") != entry_id
@@ -3278,7 +3314,7 @@ class TodoWindow(Adw.ApplicationWindow):
         try:
             self.client.clear_clipboard()
         except BridgeError as exc:
-            self._toast(str(exc))
+            self._toast(friendly_bridge_message(exc))
             return
         self._clip_entries = [
             entry for entry in self._clip_entries if entry.get("pinned") is True

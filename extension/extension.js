@@ -2290,20 +2290,7 @@ export default class TetherBotExtension extends Extension {
             if (dots.get_n_children() > 0)
                 textBox.add_child(dots);
             row.add_child(textBox);
-            const editTip = isImage ? 'Images are not edited' : 'Edit';
-            const tagTip = masked ? 'Hidden passwords are not tagged' : 'Tag';
-            let searchTip = 'Search the web';
-            if (isImage)
-                searchTip = 'Images are not searched';
-            else if (masked)
-                searchTip = 'Hidden passwords are not searched';
-            let sendBlocked = '';
-            if (isImage)
-                sendBlocked = 'Images are not sent';
-            else if (masked)
-                sendBlocked = 'Hidden passwords are not sent';
-            const sendTip = name => sendBlocked || name;
-            const canSend = !sendBlocked;
+            const canSend = !isImage && !masked;
             const copyBack = () => {
                 if (isImage)
                     this._recopyImage(entry.id);
@@ -2311,26 +2298,26 @@ export default class TetherBotExtension extends Extension {
                     this._recopyClipboard(entry.text);
             };
             const columns = [
-                ['document-edit-symbolic', editTip, !masked && !isImage, () => {
+                ['document-edit-symbolic', 'Edit', !masked && !isImage, () => {
                     this._openClipAction('clip-edit', entry.id);
                 }],
                 ['view-pin-symbolic', pinned ? 'Unpin' : 'Pin', true, () => {
                     this._pinClipboard(entry.id, !pinned);
                 }],
-                ['tetherbot-tag-symbolic', tagTip, !masked, () => {
+                ['tetherbot-tag-symbolic', 'Tag', !masked, () => {
                     this._openClipAction('clip-tag', entry.id);
                 }],
                 ['edit-copy-symbolic', 'Copy', true, copyBack],
-                ['system-search-symbolic', searchTip, !masked && !isImage, () => {
+                ['system-search-symbolic', 'Search the web', !masked && !isImage, () => {
                     this._searchClipboard(entry.id);
                 }],
-                ['tetherbot-check-symbolic', sendTip('Make a todo'), canSend, () => {
+                ['tetherbot-check-symbolic', 'Make a todo', canSend, () => {
                     this._sendClipboard(entry.id, 'clip-todo', label);
                 }],
-                ['tetherbot-square-check-symbolic', sendTip('Make a todo with context'), canSend, () => {
+                ['tetherbot-square-check-symbolic', 'Make a todo with context', canSend, () => {
                     this._sendClipboard(entry.id, 'clip-todo-context', label);
                 }],
-                ['tetherbot-circle-help-symbolic', sendTip('Tell me more'), canSend, () => {
+                ['tetherbot-circle-help-symbolic', 'Tell me more', canSend, () => {
                     this._sendClipboard(entry.id, 'clip-ask', label);
                 }],
                 ['edit-delete-symbolic', 'Delete', true, () => this._deleteClipboard(entry.id)],
@@ -2356,26 +2343,23 @@ export default class TetherBotExtension extends Extension {
                 holdClipClick();
                 return Clutter.EVENT_STOP;
             });
-            columns.forEach(([iconName, tip, enabled, onPress], index) => {
-                if (index > 0) {
+            let placed = false;
+            columns.forEach(([iconName, tip, enabled, onPress]) => {
+                if (!enabled)
+                    return;
+                if (placed) {
                     actions.add_child(new St.Widget({
                         style_class: 'tetherbot-clip-sep',
                         y_align: Clutter.ActorAlign.CENTER,
                     }));
                 }
-                const button = this._clipIconButton(iconName, tip, enabled);
-                if (enabled) {
-                    button.connect('button-press-event', () => {
-                        holdClipClick();
-                        onPress();
-                        return Clutter.EVENT_STOP;
-                    });
-                } else {
-                    button.connect('button-press-event', () => {
-                        holdClipClick();
-                        return Clutter.EVENT_STOP;
-                    });
-                }
+                placed = true;
+                const button = this._clipIconButton(iconName, tip);
+                button.connect('button-press-event', () => {
+                    holdClipClick();
+                    onPress();
+                    return Clutter.EVENT_STOP;
+                });
                 actions.add_child(button);
             });
             row.add_child(actions);
@@ -2446,7 +2430,7 @@ export default class TetherBotExtension extends Extension {
                 if (file.query_exists(null)) {
                     return new St.Icon({
                         gicon: Gio.FileIcon.new(file),
-                        icon_size: 16,
+                        icon_size: 19,
                         style_class: styleClassName,
                     });
                 }
@@ -2456,20 +2440,17 @@ export default class TetherBotExtension extends Extension {
         }
         return new St.Icon({
             icon_name: iconName,
-            icon_size: 16,
+            icon_size: 19,
             style_class: styleClassName,
         });
     }
 
-    _clipIconButton(iconName, name, enabled) {
+    _clipIconButton(iconName, name) {
         const icon = this._menuIcon(iconName, '');
-        let buttonClass = 'popup-menu-item-button tetherbot-clip-action';
-        if (!enabled)
-            buttonClass += ' tetherbot-clip-off';
         const button = new St.Button({
-            style_class: buttonClass,
+            style_class: 'popup-menu-item-button tetherbot-clip-action',
             child: icon,
-            can_focus: enabled,
+            can_focus: true,
             reactive: true,
             track_hover: true,
             x_expand: false,
@@ -2570,7 +2551,7 @@ export default class TetherBotExtension extends Extension {
             }
             return new St.Icon({
                 gicon: new Gio.FileIcon({file}),
-                icon_size: 48,
+                icon_size: 58,
                 style_class: 'tetherbot-clip-thumb',
                 y_align: Clutter.ActorAlign.CENTER,
             });
@@ -2740,13 +2721,13 @@ function clipThumbActor(file) {
         } catch {
             paintScale = 1;
         }
-        const actor = cache.load_file_async(file, 48, 48, paintScale, 1);
+        const actor = cache.load_file_async(file, 58, 58, paintScale, 1);
         if (!actor)
             return null;
         const box = new St.Widget({
             style_class: 'tetherbot-clip-thumb',
-            width: 48,
-            height: 48,
+            width: 58,
+            height: 58,
             y_align: Clutter.ActorAlign.CENTER,
             clip_to_allocation: true,
         });

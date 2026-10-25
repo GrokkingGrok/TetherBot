@@ -228,10 +228,10 @@ def test_clipboard_capture_filters_before_it_reads_text():
     assert "line_wrap = false" in filled
     assert "opacity: 0.45" not in filled
     assert "Clutter.EVENT_STOP" in filled
-    assert "Images are not edited" in filled
-    assert "Images are not searched" in filled
-    assert "Images are not sent" in filled
-    assert "Hidden passwords are not sent" in filled
+    assert "Images are not edited" not in text
+    assert "Images are not searched" not in text
+    assert "if (!enabled)" in filled
+    assert "const canSend = !isImage && !masked" in filled
     assert "tetherbot-check-symbolic" in filled
     assert "tetherbot-square-check-symbolic" in filled
     assert "tetherbot-circle-help-symbolic" in filled
@@ -324,10 +324,10 @@ def test_the_panel_menu_loads_tetherbot_icons_from_the_extension():
     assert "color: -st-accent-color" not in button
     assert "reactive: true" in button
     assert "track_hover: true" in button
-    assert "can_focus: enabled" in button
+    assert "can_focus: true" in button
     assert "reactive: enabled" not in button
     assert "track_hover: enabled" not in button
-    assert "tetherbot-clip-off" in button
+    assert "tetherbot-clip-off" not in text
     assert "tooltip_text = name" in button
     assert "accessible_name = name" in button
     assert "_accentPinIcon" not in text
@@ -359,16 +359,22 @@ def test_the_panel_menu_loads_tetherbot_icons_from_the_extension():
     assert "_searchClipboard(" in filled
     assert "MENU_LIMIT" in filled
     assert "opacity:" not in filled
-    enabled_at = built.index("if (enabled) {")
-    disabled_at = built.index("} else {", enabled_at)
-    enabled_body = built[enabled_at:disabled_at]
-    disabled_body = built[disabled_at:].split("actions.add_child(button)", 1)[0]
+    assert "tetherbot-clip-off" not in built
+    skip = built.split("if (!enabled)", 1)[1]
+    assert skip.index("return;") < skip.index("_clipIconButton(")
     assert built.count("onPress()") == 1
-    assert enabled_body.count("onPress()") == 1
-    assert "holdClipClick()" in enabled_body
-    assert "onPress()" not in disabled_body
-    assert "holdClipClick()" in disabled_body
-    assert "EVENT_STOP" in disabled_body
+    press = built.split("const button = this._clipIconButton(iconName, tip);", 1)[1].split(
+        "actions.add_child(button)", 1
+    )[0]
+    assert press.count("onPress()") == 1
+    assert "holdClipClick()" in press
+    assert "EVENT_STOP" in press
+    assert "} else {" not in built
+    icon = text.split("    _menuIcon(", 1)[1].split("\n    _", 1)[0]
+    assert icon.count("icon_size: 19") == 2
+    assert "icon_size: 16" not in text
+    assert "load_file_async(file, 58, 58," in text
+    assert "icon_size: 58" in text
     friendly = text.split("    _friendlyBridgeMessage(", 1)[1].split("\n    _", 1)[0]
     assert "looks like a secret" in friendly
     assert "This note looks like a secret, so it wasn't sent." in friendly
@@ -382,8 +388,11 @@ def test_the_panel_menu_loads_tetherbot_icons_from_the_extension():
     assert "launch_default_for_uri" not in search
     css = (EXTENSION / "stylesheet.css").read_text(encoding="utf-8")
     assert ".tetherbot-clip-pin-on StIcon" not in css
-    assert ".tetherbot-clip-off" in css
-    assert "opacity: 0.35" in css
+    assert ".tetherbot-clip-off" not in css
+    assert "opacity: 0.35" not in css
+    assert "padding: 3px" in css
+    assert "min-width: 19px" in css
+    assert "width: 58px" in css
     assert ".tetherbot-dimmed" in css
     assert "opacity: 0.45" in css
 

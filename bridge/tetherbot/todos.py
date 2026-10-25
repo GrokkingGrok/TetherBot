@@ -76,8 +76,27 @@ def tag_color(tag: str, overrides: Mapping[str, str] | None = None) -> str:
     return PALETTE[value % len(PALETTE)]
 
 
+_PRIORITY_WORDS = {
+    "1": 1,
+    "2": 2,
+    "3": 3,
+    "high": 1,
+    "medium": 2,
+    "med": 2,
+    "low": 3,
+}
+_PRIORITY_LABELS = {
+    1: "High priority",
+    2: "Medium priority",
+    3: "Low priority",
+}
+
+
 def parse_query(text: str) -> ParsedQuery:
-    """Split ``@tag``, ``due:today``, ``due:overdue``, ``p:1``, and keywords."""
+    """Split ``@tag``, ``due:today``, ``due:overdue``, ``p:1``, and keywords.
+
+    ``p:`` also accepts ``2``, ``3``, ``high``, ``medium``, ``med``, and ``low``.
+    """
 
     words: list[str] = []
     tags: list[str] = []
@@ -91,9 +110,11 @@ def parse_query(text: str) -> ParsedQuery:
         if lowered in {"due:today", "due:overdue"}:
             due = lowered.split(":", 1)[1]
             continue
-        if lowered.startswith("p:") and lowered[2:] in {"1", "2", "3"}:
-            priority = int(lowered[2:])
-            continue
+        if lowered.startswith("p:"):
+            mapped = _PRIORITY_WORDS.get(lowered[2:])
+            if mapped is not None:
+                priority = mapped
+                continue
         words.append(lowered)
     return ParsedQuery(tuple(words), tuple(tags), due, priority)
 
@@ -186,8 +207,8 @@ def chips(item: object, now: datetime, zone: tzinfo, overrides: Mapping[str, str
     label = due_label(due, zone)
     if label:
         row["due"] = {"label": label, "tone": due_tone(due, now, zone)}
-    if isinstance(priority, int):
-        row["priority"] = {"label": f"#{priority}", "tone": priority_tone(priority)}
+    if isinstance(priority, int) and priority in _PRIORITY_LABELS:
+        row["priority"] = {"label": _PRIORITY_LABELS[priority], "tone": priority_tone(priority)}
     if isinstance(waiting, Mapping):
         on = waiting.get("on")
         text = f"Waiting on {on}" if isinstance(on, str) and on else "Waiting"

@@ -38,6 +38,7 @@ import {
     indicatorView,
     topBarWidthSample,
     botLabels,
+    chipSequence,
     keepAssigning,
     menuModel,
     parseSetTime,
@@ -1111,8 +1112,6 @@ export default class TetherBotExtension extends Extension {
         if (row.pick)
             item.connect('activate', () => this._activateTodo(row));
         const heading = new St.BoxLayout({x_expand: true});
-        if (row.chips && row.chips.priority)
-            heading.add_child(chipLabel(row.chips.priority, row.chips.priorityTone));
         heading.add_child(title);
         text.add_child(heading);
         if (row.chips) {
@@ -1144,16 +1143,8 @@ export default class TetherBotExtension extends Extension {
 
     _chipRow(chips, tracked, botLabel) {
         const row = new St.BoxLayout({style_class: 'tetherbot-chips'});
-        if (botLabel)
-            row.add_child(chipLabel(botLabel, 'neutral'));
-        if (chips.due)
-            row.add_child(chipLabel(chips.due, chips.dueTone));
-        for (const tag of chips.tags || [])
-            row.add_child(chipLabel(tag.label, tag.tone));
-        if (chips.extra > 0)
-            row.add_child(chipLabel(`+${chips.extra}`, 'neutral'));
-        if (tracked)
-            row.add_child(chipLabel(tracked, 'neutral'));
+        for (const chip of chipSequence(chips, tracked, botLabel))
+            row.add_child(chipLabel(chip.text, chip.tone));
         return row;
     }
 

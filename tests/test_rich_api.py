@@ -76,6 +76,9 @@ def test_filters_search_views_and_tag_colors(tmp_path: Path):
     assert _keys(daemon, '{"query":"@home due:today"}') == ["primary/mine-01"]
     assert _keys(daemon, '{"query":"due:overdue"}') == ["primary/bot-01"]
     assert _keys(daemon, '{"query":"p:1"}') == ["primary/mine-01"]
+    assert _keys(daemon, '{"query":"p:HIGH"}') == ["primary/mine-01"]
+    assert _keys(daemon, '{"query":"p:low"}') == ["primary/later-01"]
+    assert _keys(daemon, '{"query":"p:med"}') == []
     assert _keys(daemon, '{"tags":["home","errand"]}') == ["primary/mine-01"]
     assert _keys(daemon, '{"view":"mine"}') == ["primary/mine-01", "primary/later-01"]
     assert _keys(daemon, '{"view":"bots"}') == ["primary/bot-01"]
@@ -83,7 +86,8 @@ def test_filters_search_views_and_tag_colors(tmp_path: Path):
     assert _keys(daemon, '{"view":"today"}') == ["primary/bot-01", "primary/mine-01"]
     rows = json.loads(daemon.api.call("GetItems", ('{"query":"wool"}',))[0])
     assert rows[0]["chips"]["due"]["label"] == "Due Sat 10/17 15:00"
-    assert rows[0]["chips"]["priority"]["label"] == "#1"
+    assert rows[0]["chips"]["priority"]["label"] == "High priority"
+    assert rows[0]["chips"]["priority"]["tone"] == "red"
     assert rows[0]["chips"]["tags"][0] == {"tag": "home", "label": "@home", "tone": "teal"}
     tags = json.loads(daemon.api.call("GetTags", ())[0])
     assert tags[0]["tag"] == "errand"

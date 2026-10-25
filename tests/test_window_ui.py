@@ -28,7 +28,7 @@ class _Fake:
                 "status": "open",
                 "actions": ["done"],
                 "chips": {
-                    "priority": {"label": "#1", "tone": "red"},
+                    "priority": {"label": "High priority", "tone": "red"},
                     "due": {"label": "Due Sat 10/17 15:00", "tone": "amber"},
                     "created": {"label": "Created 10/17", "tone": "green"},
                     "tags": [{"tag": "home", "label": "@home", "tone": "teal"}],

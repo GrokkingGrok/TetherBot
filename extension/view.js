@@ -944,6 +944,24 @@ export function mergeTodoSearch(items, searched) {
     return rest.concat(todos);
 }
 
+export function chipSequence(chips, tracked, botLabel) {
+    const row = chips && typeof chips === 'object' ? chips : {};
+    const sequence = [];
+    if (botLabel)
+        sequence.push({text: botLabel, tone: 'neutral'});
+    if (row.due)
+        sequence.push({text: row.due, tone: row.dueTone});
+    if (row.priority)
+        sequence.push({text: row.priority, tone: row.priorityTone});
+    for (const tag of row.tags || [])
+        sequence.push({text: tag.label, tone: tag.tone});
+    if (row.extra > 0)
+        sequence.push({text: `+${row.extra}`, tone: 'neutral'});
+    if (tracked)
+        sequence.push({text: tracked, tone: 'neutral'});
+    return sequence;
+}
+
 export function chipRow(item) {
     const chips = item?.chips;
     if (!chips || typeof chips !== 'object')

@@ -7,7 +7,15 @@ import pytest
 
 from tests.helpers import NOW, make_item
 from tetherbot.model import Item
-from tetherbot.todos import created_label, due_label, due_tone, parse_query, tag_color
+from tetherbot.todos import (
+    chips,
+    created_label,
+    due_label,
+    due_tone,
+    parse_query,
+    sort_key,
+    tag_color,
+)
 
 ZONE = NOW.tzinfo
 assert ZONE is not None
@@ -56,6 +64,14 @@ def test_query_shortcuts_and_stable_tag_color():
     assert parsed.due == "today"
     assert parsed.priority == 1
     assert parse_query("due:overdue").due == "overdue"
+    assert parse_query("p:HIGH").priority == 1
+    assert parse_query("p:Medium").priority == 2
+    assert parse_query("p:med").priority == 2
+    assert parse_query("p:LOW").priority == 3
+    assert parse_query("p:2 p:low").priority == 3
+    unknown = parse_query("p:urgent")
+    assert unknown.priority is None
+    assert unknown.words == ("p:urgent",)
     assert tag_color("home") == tag_color("home")
     assert tag_color("home", {"home": "teal"}) == "teal"
     assert tag_color("home") in {
@@ -79,6 +95,18 @@ def test_due_tones_use_end_of_day_for_a_date():
     assert due_tone("2026-10-21", NOW, ZONE) == "neutral"
     assert due_label("2026-10-20 10:00", ZONE) == "Due Tue 10/20 10:00"
     assert due_label("2026-10-20", ZONE) == "Due 10/20"
+
+
+def test_priority_labels_are_words_and_sort_stays_numeric():
+    tones = {1: "red", 2: "amber", 3: "neutral"}
+    words = {1: "High priority", 2: "Medium priority", 3: "Low priority"}
+    for number, word in words.items():
+        item = make_item(id=f"prio-{number}", kind="todo", priority=number, actions=["done"])
+        row = chips(item, NOW, ZONE, {})
+        assert row["priority"] == {"label": word, "tone": tones[number]}
+    high = make_item(id="aaa-01", kind="todo", priority=1, actions=["done"])
+    low = make_item(id="bbb-01", kind="todo", priority=3, actions=["done"])
+    assert sort_key(high, "priority", NOW, ZONE) < sort_key(low, "priority", NOW, ZONE)
 
 
 def test_created_label_uses_the_given_zone():

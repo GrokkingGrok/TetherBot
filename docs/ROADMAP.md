@@ -40,7 +40,7 @@ TetherBot is pre-alpha. Check items off as they land. Design detail is in [SPEC.
 - [x] The feed writer's secret filter (`looks_like_secret` in tools/feed_write.py and the matching guard in the bridge) lets ordinary http(s) URLs through. A long id in the path of a normal link is kept. Token-style query values, `user:pass@` links, webhook hosts, and the existing prefixes stay blocked.
 - [x] Rich todos, [RICH-TODOS.md](RICH-TODOS.md) (#19–#21). Bots still create and edit item text. The desktop reads, filters, searches, opens, and checks off.
 - [x] Optional feed fields: `tags`, `body_format`, Markdown bodies up to 8000 characters on todos, `owner` of `user` or `bot`, `waiting.since`, and feed `tag_colors`
-- [x] Bridge search and filters (`@tag`, `due:today`, `due:overdue`, `p:1`), quick views, `GetTags`, and sort. Popup and window share that result
+- [x] Bridge search and filters (`@tag`, `due:today`, `due:overdue`, `p:1` to `p:3`, `p:high`, `p:medium`, `p:med`, and `p:low`), quick views, `GetTags`, and sort. Popup and window share that result. Priority sorts with High first. The chip reads High priority, Medium priority, or Low priority
 - [x] Undo drops a queued Done before it is sent, and sends `reopen` only after it has gone out
 - [x] `tools/feed_write.py` gains tags, priority, owner, waiting-on, body-file, edit, and tag-color
 - [x] TetherBot window (GTK4 and libadwaita): list, detail Markdown, `.desktop` file, and `OpenWindow`
@@ -74,6 +74,7 @@ TetherBot is pre-alpha. Check items off as they land. Design detail is in [SPEC.
 - [ ] Manual checks M139–M141: Context effort is Low, Medium, or High in Settings, the window's Make a todo with context opens a bot picker, and the primary bot hears the effort and the chosen bot. The steps are in [MANUAL-CHECKS.md](MANUAL-CHECKS.md). They have not been run on the desktop yet. M139 reopens Settings. M140 and M141 reopen the window. M141 needs the primary webhook and a routine that knows `clip.effort` and `clip.target_bot`.
 - [ ] Manual checks M144 and M147: the top-bar clipboard icon is two rounded squares, the back one an outline and the front one the face, in one symbolic color. The Clipboard page shows Pinned and Unpinned labels, and the pin stays the ordinary symbolic pin. The steps are in [MANUAL-CHECKS.md](MANUAL-CHECKS.md). They have not been run on the desktop yet. M144 needs a log out. M147 reopens the window.
 - [ ] Manual checks M148–M150: a secret-looking Done with note stays in the field with one plain sentence, the panel menu leaves out buttons that do not apply, and its row icons and thumbnails are about a fifth larger. The steps are in [MANUAL-CHECKS.md](MANUAL-CHECKS.md). They have not been run on the desktop yet. M148 reopens the window. M149 and M150 need a log out.
+- [ ] Manual check M151: priority reads as a word in the chip row. In the menu and the window list, the title has nothing in front of it. The chip row reads the bot name, the due date, High priority, Medium priority, or Low priority, then the tags. The colors stay as they are. `p:high` and `p:2` both filter. The steps are in [MANUAL-CHECKS.md](MANUAL-CHECKS.md). It has not been run on the desktop yet. The menu half needs a log out. The window half reopens the window.
 
 ## v0.2 — early adopters
 

@@ -33,6 +33,7 @@ import {
     timerModel,
     compactBotSection,
     summaryTone,
+    chipSequence,
     menuModel,
     dueUndoKeys,
     menuClosePlan,
@@ -410,7 +411,7 @@ export function runViewChecks() {
             actions: ['done'],
             source: {bot: 'primary'},
             chips: {
-                priority: {label: '#1', tone: 'red'},
+                priority: {label: 'High priority', tone: 'red'},
                 due: {label: 'Due Sat 10/17 15:00', tone: 'amber'},
                 tags: [
                     {tag: 'home', label: '@home', tone: 'teal'},
@@ -423,8 +424,14 @@ export function runViewChecks() {
         queueLength: 0,
         nowMs: NOW,
     });
-    assert(rich.todos[0].chips.priority === '#1', 'priority chip');
+    assert(rich.todos[0].chips.priority === 'High priority', 'priority chip');
     assert(rich.todos[0].chips.priorityTone === 'red', 'priority tone');
+    const order = chipSequence(rich.todos[0].chips, '1h', 'Primary');
+    assert(order.map(chip => chip.text).join('|') ===
+        'Primary|Due Sat 10/17 15:00|High priority|@home|@errand|@wool|+1|1h',
+    'chip order');
+    assert(order.map(chip => chip.tone).join('|') ===
+        'neutral|amber|red|teal|blue|green|neutral|neutral', 'chip tones');
     assert(rich.todos[0].chips.due === 'Due Sat 10/17 15:00', 'due chip');
     assert(rich.todos[0].chips.tags.length === 3, 'three tags');
     assert(rich.todos[0].chips.extra === 1, 'extra tag count');

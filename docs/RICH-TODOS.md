@@ -39,7 +39,7 @@ Per item:
 | Field | Type | Rules |
 |---|---|---|
 | `tags` | array of strings | 0 to 8 tags, each 1 to 32 chars, lowercase `a-z0-9-_`, shown with a leading `@` |
-| `priority` | 1, 2, or 3 | Already in the schema; 1 is highest. Shown as `#1`/`#2`/`#3` |
+| `priority` | 1, 2, or 3 | Already in the schema; 1 is highest. Shown as `High priority`, `Medium priority`, or `Low priority`. The feed value stays 1, 2, or 3 |
 | `body_format` | `"plain"` or `"markdown"` | Default `plain`. Todos written by the bot writer use `markdown` |
 | `body` | string | Raise the limit to 8000 characters for `kind: todo` when `body_format` is `markdown`. Other kinds keep 1000 |
 | `waiting` | object | `{on, check_back}` stays. Optional `since` is `YYYY-MM-DD`. A todo with `waiting` set shows in the Waiting view |
@@ -60,13 +60,15 @@ The secret guard in PROTOCOL.md also scans `tags`. A long Markdown body is scann
 | Due later | neutral |
 | Created | green, muted |
 | Tag | its palette color |
-| Priority `#1` | red; `#2` amber; `#3` neutral |
+| High priority | red |
+| Medium priority | amber |
+| Low priority | neutral |
 
 Dates show as `Due Tue 10/20 10:00` or `Due 10/20`, in the desktop's local time zone. Overdue items sort to the top of every view.
 
 ## 5. Top-bar popup changes
 
-- Each todo row: priority, title (one line, ellipsized), then a chip row with due and up to 3 tags (`+2` if more).
+- Each todo row: title (one line, ellipsized, nothing in front of it), then a chip row of bot name, due, the priority word, and up to 3 tags (`+2` if more).
 - Clicking a row's title opens the TetherBot window on that item. Done stays a button on the row.
 - A search entry at the top of the todos section filters rows as you type (title, body, tags).
 - Show at most 8 todos; then "Open TetherBot to see all N".
@@ -77,16 +79,16 @@ Dates show as `Due Tue 10/20 10:00` or `Due 10/20`, in the desktop's local time 
 Layout: an adaptive split view. List on the left, detail on the right. On a narrow window it collapses to list, then detail with a back button.
 
 List pane:
-- Search entry at the top. Keyword search over title, body, and tags, case-insensitive, all words must match. `@tag` in the search box filters by that tag; `due:today`, `due:overdue`, and `p:1` are supported shortcuts.
+- Search entry at the top. Keyword search over title, body, and tags, case-insensitive, all words must match. `@tag` in the search box filters by that tag. `due:today`, `due:overdue`, `p:1`, `p:2`, `p:3`, `p:high`, `p:medium`, `p:med`, and `p:low` are supported shortcuts.
 - Quick views as a tab row, matching what the owner already uses: All, Mine, Bots, Waiting, Today.
   - Mine: `owner` is user. Bots: `owner` is bot. Waiting: `waiting` is set. Today: due today or overdue.
 - Tag filter: a row of tag chips (all tags in open items, with counts). Click to toggle; multiple tags mean all must match. A "clear" chip resets.
 - Sort menu: due (default), priority, created, updated.
-- Each row: checkbox (Done), priority, title, chip row. Done rows leave the list on tap, same as the popup.
+- Each row: checkbox (Done), title, then a chip row of bot name, due, the priority word, and tags. Done rows leave the list on tap, same as the popup.
 - A "Show done" toggle reveals completed todos inside the history window from Settings. The default is on, for 1 year. The How many row in Settings says that 1 month = 30 days and 1 year = 365 days. When history is off, the toggle shows no done todos. Dropped items stay hidden. The rows are read-only. An older done todo is left out of the view. The desktop does not rewrite the bot's feed file.
 
 Detail pane:
-- Title, then the chip row (due, created, priority, tags, waiting-on).
+- Title, then the chip row (priority word, due, created, waiting-on, tags).
 - Body rendered as Markdown: headings, bold, italic, inline code, code blocks, bullet and numbered lists, task-list checkboxes (display only), block quotes, and links. Links open in the default browser after a click, never automatically. Images and raw HTML are not rendered.
 - Buttons: Done, Copy Todo, and "Ask the bot about this", which uses the existing `SendToBot` path to send a note with the item key so the owner can say "change the due date" or "add a tag" in chat. Copy icons beside the title and the body copy only that part. The note includes the owning bot id.
 - Source line: which bot, which routine, last updated.

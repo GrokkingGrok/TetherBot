@@ -1392,12 +1392,6 @@ class TodoWindow(Adw.ApplicationWindow):
         check.set_sensitive(can_mark_done(item, outbound))
         check.connect("toggled", self._on_check, key)
         chips = item.get("chips") if isinstance(item.get("chips"), dict) else {}
-        priority = chips.get("priority") if isinstance(chips, dict) else None
-        priority_label = Gtk.Label(xalign=0)
-        if isinstance(priority, dict) and priority.get("label"):
-            priority_label.set_label(str(priority["label"]))
-            priority_label.add_css_class("tether-chip")
-            priority_label.add_css_class(f"tone-{priority.get('tone') or 'neutral'}")
         title = Gtk.Label(label=str(item.get("title") or key), xalign=0, hexpand=True)
         title.set_ellipsize(Pango.EllipsizeMode.END)
         # One character of natural width, then the row fills the sidebar.
@@ -1417,13 +1411,18 @@ class TodoWindow(Adw.ApplicationWindow):
             top.append(spacer)
         else:
             top.append(check)
-        if priority_label.get_label():
-            top.append(priority_label)
         top.append(title)
         chip_row = Gtk.Box(spacing=6)
+        bot_label = item.get("display_name")
+        if isinstance(bot_label, str) and bot_label:
+            chip_row.append(_chip(bot_label, "neutral"))
         due = chips.get("due")
         if isinstance(due, dict) and due.get("label"):
             chip_row.append(_chip(str(due["label"]), str(due.get("tone") or "neutral")))
+        priority = chips.get("priority")
+        if isinstance(priority, dict) and priority.get("label"):
+            tone = str(priority.get("tone") or "neutral")
+            chip_row.append(_chip(str(priority["label"]), tone))
         tags = chips.get("tags") if isinstance(chips.get("tags"), list) else []
         for tag in tags:
             if isinstance(tag, dict) and tag.get("label"):
@@ -1431,9 +1430,6 @@ class TodoWindow(Adw.ApplicationWindow):
         tracked = format_tracked(item.get("time_tracked_s"))
         if tracked:
             chip_row.append(_chip(tracked, "neutral"))
-        bot_label = item.get("display_name")
-        if isinstance(bot_label, str) and bot_label:
-            chip_row.append(_chip(bot_label, "neutral"))
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         box.set_margin_top(6)
         box.set_margin_bottom(6)

@@ -443,3 +443,24 @@ def test_the_desktop_does_not_offer_a_bot_chat_button():
     assert "_openChat" not in extension
     assert "botRowCall" in extension
     assert "id: 'open_chat'" not in view
+
+
+def test_priority_chip_sits_in_the_menu_chip_row():
+    text = (EXTENSION / "extension.js").read_text(encoding="utf-8")
+    row = text.split("    _todoRow(row) {", 1)[1].split("    _chipRow(", 1)[0]
+    heading = row.split("const heading", 1)[1].split("text.add_child(heading)", 1)[0]
+    assert "priority" not in heading
+    assert "heading.add_child(title)" in heading
+    chip_row = text.split("    _chipRow(chips, tracked, botLabel) {", 1)[1].split(
+        "    _playButton(", 1
+    )[0]
+    assert "chipSequence(chips, tracked, botLabel)" in chip_row
+    view = (EXTENSION / "view.js").read_text(encoding="utf-8")
+    sequence = view.split("export function chipSequence", 1)[1].split(
+        "export function chipRow", 1
+    )[0]
+    bot = sequence.index("if (botLabel)")
+    due = sequence.index("if (row.due)")
+    priority = sequence.index("if (row.priority)")
+    tags = sequence.index("row.tags")
+    assert bot < due < priority < tags

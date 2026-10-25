@@ -64,7 +64,7 @@ One model covers every kind.
 | `body_format` | `plain` or `markdown` | Optional. Default `plain` |
 | `status` | enum | `open`, `done`, `dropped`, `expired`. Snoozed is desktop-local, not a feed value. |
 | `created`, `updated_at` | ISO 8601 with offset | Required |
-| `priority` | 1 to 3 or null | 1 is highest. Shown as `#1`, `#2`, or `#3` |
+| `priority` | 1 to 3 or null | 1 is highest. Shown as `High priority`, `Medium priority`, or `Low priority`. The feed value stays 1, 2, or 3 |
 | `due` | `YYYY-MM-DD` or `YYYY-MM-DD HH:MM` local | Optional. A time is that minute. A date alone lasts until the end of that day |
 | `owner` | string | Optional. `user` or `bot` selects the Mine and Bots views. Missing means user |
 | `tags` | array of strings | Optional. 0 to 8 tags, each 1 to 32 characters, lowercase `a-z0-9-_` |

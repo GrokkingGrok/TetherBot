@@ -139,3 +139,18 @@ def test_window_sources_do_not_touch_the_network_or_secrets():
     assert "duckduckgo.com" not in window
     assert search.count("https://www.google.com/") == 1
     assert "FALLBACK_SEARCH_TEMPLATE" in search
+
+
+def test_priority_chip_sits_in_the_list_chip_row():
+    window = (ROOT / "bridge" / "tetherbot" / "window.py").read_text(encoding="utf-8")
+    make = window.split("    def _make_row(", 1)[1].split("    def _show_item(", 1)[0]
+    top = make.split("top = Gtk.Box", 1)[1].split("chip_row = Gtk.Box", 1)[0]
+    assert "priority" not in top
+    assert "top.append(title)" in top
+    chips = make.split("chip_row = Gtk.Box", 1)[1].split("box = Gtk.Box", 1)[0]
+    bot = chips.index('item.get("display_name")')
+    due = chips.index('chips.get("due")')
+    priority = chips.index('chips.get("priority")')
+    tags = chips.index('chips.get("tags")')
+    tracked = chips.index("format_tracked")
+    assert bot < due < priority < tags < tracked

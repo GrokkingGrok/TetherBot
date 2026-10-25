@@ -75,11 +75,24 @@ BUS_NAME = "io.github.grokkinggrok.TetherBot1"
 OBJECT_PATH = "/io/github/grokkinggrok/TetherBot1"
 INTERFACE = "io.github.grokkinggrok.TetherBot1"
 LINGER_MS = 60_000
-_CLIP_WINDOW = re.compile(r"^(clip-edit|clip-tag):(c-[0-9a-f]{8})$")
+_CLIP_WINDOW = re.compile(
+    r"^(clip-edit|clip-tag|clip-context):(c-[0-9a-f]{8})$"
+)
+_EDITOR_TITLES = {
+    "clip-edit": "Edit clip",
+    "clip-tag": "Tag clip",
+    "clip-context": "Make a todo with context",
+}
+_EDITOR_SIZE = {
+    "clip-edit": (480, 320),
+    "clip-tag": (320, 360),
+    "clip-context": (360, 320),
+}
+_EFFORT_TITLES = {"low": "Low", "medium": "Medium", "high": "High"}
 
 
 def _clip_window_action(key: str) -> tuple[str, str] | None:
-    """``clip-edit:<id>`` or ``clip-tag:<id>`` for one clipboard row."""
+    """``clip-edit``, ``clip-tag``, or ``clip-context`` plus one clipboard id."""
 
     if not isinstance(key, str):
         return None
@@ -87,6 +100,300 @@ def _clip_window_action(key: str) -> tuple[str, str] | None:
     if match is None:
         return None
     return match.group(1), match.group(2)
+
+
+def _pad_box(box: Gtk.Widget) -> None:
+    box.set_margin_top(12)
+    box.set_margin_bottom(12)
+    box.set_margin_start(12)
+    box.set_margin_end(12)
+
+
+def _editor_heading(text: str) -> Gtk.Label:
+    label = Gtk.Label(label=text, xalign=0)
+    label.add_css_class("heading")
+    label.set_halign(Gtk.Align.START)
+    return label
+
+
+def _mapped_popover(root: Gtk.Widget) -> Gtk.Popover | None:
+    """A dropdown popover that is on screen under this widget."""
+
+    found: list[Gtk.Popover] = []
+
+    def walk(widget: Gtk.Widget | None) -> None:
+        if widget is None or found:
+            return
+        if isinstance(widget, Gtk.Popover) and widget.get_mapped():
+            found.append(widget)
+            return
+        child = widget.get_first_child() if hasattr(widget, "get_first_child") else None
+        while child is not None:
+            walk(child)
+            child = child.get_next_sibling()
+
+    walk(root)
+    return found[0] if found else None
+
+
+def _find_clip(entries: object, ident: str) -> dict[str, Any] | None:
+    if not isinstance(entries, list):
+        return None
+    for row in entries:
+        if isinstance(row, dict) and row.get("id") == ident:
+            return row
+    return None
+
+
+def _entry_tags(entry: dict[str, Any]) -> list[dict[str, str]]:
+    tags: list[dict[str, str]] = []
+    for tag in entry.get("tags") or []:
+        if not isinstance(tag, dict) or not isinstance(tag.get("name"), str):
+            continue
+        color = tag.get("color")
+        tags.append(
+            {"name": tag["name"], "color": color if isinstance(color, str) else "gray"}
+        )
+    return tags
+
+
+def _clip_editor_block(kind: str, entry: dict[str, Any]) -> str | None:
+    image = entry.get("kind") == "image"
+    masked = entry.get("masked") is True
+    if kind == "clip-edit" and image:
+        return "Images are not edited"
+    if kind == "clip-edit" and masked:
+        return "Hidden passwords are not edited"
+    if kind == "clip-tag" and masked:
+        return "Hidden passwords are not tagged"
+    if kind == "clip-context" and image:
+        return "Images are not sent"
+    if kind == "clip-context" and masked:
+        return "Hidden passwords are not sent"
+    return None
+
+
+def _load_clip_entries(
+    client: Any,
+    done: Callable[[list[dict[str, Any]], BridgeError | None], None],
+) -> None:
+    if hasattr(client, "load_clipboard"):
+        client.load_clipboard(done)
+        return
+    if hasattr(client, "get_clipboard"):
+        try:
+            done(client.get_clipboard(), None)
+        except BridgeError as exc:
+            done([], exc)
+        return
+    done([], BridgeError("Bridge not running"))
+
+
+def _build_text_editor(
+    title: str,
+    text: str,
+    *,
+    editable: bool,
+    on_save: Callable[[str], None] | None,
+) -> Gtk.Box:
+    view = Gtk.TextView(
+        editable=editable,
+        cursor_visible=editable,
+        wrap_mode=Gtk.WrapMode.WORD_CHAR,
+        vexpand=True,
+    )
+    view.set_hexpand(True)
+    view.get_buffer().set_text(text)
+    scrolled = Gtk.ScrolledWindow(child=view)
+    scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+    scrolled.set_propagate_natural_height(True)
+    scrolled.set_max_content_height(220)
+    scrolled.set_min_content_height(80)
+    box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+    box.set_size_request(456, -1)
+    _pad_box(box)
+    box.append(_editor_heading(title))
+    box.append(scrolled)
+    if editable and on_save is not None:
+        save = Gtk.Button(label="Save")
+        save.add_css_class("suggested-action")
+        save.set_halign(Gtk.Align.END)
+
+        def _clicked(_button: Gtk.Button) -> None:
+            buffer = view.get_buffer()
+            on_save(
+                buffer.get_text(buffer.get_start_iter(), buffer.get_end_iter(), True)
+            )
+
+        save.connect("clicked", _clicked)
+        box.append(save)
+    return box
+
+
+def _build_tag_editor(
+    tags: list[dict[str, str]],
+    on_save: Callable[[list[dict[str, str]]], None],
+) -> Gtk.Box:
+    working = [dict(tag) for tag in tags]
+    rows = Gtk.ListBox()
+    name_row = Gtk.Entry(placeholder_text="Tag")
+    name_row.set_hexpand(True)
+    color_row = Gtk.DropDown.new_from_strings([name.title() for name in PALETTE])
+    add = Gtk.Button(label="Add")
+    save = Gtk.Button(label="Save")
+    save.add_css_class("suggested-action")
+
+    def rebuild() -> None:
+        while (child := rows.get_first_child()) is not None:
+            rows.remove(child)
+        for index, tag in enumerate(working):
+            line = Gtk.Box(spacing=6)
+            line.set_margin_top(4)
+            line.set_margin_bottom(4)
+            line.set_margin_start(8)
+            line.set_margin_end(8)
+            line.append(_chip(tag["name"], tag.get("color") or "gray"))
+            remove = Gtk.Button(label="Remove")
+            remove.connect("clicked", lambda _button, item=index: drop(item))
+            line.append(remove)
+            rows.append(line)
+
+    def drop(index: int) -> None:
+        if 0 <= index < len(working):
+            working.pop(index)
+            rebuild()
+
+    def add_tag(_button: Gtk.Button) -> None:
+        name = " ".join(name_row.get_text().split())
+        if not name or len(name) > 40:
+            return
+        if any(tag["name"].casefold() == name.casefold() for tag in working):
+            return
+        selected = color_row.get_selected()
+        color = PALETTE[selected] if 0 <= selected < len(PALETTE) else PALETTE[0]
+        working.append({"name": name, "color": color})
+        name_row.set_text("")
+        rebuild()
+
+    def save_tags(_button: Gtk.Button) -> None:
+        on_save([dict(tag) for tag in working])
+
+    add.connect("clicked", add_tag)
+    save.connect("clicked", save_tags)
+    editor = Gtk.Box(spacing=6)
+    editor.append(name_row)
+    editor.append(color_row)
+    editor.append(add)
+    scroller = Gtk.ScrolledWindow()
+    scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+    scroller.set_propagate_natural_height(True)
+    scroller.set_max_content_height(200)
+    scroller.set_child(rows)
+    box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+    box.set_size_request(320, -1)
+    _pad_box(box)
+    box.append(_editor_heading("Tags"))
+    box.append(scroller)
+    box.append(editor)
+    box.append(save)
+    rebuild()
+    return box
+
+
+def _build_context_editor(
+    effort: str,
+    bot_names: list[str],
+    on_send: Callable[[str], None],
+    on_cancel: Callable[[], None],
+) -> Gtk.Box:
+    if effort not in _EFFORT_TITLES:
+        effort = "low"
+    box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+    box.set_size_request(320, -1)
+    _pad_box(box)
+    box.append(_editor_heading("Make a todo with context"))
+    effort_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+    effort_row.set_halign(Gtk.Align.START)
+    effort_row.append(Gtk.Label(label="Effort:"))
+    level = Gtk.Label(label=_EFFORT_TITLES[effort])
+    level.add_css_class(f"tether-effort-{effort}")
+    level.set_halign(Gtk.Align.START)
+    effort_row.append(level)
+    box.append(effort_row)
+    bots = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+    leader = None
+    buttons: list[Gtk.CheckButton] = []
+    for name in bot_names:
+        choice = Gtk.CheckButton(label=name)
+        if leader is None:
+            leader = choice
+            choice.set_active(True)
+        else:
+            choice.set_group(leader)
+        bots.append(choice)
+        buttons.append(choice)
+    scroller = Gtk.ScrolledWindow()
+    scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+    scroller.set_propagate_natural_height(True)
+    scroller.set_max_content_height(220)
+    scroller.set_child(bots)
+    box.append(scroller)
+    actions = Gtk.Box(spacing=6)
+    actions.set_halign(Gtk.Align.END)
+    cancel = Gtk.Button(label="Cancel")
+    send = Gtk.Button(label="Send")
+    send.add_css_class("suggested-action")
+
+    def _cancel(_button: Gtk.Button) -> None:
+        on_cancel()
+
+    def _send(_button: Gtk.Button) -> None:
+        target = "primary"
+        for button in buttons:
+            if not button.get_active():
+                continue
+            chosen = button.get_label()
+            if isinstance(chosen, str) and chosen:
+                target = chosen
+            break
+        on_send(target)
+
+    cancel.connect("clicked", _cancel)
+    send.connect("clicked", _send)
+    actions.append(cancel)
+    actions.append(send)
+    box.append(actions)
+    box.effort_level = level
+    box.bot_buttons = buttons
+    box.send_button = send
+    box.cancel_button = cancel
+    return box
+
+
+def _build_clip_image_preview(path: str) -> Gtk.Box:
+    box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+    _pad_box(box)
+    box.append(_editor_heading("Preview"))
+    picture = Gtk.Picture(hexpand=True, vexpand=True)
+    if hasattr(Gtk, "ContentFit"):
+        picture.set_content_fit(Gtk.ContentFit.CONTAIN)
+    picture.set_size_request(480, 320)
+    loaded = False
+    if path and Path(path).is_file():
+        try:
+            picture.set_paintable(Gdk.Texture.new_from_filename(path))
+            loaded = True
+        except Exception:
+            loaded = False
+    if loaded:
+        box.append(picture)
+        return box
+    missing = Gtk.Label(label="That image is not available")
+    missing.set_halign(Gtk.Align.CENTER)
+    missing.set_valign(Gtk.Align.CENTER)
+    missing.set_size_request(480, 120)
+    box.append(missing)
+    return box
 _SORT_LABELS = ("Due", "Priority", "Created", "Updated")
 _VIEW_LABELS = {
     "all": "All",
@@ -631,6 +938,9 @@ class TodoWindow(Adw.ApplicationWindow):
         self._clip_gen = 0
         self._clip_pending: tuple[str, str] | None = None
         self._clip_dialog: Adw.AlertDialog | None = None
+        self._clip_popover: Gtk.Popover | None = None
+        self._clip_context_dialog: Gtk.Popover | None = None
+        self._popover_reload = False
         self._sort = "due"
         self._query = ""
         self._bot_query = ""
@@ -1037,14 +1347,16 @@ class TodoWindow(Adw.ApplicationWindow):
         self._fit_to_list()
 
     def select_key(self, key: str) -> None:
-        """Raise the window. An empty key shows todos. ``bots`` opens the bot list."""
+        """Raise the window. An empty key shows todos. ``bots`` opens the bot list.
 
-        self.present()
+        A clipboard editor key opens that editor and leaves this window where it is.
+        """
+
         clip = _clip_window_action(key)
         if clip is not None:
-            self._clip_pending = clip
-            self._set_page("clipboard")
+            self.open_clip_editor(*clip)
             return
+        self.present()
         self._clip_pending = None
         if key == "bots":
             self._set_page("bots")
@@ -1076,6 +1388,12 @@ class TodoWindow(Adw.ApplicationWindow):
             self._focus_key(key)
         if self.split.get_collapsed():
             self.split.set_show_content(True)
+
+    def open_clip_editor(self, kind: str, ident: str) -> None:
+        app = self.get_application()
+        open_editor = getattr(app, "open_clip_editor", None)
+        if open_editor is not None:
+            open_editor(kind, ident)
 
     def _focus_key(self, key: str) -> None:
         row = self._rows.get(key)
@@ -2819,13 +3137,13 @@ class TodoWindow(Adw.ApplicationWindow):
 
     def _on_context_clip(
         self,
-        _button: Gtk.Button,
+        button: Gtk.Button,
         entry: dict[str, Any],
         label: Gtk.Label,
     ) -> None:
         if entry.get("kind") == "image" or entry.get("masked") is True:
             return
-        self._prompt_clip_context(entry, label)
+        self._prompt_clip_context(button, entry, label)
 
     def _send_clip_now(
         self,
@@ -2896,69 +3214,71 @@ class TodoWindow(Adw.ApplicationWindow):
         rest = sorted(name for name in names if name != "primary")
         return ["primary", *rest]
 
-    def _prompt_clip_context(self, entry: dict[str, Any], label: Gtk.Label) -> None:
-        effort = self._context_effort()
-        if effort not in {"low", "medium", "high"}:
-            effort = "low"
-        titles = {"low": "Low", "medium": "Medium", "high": "High"}
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        effort_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        effort_row.set_halign(Gtk.Align.START)
-        prefix = Gtk.Label(label="Effort:")
-        level = Gtk.Label(label=titles[effort])
-        level.add_css_class(f"tether-effort-{effort}")
-        level.set_halign(Gtk.Align.START)
-        effort_row.append(prefix)
-        effort_row.append(level)
-        box.append(effort_row)
-        bots = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-        leader = None
-        buttons: list[Gtk.CheckButton] = []
-        for name in self._context_bots():
-            choice = Gtk.CheckButton(label=name)
-            if leader is None:
-                leader = choice
-                choice.set_active(True)
-            else:
-                choice.set_group(leader)
-            bots.append(choice)
-            buttons.append(choice)
-        scroller = Gtk.ScrolledWindow()
-        scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        scroller.set_propagate_natural_height(True)
-        scroller.set_max_content_height(240)
-        scroller.set_child(bots)
-        box.append(scroller)
-        dialog = Adw.AlertDialog(heading="Make a todo with context")
-        dialog.set_extra_child(box)
-        dialog.effort_level = level
-        dialog.bot_buttons = buttons
-        dialog.add_response("cancel", "Cancel")
-        dialog.add_response("send", "Send")
-        dialog.set_response_appearance("send", Adw.ResponseAppearance.SUGGESTED)
-        dialog.set_default_response("send")
-        dialog.set_close_response("cancel")
-        dialog.connect("response", self._on_context_response, entry, label)
-        self._clip_context_dialog = dialog
-        dialog.present(self)
+    def _show_clip_popover(self, parent: object, child: Gtk.Widget) -> Gtk.Popover | None:
+        if not isinstance(parent, Gtk.Widget):
+            return None
+        self._popover_reload = False
+        self._close_clip_popover()
+        popover = Gtk.Popover()
+        popover.set_autohide(True)
+        popover.set_child(child)
+        popover.set_parent(parent)
+        popover.connect("closed", self._on_clip_popover_closed)
+        self._clip_popover = popover
+        popover.popup()
+        return popover
 
-    def _on_context_response(
+    def _on_clip_popover_closed(self, popover: Gtk.Popover) -> None:
+        reload = self._popover_reload
+        self._popover_reload = False
+        if self._clip_popover is popover:
+            self._clip_popover = None
+        if self._clip_context_dialog is popover:
+            self._clip_context_dialog = None
+
+        def _drop() -> bool:
+            if popover.get_parent() is not None:
+                popover.unparent()
+            if reload:
+                self._reload_clip_now()
+            return False
+
+        GLib.idle_add(_drop)
+
+    def _close_clip_popover(self) -> None:
+        popover = self._clip_popover
+        if popover is None:
+            return
+        if popover.get_visible():
+            popover.popdown()
+            return
+        self._on_clip_popover_closed(popover)
+
+    def _prompt_clip_context(
         self,
-        dialog: Adw.AlertDialog,
-        response: str,
+        parent: object,
         entry: dict[str, Any],
         label: Gtk.Label,
     ) -> None:
-        if response != "send":
+        effort = self._context_effort()
+        box = _build_context_editor(
+            effort,
+            self._context_bots(),
+            lambda target: self._send_context(entry, label, target),
+            self._close_clip_popover,
+        )
+        popover = self._show_clip_popover(parent, box)
+        if popover is None:
             return
-        target = "primary"
-        for button in getattr(dialog, "bot_buttons", ()):
-            if button.get_active():
-                chosen = button.get_label()
-                if isinstance(chosen, str) and chosen:
-                    target = chosen
-                break
+        popover.effort_level = box.effort_level
+        popover.bot_buttons = box.bot_buttons
+        popover.send_button = box.send_button
+        popover.cancel_button = box.cancel_button
+        self._clip_context_dialog = popover
+
+    def _send_context(self, entry: dict[str, Any], label: Gtk.Label, target: str) -> None:
         self._send_clip_now(entry, "clip-todo-context", label, target)
+        self._close_clip_popover()
 
     def _flash_clip_label(self, label: Gtk.Label, message: str) -> None:
         previous = label.get_label()
@@ -3023,27 +3343,22 @@ class TodoWindow(Adw.ApplicationWindow):
             return
         self._reload_clip_now()
 
-    def _on_edit_clip(self, _button: object, entry: dict[str, Any]) -> None:
+    def _on_edit_clip(self, button: object, entry: dict[str, Any]) -> None:
         if entry.get("masked") is True or entry.get("kind") == "image":
             return
         ident = entry.get("id")
         text = entry.get("text") if isinstance(entry.get("text"), str) else ""
         if not isinstance(ident, str):
             return
-        self._show_clip_text("Edit", text, editable=True, entry_id=ident)
+        self._show_clip_text(button, "Edit", text, editable=True, entry_id=ident)
 
-    def _on_tag_clip(self, _button: object, entry: dict[str, Any]) -> None:
+    def _on_tag_clip(self, button: object, entry: dict[str, Any]) -> None:
         if entry.get("masked") is True:
             return
         ident = entry.get("id")
         if not isinstance(ident, str):
             return
-        tags = [
-            {"name": tag["name"], "color": tag.get("color", "gray")}
-            for tag in entry.get("tags") or []
-            if isinstance(tag, dict) and isinstance(tag.get("name"), str)
-        ]
-        self._show_clip_tags(ident, tags)
+        self._show_clip_tags(button, ident, _entry_tags(entry))
 
     def _on_search_clip(self, _button: Gtk.Button, entry: dict[str, Any]) -> None:
         if entry.get("masked") is True or entry.get("kind") == "image":
@@ -3062,84 +3377,44 @@ class TodoWindow(Adw.ApplicationWindow):
     def _preview_clipboard(self, row: Gtk.ListBoxRow) -> None:
         entry = getattr(row, "clip_entry", None)
         if isinstance(entry, dict) and entry.get("kind") == "image":
-            self._show_clip_image(entry)
+            self._show_clip_image(row, entry)
             return
         if getattr(row, "clip_masked", False) is True:
             return
         text = getattr(row, "clip_text", None)
         if not isinstance(text, str):
             return
-        self._show_clip_text("Preview", text, editable=False, entry_id=None)
+        self._show_clip_text(row, "Preview", text, editable=False, entry_id=None)
 
-    def _show_clip_image(self, entry: dict[str, Any]) -> None:
+    def _show_clip_image(self, parent: object, entry: dict[str, Any]) -> None:
         """Show the image file scaled to fit. SVG stays an image, not markup."""
 
         path = entry.get("path") if isinstance(entry.get("path"), str) else ""
-        window = Gtk.Window(transient_for=self, modal=True, title="Preview")
-        window.set_default_size(640, 480)
-        picture = Gtk.Picture(hexpand=True, vexpand=True)
-        if hasattr(Gtk, "ContentFit"):
-            picture.set_content_fit(Gtk.ContentFit.CONTAIN)
-        loaded = False
-        if path and Path(path).is_file():
-            try:
-                picture.set_paintable(Gdk.Texture.new_from_filename(path))
-                loaded = True
-            except Exception:
-                loaded = False
-        if not loaded:
-            missing = Gtk.Label(label="That image is not available")
-            missing.set_halign(Gtk.Align.CENTER)
-            missing.set_valign(Gtk.Align.CENTER)
-            window.set_child(missing)
-        else:
-            window.set_child(picture)
-        self._clip_dialog = window
-        window.present()
+        self._show_clip_popover(parent, _build_clip_image_preview(path))
 
     def _show_clip_text(
         self,
+        parent: object,
         title: str,
         text: str,
         *,
         editable: bool,
         entry_id: str | None,
     ) -> None:
-        window = Gtk.Window(transient_for=self, modal=True, title=title)
-        window.set_default_size(640, 480)
-        view = Gtk.TextView(
-            editable=editable,
-            cursor_visible=editable,
-            wrap_mode=Gtk.WrapMode.WORD_CHAR,
-            vexpand=True,
-        )
-        view.get_buffer().set_text(text)
-        scrolled = Gtk.ScrolledWindow(child=view, vexpand=True)
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        box.set_margin_top(12)
-        box.set_margin_bottom(12)
-        box.set_margin_start(12)
-        box.set_margin_end(12)
-        box.append(scrolled)
+        on_save = None
         if editable and entry_id is not None:
-            save = Gtk.Button(label="Save")
-            save.connect("clicked", self._on_save_clip_edit, window, view, entry_id)
-            box.append(save)
-        window.set_child(box)
-        self._clip_dialog = window
-        window.present()
 
-    def _on_save_clip_edit(
-        self,
-        _button: Gtk.Button,
-        window: Gtk.Window,
-        view: Gtk.TextView,
-        entry_id: str,
-    ) -> None:
+            def on_save(body: str, ident: str = entry_id) -> None:
+                self._save_clip_text(ident, body)
+
+        self._show_clip_popover(
+            parent,
+            _build_text_editor(title, text, editable=editable, on_save=on_save),
+        )
+
+    def _save_clip_text(self, entry_id: str, text: str) -> None:
         if not hasattr(self.client, "edit_clipboard"):
             return
-        buffer = view.get_buffer()
-        text = buffer.get_text(buffer.get_start_iter(), buffer.get_end_iter(), True)
         try:
             saved = self.client.edit_clipboard(entry_id, text)
         except BridgeError as exc:
@@ -3148,83 +3423,33 @@ class TodoWindow(Adw.ApplicationWindow):
         if not saved:
             self._toast("That line could not be edited")
             return
-        window.close()
-        self._reload_clip_now()
+        self._popover_reload = True
+        self._close_clip_popover()
 
-    def _show_clip_tags(self, entry_id: str, tags: list[dict[str, str]]) -> None:
-        window = Gtk.Window(transient_for=self, modal=True, title="Tags")
-        window.set_default_size(420, 360)
-        working = [dict(tag) for tag in tags]
-        rows = Gtk.ListBox()
-        name_row = Gtk.Entry(placeholder_text="Tag")
-        color_row = Gtk.DropDown.new_from_strings([name.title() for name in PALETTE])
-        add = Gtk.Button(label="Add")
-        save = Gtk.Button(label="Save")
+    def _show_clip_tags(
+        self,
+        parent: object,
+        entry_id: str,
+        tags: list[dict[str, str]],
+    ) -> None:
+        self._show_clip_popover(
+            parent,
+            _build_tag_editor(tags, lambda working: self._save_clip_tags(entry_id, working)),
+        )
 
-        def rebuild() -> None:
-            while (child := rows.get_first_child()) is not None:
-                rows.remove(child)
-            for index, tag in enumerate(working):
-                line = Gtk.Box(spacing=6)
-                line.set_margin_top(4)
-                line.set_margin_bottom(4)
-                line.set_margin_start(8)
-                line.set_margin_end(8)
-                line.append(_chip(tag["name"], tag.get("color") or "gray"))
-                remove = Gtk.Button(label="Remove")
-                remove.connect("clicked", lambda _button, item=index: drop(item))
-                line.append(remove)
-                rows.append(line)
-
-        def drop(index: int) -> None:
-            if 0 <= index < len(working):
-                working.pop(index)
-                rebuild()
-
-        def add_tag(_button: Gtk.Button) -> None:
-            name = " ".join(name_row.get_text().split())
-            if not name or len(name) > 40:
-                return
-            if any(tag["name"].casefold() == name.casefold() for tag in working):
-                return
-            selected = color_row.get_selected()
-            color = PALETTE[selected] if 0 <= selected < len(PALETTE) else PALETTE[0]
-            working.append({"name": name, "color": color})
-            name_row.set_text("")
-            rebuild()
-
-        def save_tags(_button: Gtk.Button) -> None:
-            if not hasattr(self.client, "set_clipboard_tags"):
-                return
-            try:
-                saved = self.client.set_clipboard_tags(entry_id, working)
-            except BridgeError as exc:
-                self._toast(friendly_bridge_message(exc))
-                return
-            if not saved:
-                self._toast("Tags could not be saved")
-                return
-            window.close()
-            self._reload_clip_now()
-
-        add.connect("clicked", add_tag)
-        save.connect("clicked", save_tags)
-        editor = Gtk.Box(spacing=6)
-        editor.append(name_row)
-        editor.append(color_row)
-        editor.append(add)
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        box.set_margin_top(12)
-        box.set_margin_bottom(12)
-        box.set_margin_start(12)
-        box.set_margin_end(12)
-        box.append(rows)
-        box.append(editor)
-        box.append(save)
-        window.set_child(box)
-        rebuild()
-        self._clip_dialog = window
-        window.present()
+    def _save_clip_tags(self, entry_id: str, tags: list[dict[str, str]]) -> None:
+        if not hasattr(self.client, "set_clipboard_tags"):
+            return
+        try:
+            saved = self.client.set_clipboard_tags(entry_id, tags)
+        except BridgeError as exc:
+            self._toast(friendly_bridge_message(exc))
+            return
+        if not saved:
+            self._toast("Tags could not be saved")
+            return
+        self._popover_reload = True
+        self._close_clip_popover()
 
     def _reload_clip_now(self) -> None:
         self._clip_gen += 1
@@ -3239,26 +3464,11 @@ class TodoWindow(Adw.ApplicationWindow):
 
     def _apply_clip_pending(self, *, loaded: bool) -> None:
         pending = self._clip_pending
-        if pending is None:
-            return
-        kind, ident = pending
-        entry = next(
-            (
-                row
-                for row in self._clip_entries
-                if isinstance(row, dict) and row.get("id") == ident
-            ),
-            None,
-        )
-        if entry is None:
-            if loaded:
-                self._clip_pending = None
+        if pending is None or not loaded:
             return
         self._clip_pending = None
-        if kind == "clip-edit":
-            self._on_edit_clip(None, entry)
-        elif kind == "clip-tag":
-            self._on_tag_clip(None, entry)
+        kind, ident = pending
+        self.open_clip_editor(kind, ident)
 
     def _search_template(self) -> str | None:
         if self._clip_search_ready:
@@ -3414,6 +3624,9 @@ class TodoWindow(Adw.ApplicationWindow):
             self.close()
             return True
         if keyval == Gdk.KEY_Escape:
+            if self._clip_popover is not None:
+                self._close_clip_popover()
+                return True
             self.close()
             return True
         if _focus_is_text(self):
@@ -3462,6 +3675,117 @@ class TodoWindow(Adw.ApplicationWindow):
             child = child.get_next_sibling()
 
 
+class ClipEditorWindow(Gtk.Window):
+    """One clipboard editor, with no main window behind it."""
+
+    def __init__(self, app: Adw.Application, title: str) -> None:
+        super().__init__(application=app, title=title)
+        self.set_title(title)
+        self.set_icon_name(APP_ID)
+        self._saved = False
+        self._seen_active = False
+        self._closing = False
+        self._active_since = 0
+        self._close_later = 0
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        self._slot = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        self._status = Gtk.Label(xalign=0)
+        self._status.set_wrap(True)
+        self._status.set_visible(False)
+        _pad_box(self._status)
+        outer.append(self._slot)
+        outer.append(self._status)
+        self.set_child(outer)
+        self.connect("notify::is-active", self._on_active_changed)
+        self.connect("close-request", self._on_close_request)
+        controller = Gtk.EventControllerKey()
+        controller.connect("key-pressed", self._on_editor_key)
+        self.add_controller(controller)
+
+    def set_editor(self, child: Gtk.Widget) -> None:
+        while (old := self._slot.get_first_child()) is not None:
+            self._slot.remove(old)
+        self._slot.append(child)
+
+    def note(self, text: str) -> None:
+        self._status.set_label(text)
+        self._status.set_visible(bool(text))
+
+    def show_message(self, text: str) -> None:
+        label = Gtk.Label(label=text)
+        label.set_wrap(True)
+        label.set_halign(Gtk.Align.START)
+        _pad_box(label)
+        self.set_editor(label)
+
+    def finish_saved(self) -> None:
+        self._saved = True
+        self.dismiss()
+
+    def dismiss(self) -> None:
+        if self._closing:
+            return
+        self._closing = True
+        self._clear_close_later()
+        self.close()
+
+    def _clear_close_later(self) -> None:
+        if self._close_later:
+            GLib.source_remove(self._close_later)
+            self._close_later = 0
+
+    def _on_close_request(self, _window: Gtk.Window) -> bool:
+        self._closing = True
+        self._clear_close_later()
+        return False
+
+    def _on_active_changed(self, *_args: object) -> None:
+        if self.is_active():
+            self._seen_active = True
+            if not self._active_since:
+                self._active_since = GLib.get_monotonic_time()
+            return
+        if not self._seen_active or self._saved or self._closing:
+            return
+        GLib.idle_add(self._close_if_inactive)
+
+    def _close_if_inactive(self) -> bool:
+        self._close_later = 0
+        if self._saved or self._closing or self.is_active() or not self._seen_active:
+            return False
+        if _mapped_popover(self) is not None:
+            self._schedule_inactive_close()
+            return False
+        # A dropdown, or the window taking focus, can look inactive for a moment.
+        since = self._active_since
+        if since and GLib.get_monotonic_time() - since < 300_000:
+            self._schedule_inactive_close()
+            return False
+        self.dismiss()
+        return False
+
+    def _schedule_inactive_close(self) -> None:
+        if self._close_later:
+            return
+        self._close_later = GLib.timeout_add(300, self._close_if_inactive)
+
+    def _on_editor_key(
+        self,
+        _controller: Gtk.EventControllerKey,
+        keyval: int,
+        _keycode: int,
+        _state: Gdk.ModifierType,
+    ) -> bool:
+        if keyval != Gdk.KEY_Escape or self._saved:
+            return False
+        open_popover = _mapped_popover(self)
+        if open_popover is not None:
+            open_popover.popdown()
+            return True
+        self.dismiss()
+        return True
+
+
 class WindowApp(Adw.Application):
     """Single instance. ``select-item`` opens or raises the window."""
 
@@ -3470,6 +3794,7 @@ class WindowApp(Adw.Application):
         self._client = client
         self.window: TodoWindow | None = None
         self._linger = 0
+        self._clip_editor: ClipEditorWindow | None = None
 
     def do_startup(self) -> None:
         Adw.Application.do_startup(self)
@@ -3514,10 +3839,198 @@ class WindowApp(Adw.Application):
 
     def _on_select_item(self, _action: Gio.SimpleAction, parameter: GLib.Variant | None) -> None:
         key = parameter.get_string() if parameter is not None else ""
+        clip = _clip_window_action(key)
+        if clip is not None:
+            self.open_clip_editor(*clip)
+            return
         if self.window is None:
             self.activate()
         if self.window is not None:
             self.window.select_key(key)
+
+    def open_clip_editor(self, kind: str, ident: str) -> None:
+        title = _EDITOR_TITLES.get(kind)
+        if title is None or not isinstance(ident, str):
+            return
+        client = self._editor_client()
+        width, height = _EDITOR_SIZE.get(kind, (360, 320))
+        editor = ClipEditorWindow(self, title)
+        editor.set_default_size(width, height)
+        previous = getattr(self, "_clip_editor", None)
+        self._clip_editor = editor
+        if previous is not None and not previous._closing:
+            previous.dismiss()
+        editor.present()
+
+        def apply(entries: list[dict[str, Any]], error: BridgeError | None) -> None:
+            if editor._closing or editor._saved:
+                return
+            if error is not None:
+                editor.show_message(friendly_bridge_message(error))
+                return
+            entry = _find_clip(entries, ident)
+            if entry is None:
+                editor.show_message("That copy is gone")
+                return
+            self._fill_clip_editor(editor, kind, entry, client)
+
+        _load_clip_entries(client, apply)
+
+    def _editor_client(self) -> Any:
+        if self.window is not None:
+            return self.window.client
+        if self._client is None:
+            self._client = BridgeClient()
+        return self._client
+
+    def _editor_effort(self) -> str:
+        window = self.window
+        if window is not None:
+            return window._context_effort()
+        try:
+            effort = load_ui_settings().context_effort
+        except Exception:
+            return "low"
+        if effort in _EFFORT_TITLES:
+            return effort
+        return "low"
+
+    def _editor_bots(self, client: Any) -> list[str]:
+        window = self.window
+        if window is not None:
+            return window._context_bots()
+        names = ["primary"]
+        seen = {"primary"}
+        fresh: object = []
+        if hasattr(client, "bots"):
+            try:
+                fresh = client.bots()
+            except Exception:
+                fresh = []
+        if isinstance(fresh, list):
+            for bot in fresh:
+                if not isinstance(bot, dict):
+                    continue
+                name = bot.get("name")
+                if isinstance(name, str) and name and name not in seen:
+                    seen.add(name)
+                    names.append(name)
+        rest = sorted(name for name in names if name != "primary")
+        return ["primary", *rest]
+
+    def _reload_editor_clipboard(self) -> None:
+        window = self.window
+        if window is None or window._page != "clipboard":
+            return
+        window._reload_clip_now()
+
+    def _fill_clip_editor(
+        self,
+        editor: ClipEditorWindow,
+        kind: str,
+        entry: dict[str, Any],
+        client: Any,
+    ) -> None:
+        blocked = _clip_editor_block(kind, entry)
+        if blocked is not None:
+            editor.show_message(blocked)
+            return
+        ident = entry.get("id")
+        if not isinstance(ident, str):
+            editor.show_message("That copy is gone")
+            return
+        if kind == "clip-edit":
+            text = entry.get("text") if isinstance(entry.get("text"), str) else ""
+            editor.set_editor(
+                _build_text_editor(
+                    "Edit",
+                    text,
+                    editable=True,
+                    on_save=lambda body: self._save_editor_text(editor, client, ident, body),
+                )
+            )
+            return
+        if kind == "clip-tag":
+            editor.set_editor(
+                _build_tag_editor(
+                    _entry_tags(entry),
+                    lambda tags: self._save_editor_tags(editor, client, ident, tags),
+                )
+            )
+            return
+        if kind == "clip-context":
+            editor.set_editor(
+                _build_context_editor(
+                    self._editor_effort(),
+                    self._editor_bots(client),
+                    lambda target: self._send_editor_context(editor, client, ident, target),
+                    editor.dismiss,
+                )
+            )
+
+    def _save_editor_text(
+        self,
+        editor: ClipEditorWindow,
+        client: Any,
+        entry_id: str,
+        text: str,
+    ) -> None:
+        if editor._closing or not hasattr(client, "edit_clipboard"):
+            editor.note("That line could not be edited")
+            return
+        try:
+            saved = client.edit_clipboard(entry_id, text)
+        except BridgeError as exc:
+            editor.note(friendly_bridge_message(exc))
+            return
+        if not saved:
+            editor.note("That line could not be edited")
+            return
+        editor.finish_saved()
+        self._reload_editor_clipboard()
+
+    def _save_editor_tags(
+        self,
+        editor: ClipEditorWindow,
+        client: Any,
+        entry_id: str,
+        tags: list[dict[str, str]],
+    ) -> None:
+        if editor._closing or not hasattr(client, "set_clipboard_tags"):
+            editor.note("Tags could not be saved")
+            return
+        try:
+            saved = client.set_clipboard_tags(entry_id, tags)
+        except BridgeError as exc:
+            editor.note(friendly_bridge_message(exc))
+            return
+        if not saved:
+            editor.note("Tags could not be saved")
+            return
+        editor.finish_saved()
+        self._reload_editor_clipboard()
+
+    def _send_editor_context(
+        self,
+        editor: ClipEditorWindow,
+        client: Any,
+        entry_id: str,
+        target: str,
+    ) -> None:
+        if editor._closing or not hasattr(client, "send_clipboard"):
+            editor.note("Not sent: Bridge not running")
+            return
+        bot = target if isinstance(target, str) and target else "primary"
+        try:
+            result = client.send_clipboard(entry_id, "clip-todo-context", bot)
+        except BridgeError as exc:
+            editor.note(clip_send_message(exc))
+            return
+        if result != "sent":
+            editor.note("Not sent")
+            return
+        editor.note("Sent")
+        editor.finish_saved()
 
 
 def apply_runs(

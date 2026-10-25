@@ -2,7 +2,7 @@
 
 Run these on one Fedora 44 desktop with GNOME Shell 50 on Wayland, after you can log in as a normal user. The project is unofficial and not affiliated with xAI.
 
-**Out of scope here:** M9 (webhook-only popup copy), M15 and M16 (a legacy todo sink outside this repository), and M17 (the full uninstall acceptance check). Uninstall is still documented in [SETUP.md](SETUP.md) and is the reset for M1. M18–M24 are the rich-todo checks later in this file. M25 checks that a new login starts the bridge. M26 checks that a todo click opens the window quickly. M27–M42 check the stopwatch. M43–M47 check more than one bot, display names, the compact Bots section, and the popup order. M48–M54 check an optional webhook slot, Sync now, the timer chip, toolbar colors, summary contrast, the bot-row dot and summary, and local dates. M55–M57 check the timer chip on the left, the top-bar width, and a window that updates while it stays open. M47 and M55–M68 passed on the desktop. M58 and M62 are the panel icon size and `primary` staying first. M59–M61 are replaced by M65–M68: a face in the shell's status-icon color, eyes that stay visible, Done sending when the shared bar ends, and one batch per menu. M74 passed on the desktop: reset to defaults restores the feed check and the undo timer. M75 passed on the desktop: the corner badge is in place, and blue for asks was confirmed. M76 passed on the desktop: one new item raises one notification, including after a bridge restart. M77 passed on the desktop: popup Done sends when the undo bar ends, and closing the menu early does not send it. M63 and M64 are a shared webhook slot and a missing secret on one bot. M69–M73 check the settings screen. M78 passed on the desktop: editing a todo's tracked total and deleting a time record. M79 passed on the desktop: the bots summary is amber for needs attention and red for an error or a bridge failure. M80 passed on the desktop: Stop timer on the open todo. M81 passed on the desktop: the title copy icon, the body copy icon, and Copy Todo. M82 passed on the desktop: completed todos stay in Show done for the history window, and Reset to defaults leaves that setting alone. M83–M119 are still open. M96 is even detail-button spacing. M97–M104 are clipboard history phase 1. M105–M108 check a Chrome password copy, the password-like rule, hiding one for 30 seconds, and the local debug command. M109–M113 check pin, tags, edit, preview, and Search the web. M114–M116 check the tag filter, Chrome's search engine, and tags on a hidden password. M117 checks that Settings opens and the search fallback hint is visible. M118 and M119 check the single-line clipboard icon row on the page and in the menu. M142–M147 check a long id in a link, the window icon, the clipboard toolbar icon, record that there is no lowercase-password switch and no Paste button, and check the Clipboard page sections. M148 checks a secret-looking Done with note. M149 checks that the panel menu leaves out buttons that do not apply. M150 checks that the menu icons and thumbnails are about a fifth larger. M151 checks that priority reads as a word in the chip row. Do not treat M9, M15, M16, or M17 as part of the v0.1 runbook.
+**Out of scope here:** M9 (webhook-only popup copy), M15 and M16 (a legacy todo sink outside this repository), and M17 (the full uninstall acceptance check). Uninstall is still documented in [SETUP.md](SETUP.md) and is the reset for M1. M18–M24 are the rich-todo checks later in this file. M25 checks that a new login starts the bridge. M26 checks that a todo click opens the window quickly. M27–M42 check the stopwatch. M43–M47 check more than one bot, display names, the compact Bots section, and the popup order. M48–M54 check an optional webhook slot, Sync now, the timer chip, toolbar colors, summary contrast, the bot-row dot and summary, and local dates. M55–M57 check the timer chip on the left, the top-bar width, and a window that updates while it stays open. M47 and M55–M68 passed on the desktop. M58 and M62 are the panel icon size and `primary` staying first. M59–M61 are replaced by M65–M68: a face in the shell's status-icon color, eyes that stay visible, Done sending when the shared bar ends, and one batch per menu. M74 passed on the desktop: reset to defaults restores the feed check and the undo timer. M75 passed on the desktop: the corner badge is in place, and blue for asks was confirmed. M76 passed on the desktop: one new item raises one notification, including after a bridge restart. M77 passed on the desktop: popup Done sends when the undo bar ends, and closing the menu early does not send it. M63 and M64 are a shared webhook slot and a missing secret on one bot. M69–M73 check the settings screen. M78 passed on the desktop: editing a todo's tracked total and deleting a time record. M79 passed on the desktop: the bots summary is amber for needs attention and red for an error or a bridge failure. M80 passed on the desktop: Stop timer on the open todo. M81 passed on the desktop: the title copy icon, the body copy icon, and Copy Todo. M82 passed on the desktop: completed todos stay in Show done for the history window, and Reset to defaults leaves that setting alone. M83–M119 are still open. M96 is even detail-button spacing. M97–M104 are clipboard history phase 1. M105–M108 check a Chrome password copy, the password-like rule, hiding one for 30 seconds, and the local debug command. M109–M113 check pin, tags, edit, preview, and Search the web. M114–M116 check the tag filter, Chrome's search engine, and tags on a hidden password. M117 checks that Settings opens and the search fallback hint is visible. M118 and M119 check the single-line clipboard icon row on the page and in the menu. M142–M147 check a long id in a link, the window icon, the clipboard toolbar icon, record that there is no lowercase-password switch and no Paste button, and check the Clipboard page sections. M148 checks a secret-looking Done with note. M149 checks that the panel menu leaves out buttons that do not apply. M150 checks that the menu icons and thumbnails are about a fifth larger. M151 checks that priority reads as a word in the chip row. M152 checks that clip editors open at the button. The menu half needs a log out. The window half reopens the window. Do not treat M9, M15, M16, or M17 as part of the v0.1 runbook.
 
 Examples use the bot id `primary`. Yours can be any lowercase id of letters, digits, and hyphens. Use the same id in the bot's feed file, in `config.toml`, and in the commands below.
 
@@ -10,7 +10,7 @@ Nothing in these steps belongs in a chat, in `config.toml`, or in this repositor
 
 ## Suggested order
 
-M1, M2, then the extension install in M14 (log out and back in once), then M3. Do M10 before M4 if the popup has no ask yet. Then M4, M10a, M5, M11, M6, M7, M8, M12, M13. After a rich todo is in the feed, M18 through M24. M25 is the next login after the unit is installed. M26 is a todo click after that. M27 through M42 need a running timer. M43 through M47 need this version installed and a log out, then a second feed file. M48 through M54 need that same login. M47 and M55 through M68 passed on the desktop. M74 through M77 passed on the desktop. M69 through M73 need the settings install and a log out, so the prefs window and the schema load. M78 through M82 passed on the desktop. M83 needs a running or paused timer. M84 needs an open todo. M85 needs the settings screen. M86 through M95 need the TetherBot window. M88 and M91 use the extension that places the window. M93 also uses the toolbar menu's undo bar, so that needs a log out if the extension has not reloaded since this version was installed. M89, M90, M92, M94, and M95 do not need a log out. Reopen the window after the old window process exits. M96 reopens the window after the old window process exits. M97 through M116 need a log out and back in, so the clipboard icon, the settings schema, and the bridge load. M109 through M116 also need the window process started after that login. M117 reopens Settings after this version is installed. M118 reopens the window after the old window process exits. M119 needs a log out and back in, so the clipboard menu loads. M142 can use a local feed edit or the next sync. M143 and M144 need a log out so the icon cache and the panel load. M145 reopens Settings. M146 uses the clipboard menu and the Clipboard page. M147 reopens the window. M148 reopens the window. M149 and M150 need a log out so the menu loads. M151 needs a log out so the menu loads, and the window reopened so the list loads.
+M1, M2, then the extension install in M14 (log out and back in once), then M3. Do M10 before M4 if the popup has no ask yet. Then M4, M10a, M5, M11, M6, M7, M8, M12, M13. After a rich todo is in the feed, M18 through M24. M25 is the next login after the unit is installed. M26 is a todo click after that. M27 through M42 need a running timer. M43 through M47 need this version installed and a log out, then a second feed file. M48 through M54 need that same login. M47 and M55 through M68 passed on the desktop. M74 through M77 passed on the desktop. M69 through M73 need the settings install and a log out, so the prefs window and the schema load. M78 through M82 passed on the desktop. M83 needs a running or paused timer. M84 needs an open todo. M85 needs the settings screen. M86 through M95 need the TetherBot window. M88 and M91 use the extension that places the window. M93 also uses the toolbar menu's undo bar, so that needs a log out if the extension has not reloaded since this version was installed. M89, M90, M92, M94, and M95 do not need a log out. Reopen the window after the old window process exits. M96 reopens the window after the old window process exits. M97 through M116 need a log out and back in, so the clipboard icon, the settings schema, and the bridge load. M109 through M116 also need the window process started after that login. M117 reopens Settings after this version is installed. M118 reopens the window after the old window process exits. M119 needs a log out and back in, so the clipboard menu loads. M142 can use a local feed edit or the next sync. M143 and M144 need a log out so the icon cache and the panel load. M145 reopens Settings. M146 uses the clipboard menu and the Clipboard page. M147 reopens the window. M148 reopens the window. M149 and M150 need a log out so the menu loads. M151 needs a log out so the menu loads, and the window reopened so the list loads. M152 needs a log out so the menu loads, and the window reopened so the popovers load.
 
 You can stop after any check. Later checks say what they need.
 
@@ -2100,12 +2100,13 @@ journalctl --user -b /usr/bin/gnome-shell --no-pager | tail -n 80
 
 ## M137. Make a todo with context sends the text
 
-**Preconditions.** Same webhook as M136. The routine knows `clip-todo-context`. Use the panel menu for this check. The window picker is M140.
+**Preconditions.** Same webhook as M136. The routine knows `clip-todo-context`. Use the panel menu for this check. The editor at the pointer is M152. The window picker is M140.
 
 **Look for.**
 
-- Press Make a todo with context once. No picker opens. The row shows Sent.
-- The bot creates a todo that adds context it found.
+- Make a todo with context opens the editor described in M152. It does not send on that first press.
+- Send from that editor. The bot creates a todo that adds context it found.
+- Make a todo and Tell me more still send on one click. Those rows show Sent.
 
 **Reset.** None. Remove the todo in the bot if you do not want to keep it.
 
@@ -2141,13 +2142,13 @@ journalctl --user -b /usr/bin/gnome-shell --no-pager | tail -n 80
 
 **Look for.**
 
-- Make a todo with context opens a small dialog.
+- Make a todo with context opens a popover on the button.
 - Primary is selected. Any other rows are bot ids from the feed.
 - The effort line names the Settings choice. Low is green, Medium is yellow, and High is red. Check it in a light theme and a dark theme.
-- Cancel closes the dialog and the row does not say Sent.
-- Send closes the dialog and the row says Sent.
-- Make a todo and Tell me more still send on one click and do not open the dialog.
-- In the panel menu, Make a todo with context still sends on one click and does not open a dialog.
+- Cancel closes the popover and the row does not say Sent.
+- Send closes the popover and the row says Sent.
+- Make a todo and Tell me more still send on one click and do not open the popover.
+- In the panel menu, Make a todo with context opens a small window at the pointer. That check is M152.
 
 **Reset.** Set Context effort back to Low if you changed it.
 
@@ -2296,6 +2297,21 @@ The roadmap does not add a Paste button. [CLIPBOARD.md](CLIPBOARD.md) says a Pas
 - `p:high` and `p:2` both filter to the matching todos.
 
 **Reset.** Clear the search box.
+
+## M152. Clip editors open at the button
+
+**Preconditions.** Log out and back in after this version is installed, so the menu loads. Quit the TetherBot window and open it again, so the Clipboard page loads this version. Have a text entry in the clipboard history.
+
+**Look for.**
+
+- On the Clipboard page, Edit, Tag, Preview, and Make a todo with context open as popovers pointing at the button you pressed. Preview opens from the row.
+- Clicking away or Escape closes that popover and does not save.
+- Save on Edit and Tag saves. Send on Make a todo with context sends, and the row says Sent. Cancel does not.
+- In the panel menu, Edit, Tag, and Make a todo with context open a small editor. Its top-left is at the mouse, on the screen, and the full window is not opened behind it. If the window was already open, it stays where it was.
+- Clicking away closes that editor without saving. Save and Send still do that action.
+- Make a todo and Tell me more still send on one click.
+
+**Reset.** None.
 
 ## When you are finished
 

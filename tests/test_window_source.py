@@ -127,6 +127,21 @@ def test_window_sources_do_not_touch_the_network_or_secrets():
     assert "_prompt_clip_context" in window
     assert '"Effort:"' in window
     assert '"Sent"' in window
+    assert "_show_clip_popover" in window
+    assert "set_autohide(True)" in window
+    assert '"Edit clip"' in window
+    assert '"Tag clip"' in window
+    assert "notify::is-active" in window
+    assert "clip-context" in window
+    for name in (
+        "_show_clip_text",
+        "_show_clip_tags",
+        "_show_clip_image",
+        "_prompt_clip_context",
+    ):
+        body = window.split(f"    def {name}(", 1)[1].split("\n    def ", 1)[0]
+        assert "Gtk.Window(" not in body
+        assert "_show_clip_popover" in body
     assert "Not sent" in window
     assert "clip_send_message" in window
     assert "Images are not sent" in window

@@ -230,6 +230,25 @@ def _build_text_editor(
     return box
 
 
+def _focus_tag_entry(entry: Gtk.Widget | None) -> None:
+    """Move the caret into the tag field.
+
+    GTK 4 keeps that focus on the entry's inner text. A popover does not
+    do this on its own, and the button click that opened it takes focus back.
+    """
+
+    if isinstance(entry, Gtk.Entry) and entry.get_parent() is not None:
+        entry.grab_focus()
+
+
+def _tag_entry_focused(widget: Gtk.Widget | None) -> bool:
+    while widget is not None:
+        if getattr(widget, "is_tag_value", False):
+            return True
+        widget = widget.get_parent()
+    return False
+
+
 def _build_tag_editor(
     tags: list[dict[str, str]],
     on_save: Callable[[list[dict[str, str]]], None],
@@ -238,6 +257,12 @@ def _build_tag_editor(
     rows = Gtk.ListBox()
     name_row = Gtk.Entry(placeholder_text="Tag")
     name_row.set_hexpand(True)
+    name_row.set_editable(True)
+    name_row.set_sensitive(True)
+    name_row.set_can_focus(True)
+    name_row.set_focus_on_click(True)
+    name_row.set_activates_default(False)
+    name_row.is_tag_value = True
     color_row = Gtk.DropDown.new_from_strings([name.title() for name in PALETTE])
     add = Gtk.Button(label="Add")
     save = Gtk.Button(label="Save")
@@ -263,7 +288,7 @@ def _build_tag_editor(
             working.pop(index)
             rebuild()
 
-    def add_tag(_button: Gtk.Button) -> None:
+    def add_tag(_widget: Gtk.Widget) -> None:
         name = " ".join(name_row.get_text().split())
         if not name or len(name) > 40:
             return
@@ -274,11 +299,28 @@ def _build_tag_editor(
         working.append({"name": name, "color": color})
         name_row.set_text("")
         rebuild()
+        _focus_tag_entry(name_row)
 
     def save_tags(_button: Gtk.Button) -> None:
         on_save([dict(tag) for tag in working])
 
+    def _focus_on_map(_widget: Gtk.Entry) -> None:
+        _focus_tag_entry(name_row)
+
+    def _focus_when_pointer_enters(*_args: object) -> None:
+        _focus_tag_entry(name_row)
+
+    def _focus_after_click() -> bool:
+        _focus_tag_entry(name_row)
+        return False
+
     add.connect("clicked", add_tag)
+    name_row.connect("activate", add_tag)
+    name_row.connect("map", _focus_on_map)
+    pointer = Gtk.EventControllerMotion()
+    pointer.connect("enter", _focus_when_pointer_enters)
+    name_row.add_controller(pointer)
+    GLib.idle_add(_focus_after_click)
     save.connect("clicked", save_tags)
     editor = Gtk.Box(spacing=6)
     editor.append(name_row)
@@ -296,6 +338,7 @@ def _build_tag_editor(
     box.append(scroller)
     box.append(editor)
     box.append(save)
+    box.tag_entry = name_row
     rebuild()
     return box
 
@@ -3629,7 +3672,7 @@ class TodoWindow(Adw.ApplicationWindow):
                 return True
             self.close()
             return True
-        if _focus_is_text(self):
+        if _focus_is_text(self) or _tag_entry_focused(self.get_focus()):
             return False
         if keyval == Gdk.KEY_Up:
             self._move(-1)
@@ -3687,6 +3730,7 @@ class ClipEditorWindow(Gtk.Window):
         self._closing = False
         self._active_since = 0
         self._close_later = 0
+        self._tag_entry: Gtk.Entry | None = None
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         self._slot = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         self._status = Gtk.Label(xalign=0)
@@ -3744,6 +3788,7 @@ class ClipEditorWindow(Gtk.Window):
             self._seen_active = True
             if not self._active_since:
                 self._active_since = GLib.get_monotonic_time()
+                _focus_tag_entry(self._tag_entry)
             return
         if not self._seen_active or self._saved or self._closing:
             return
@@ -3951,12 +3996,13 @@ class WindowApp(Adw.Application):
             )
             return
         if kind == "clip-tag":
-            editor.set_editor(
-                _build_tag_editor(
-                    _entry_tags(entry),
-                    lambda tags: self._save_editor_tags(editor, client, ident, tags),
-                )
+            tag_box = _build_tag_editor(
+                _entry_tags(entry),
+                lambda tags: self._save_editor_tags(editor, client, ident, tags),
             )
+            editor._tag_entry = tag_box.tag_entry
+            editor.set_editor(tag_box)
+            _focus_tag_entry(tag_box.tag_entry)
             return
         if kind == "clip-context":
             editor.set_editor(

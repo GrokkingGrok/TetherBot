@@ -133,6 +133,10 @@ def test_window_sources_do_not_touch_the_network_or_secrets():
     assert '"Tag clip"' in window
     assert "notify::is-active" in window
     assert "clip-context" in window
+    assert "is_tag_value = True" in window
+    assert 'name_row.connect("activate", add_tag)' in window
+    assert "set_editable(True)" in window
+    assert "_tag_entry_focused" in window
     for name in (
         "_show_clip_text",
         "_show_clip_tags",

@@ -1410,17 +1410,29 @@ def test_clipboard_tag_filter_stops_after_one_rebuild():
             assert _clip_rows(window) == []
             assert _clip_marks(window) == ["Pinned", "|", "Unpinned", "No matches"]
             window._clip_query = ""
+            window._fill_clipboard_rows()
+            image = next(
+                row for row in _clip_rows(window) if getattr(row, "clip_kind", "") == "image"
+            )
             window._on_edit_clip(None, image.clip_entry)
             assert getattr(window, "_clip_dialog", None) is None
+            assert getattr(window, "_clip_popover", None) is None
             window._preview_clipboard(image)
-            dialog = window._clip_dialog
-            assert dialog is not None
-            assert dialog.get_title() == "Preview"
-            dialog.close()
-            holder["ok"] = True
+            popover = window._clip_popover
+            assert popover is not None
+            assert _label_text(popover, "Preview") is not None
+            assert _label_text(popover, "That image is not available") is not None
+            popover.popdown()
+
+            def _leave() -> bool:
+                holder["ok"] = True
+                app.quit()
+                return False
+
+            GLib.idle_add(_leave)
         except Exception as exc:
             holder["error"] = exc
-        app.quit()
+            app.quit()
         return False
 
     try:
@@ -1534,18 +1546,14 @@ def test_a_stale_clipboard_load_keeps_an_image_and_routes_edit_and_tag():
                 "c-aaaaaaa3",
             ]
             opened: list[tuple[str, str]] = []
-            window._on_edit_clip = lambda _button, entry: opened.append(("edit", entry["id"]))
-            window._on_tag_clip = lambda _button, entry: opened.append(("tag", entry["id"]))
+            window.open_clip_editor = lambda kind, ident: opened.append((kind, ident))
             window.select_key("clip-edit:c-aaaaaaa2")
-            fake.loads[-1]([dict(row) for row in fake.current], None)
             window.select_key("clip-tag:c-aaaaaaa1")
-            fake.loads[-1]([dict(row) for row in fake.current], None)
             window.select_key("clip-edit:c-aaaaaaa1")
-            fake.loads[-1]([dict(row) for row in fake.current], None)
             assert opened == [
-                ("edit", "c-aaaaaaa2"),
-                ("tag", "c-aaaaaaa1"),
-                ("edit", "c-aaaaaaa1"),
+                ("clip-edit", "c-aaaaaaa2"),
+                ("clip-tag", "c-aaaaaaa1"),
+                ("clip-edit", "c-aaaaaaa1"),
             ]
             holder["ok"] = True
         except Exception as exc:
@@ -1653,16 +1661,16 @@ def test_context_send_opens_a_bot_picker():
             opens = {"n": 0}
             original = window._prompt_clip_context
 
-            def wrapped(entry, label) -> None:
+            def wrapped(parent, entry, label) -> None:
                 opens["n"] += 1
-                original(entry, label)
+                original(parent, entry, label)
 
             window._prompt_clip_context = wrapped
             _icon(plain, "tetherbot-square-check-symbolic").emit("clicked")
             assert opens["n"] == 1
             dialog = window._clip_context_dialog
             assert dialog is not None
-            assert dialog.get_heading() == "Make a todo with context"
+            assert _label_text(dialog, "Make a todo with context") is not None
             level = dialog.effort_level
             assert level.get_label() == "High"
             assert "tether-effort-high" in level.get_css_classes()
@@ -1670,23 +1678,34 @@ def test_context_send_opens_a_bot_picker():
             assert list(buttons)[:1] == ["primary"]
             assert "notes" in buttons
             assert buttons["primary"].get_active()
-            dialog.emit("response", "cancel")
+            dialog.cancel_button.emit("clicked")
             assert client.sent == []
+            _icon(plain, "tetherbot-square-check-symbolic").emit("clicked")
+            assert opens["n"] == 2
+            dialog = window._clip_context_dialog
+            buttons = {button.get_label(): button for button in dialog.bot_buttons}
             buttons["notes"].set_active(True)
             assert buttons["notes"].get_active()
             assert not buttons["primary"].get_active()
-            dialog.emit("response", "send")
+            dialog.send_button.emit("clicked")
             assert client.sent == [("c-11111111", "clip-todo-context", "notes")]
             shown = _label_text(plain, "Sent")
             assert shown is not None
             _icon(plain, "tetherbot-check-symbolic").emit("clicked")
-            assert opens["n"] == 1
+            assert opens["n"] == 2
             assert client.sent[-1] == ("c-11111111", "clip-todo", "primary")
-            dialog.close()
-            holder["ok"] = True
+            if dialog.get_parent() is not None:
+                dialog.popdown()
+
+            def _leave() -> bool:
+                holder["ok"] = True
+                app.quit()
+                return False
+
+            GLib.idle_add(_leave)
         except Exception as exc:
             holder["error"] = exc
-        app.quit()
+            app.quit()
         return False
 
     try:

@@ -11,15 +11,63 @@ export const UPDATE_MESSAGE = 'This feed uses a newer protocol. Update TetherBot
 export const BRIDGE_DOWN = 'Bridge not running';
 export const ACTIVATE_RETRY_MS = 4000;
 
+const CLIP_EDITOR_TITLES = [
+    'Edit clip',
+    'Tag clip',
+    'Make a todo with context',
+];
+
+export function clipEditorTitle(title) {
+    return CLIP_EDITOR_TITLES.includes(title);
+}
+
+function tetherIdentity({gtkId, wmClass} = {}) {
+    if (gtkId === WINDOW_APP_ID)
+        return true;
+    const wm = String(wmClass || '');
+    return wm === WINDOW_APP_ID || wm === 'TetherBot' ||
+        wm === 'tetherbot' || wm === 'tetherbot-window';
+}
+
+export function isClipEditor({gtkId, wmClass, title} = {}) {
+    return clipEditorTitle(title) && tetherIdentity({gtkId, wmClass});
+}
+
 export function isMainWindow({gtkId, wmClass, title} = {}) {
     // Settings uses the same title inside gnome-shell, so the title alone
-    // is not enough. The main window is the GTK application id.
+    // is not enough. A clip editor shares the application id and is not
+    // the main window. The main window is the GTK application id.
+    if (clipEditorTitle(title))
+        return false;
     if (gtkId === WINDOW_APP_ID)
         return true;
     const wm = String(wmClass || '');
     if (wm === WINDOW_APP_ID || wm === 'TetherBot' || wm === 'tetherbot' || wm === 'tetherbot-window')
         return true;
     return title === 'TetherBot' && /tether/i.test(wm) && !/shell|extension/i.test(wm);
+}
+
+export function clipEditorFrame(area, frame, pointer) {
+    // Top-left at the pointer. Shift it back inside the work area. A window
+    // larger than that area keeps the work area's origin. The shell does not
+    // resize it.
+    const width = Math.max(0, Math.round(frame && frame.width || 0));
+    const height = Math.max(0, Math.round(frame && frame.height || 0));
+    const originX = Math.round(area && area.x || 0);
+    const originY = Math.round(area && area.y || 0);
+    const roomW = Math.max(0, Math.round(area && area.width || 0));
+    const roomH = Math.max(0, Math.round(area && area.height || 0));
+    let x = Math.round(pointer && pointer.x || 0);
+    let y = Math.round(pointer && pointer.y || 0);
+    if (width > 0 && x + width > originX + roomW)
+        x = originX + roomW - width;
+    if (height > 0 && y + height > originY + roomH)
+        y = originY + roomH - height;
+    if (x < originX)
+        x = originX;
+    if (y < originY)
+        y = originY;
+    return {x, y};
 }
 
 export function topRightFrame(area, frame) {

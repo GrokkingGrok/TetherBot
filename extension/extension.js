@@ -55,7 +55,9 @@ import {
     snoozeIso,
     todoFilter,
     isMainWindow,
+    isClipEditor,
     topRightFrame,
+    clipEditorFrame,
 } from './view.js';
 import {
     DEFAULT_EXCLUDED_APPS,
@@ -248,6 +250,10 @@ export default class TetherBotExtension extends Extension {
         this._watchedWindows = new Map();
         this._mainWindows = new Map();
         this._displayWindowId = 0;
+        this._clipEditorWatchId = 0;
+        this._clipEditorTimer = 0;
+        this._clipEditorWindows = new Map();
+        this._clipEditorPointer = null;
         this._trackMainWindow();
 
         this._nameWatch = Gio.bus_watch_name(
@@ -317,6 +323,7 @@ export default class TetherBotExtension extends Extension {
         if (this._settings && this._settingsId)
             this._settings.disconnect(this._settingsId);
         this._forgetMainWindows();
+        this._forgetClipEditorWatch();
         this._settings = null;
         this._settingsId = 0;
         this._undoSpan = 0;
@@ -381,7 +388,18 @@ export default class TetherBotExtension extends Extension {
             this._watchedWindows.delete(metaWindow);
         };
         const consider = () => {
-            if (!this._enabled || !isMainWindow(_windowIdentity(metaWindow)))
+            if (!this._enabled)
+                return;
+            const identity = _windowIdentity(metaWindow);
+            if (isClipEditor(identity)) {
+                drop();
+                return;
+            }
+            if (!isMainWindow(identity))
+                return;
+            // The editor shares this application id. Wait until its title
+            // is set so this placer does not grab it.
+            if (!identity.title)
                 return;
             drop();
             this._adoptMainWindow(metaWindow);
@@ -2306,7 +2324,7 @@ export default class TetherBotExtension extends Extension {
                     this._sendClipboard(entry.id, 'clip-todo', label);
                 }],
                 ['tetherbot-square-check-symbolic', 'Make a todo with context', canSend, () => {
-                    this._sendClipboard(entry.id, 'clip-todo-context', label);
+                    this._openClipAction('clip-context', entry.id);
                 }],
                 ['tetherbot-circle-help-symbolic', 'Tell me more', canSend, () => {
                     this._sendClipboard(entry.id, 'clip-ask', label);
@@ -2650,9 +2668,129 @@ export default class TetherBotExtension extends Extension {
         this._clipIndicator?.menu.close();
     }
 
+    _pointerNow() {
+        try {
+            const raw = global.get_pointer();
+            if (Array.isArray(raw))
+                return {x: raw[0] || 0, y: raw[1] || 0};
+            if (raw && typeof raw.x === 'number')
+                return {x: raw.x, y: typeof raw.y === 'number' ? raw.y : 0};
+        } catch {
+            // The pointer is not available yet.
+        }
+        return {x: 0, y: 0};
+    }
+
+    _clipWorkArea(metaWindow) {
+        try {
+            let monitor = 0;
+            if (metaWindow.get_monitor)
+                monitor = metaWindow.get_monitor();
+            const area = Main.layoutManager.getWorkAreaForMonitor(monitor);
+            if (!area)
+                return null;
+            return {x: area.x, y: area.y, width: area.width, height: area.height};
+        } catch {
+            return null;
+        }
+    }
+
+    _armClipEditorWatch() {
+        this._forgetClipEditorWatch();
+        this._clipEditorPointer = this._pointerNow();
+        this._clipEditorWindows = new Map();
+        this._clipEditorWatchId = global.display.connect('window-created', (_display, metaWindow) => {
+            this._watchClipEditor(metaWindow);
+        });
+        this._clipEditorTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 3000, () => {
+            this._clipEditorTimer = 0;
+            this._forgetClipEditorWatch();
+            return GLib.SOURCE_REMOVE;
+        });
+    }
+
+    _forgetClipEditorWatch() {
+        if (this._clipEditorTimer) {
+            GLib.source_remove(this._clipEditorTimer);
+            this._clipEditorTimer = 0;
+        }
+        if (this._clipEditorWatchId) {
+            try {
+                global.display.disconnect(this._clipEditorWatchId);
+            } catch {
+                // The display watch is already gone.
+            }
+            this._clipEditorWatchId = 0;
+        }
+        for (const [metaWindow, state] of this._clipEditorWindows || [])
+            this._disconnectWindow(metaWindow, state);
+        this._clipEditorWindows = new Map();
+    }
+
+    _watchClipEditor(metaWindow) {
+        if (!this._enabled || !metaWindow || !this._clipEditorWatchId)
+            return;
+        if (this._clipEditorWindows.has(metaWindow))
+            return;
+        const state = {signals: [], placed: false};
+        const drop = () => {
+            this._disconnectWindow(metaWindow, state);
+            this._clipEditorWindows.delete(metaWindow);
+        };
+        const consider = () => {
+            if (!this._enabled || state.placed || !this._clipEditorWatchId)
+                return;
+            const identity = _windowIdentity(metaWindow);
+            if (!isClipEditor(identity)) {
+                if (!identity.title || (!identity.gtkId && !identity.wmClass))
+                    return;
+                drop();
+                return;
+            }
+            const frame = _frameRect(metaWindow);
+            if (!frame || frame.width <= 0 || frame.height <= 0)
+                return;
+            const area = this._clipWorkArea(metaWindow);
+            if (!area)
+                return;
+            const next = clipEditorFrame(area, frame, this._clipEditorPointer || {x: 0, y: 0});
+            if (!metaWindow.move_frame)
+                return;
+            try {
+                metaWindow.move_frame(true, next.x, next.y);
+            } catch {
+                return;
+            }
+            state.placed = true;
+            drop();
+            this._forgetClipEditorWatch();
+        };
+        this._clipEditorWindows.set(metaWindow, state);
+        for (const name of [
+            'shown',
+            'notify::title',
+            'notify::gtk-application-id',
+            'notify::wm-class',
+            'size-changed',
+        ]) {
+            try {
+                state.signals.push(metaWindow.connect(name, consider));
+            } catch {
+                // This Shell build has no such signal.
+            }
+        }
+        try {
+            state.signals.push(metaWindow.connect('unmanaged', drop));
+        } catch {
+            // Nothing to undo if the window cannot tell us it closed.
+        }
+        consider();
+    }
+
     _openClipAction(action, entryId) {
         if (!this._proxy || !entryId)
             return;
+        this._armClipEditorWatch();
         const call = openWindowCall(`${action}:${entryId}`);
         this._proxy.OpenWindowRemote(...call.args, () => {});
         this._clipIndicator?.menu.close();

@@ -322,8 +322,11 @@ def test_the_panel_menu_loads_tetherbot_icons_from_the_extension():
     assert "icon_size: 16" not in button
     assert "if (accent)" not in button
     assert "color: -st-accent-color" not in button
-    assert "reactive: enabled" in button
-    assert "track_hover: enabled" in button
+    assert "reactive: true" in button
+    assert "track_hover: true" in button
+    assert "can_focus: enabled" in button
+    assert "reactive: enabled" not in button
+    assert "track_hover: enabled" not in button
     assert "tetherbot-clip-off" in button
     assert "tooltip_text = name" in button
     assert "accessible_name = name" in button
@@ -356,6 +359,23 @@ def test_the_panel_menu_loads_tetherbot_icons_from_the_extension():
     assert "_searchClipboard(" in filled
     assert "MENU_LIMIT" in filled
     assert "opacity:" not in filled
+    enabled_at = built.index("if (enabled) {")
+    disabled_at = built.index("} else {", enabled_at)
+    enabled_body = built[enabled_at:disabled_at]
+    disabled_body = built[disabled_at:].split("actions.add_child(button)", 1)[0]
+    assert built.count("onPress()") == 1
+    assert enabled_body.count("onPress()") == 1
+    assert "holdClipClick()" in enabled_body
+    assert "onPress()" not in disabled_body
+    assert "holdClipClick()" in disabled_body
+    assert "EVENT_STOP" in disabled_body
+    friendly = text.split("    _friendlyBridgeMessage(", 1)[1].split("\n    _", 1)[0]
+    assert "looks like a secret" in friendly
+    assert "This note looks like a secret, so it wasn't sent." in friendly
+    assert "The bridge did not answer." in friendly
+    send = text.split("    _sendClipboard(", 1)[1].split("\n    _", 1)[0]
+    assert send.count("error.message") == 1
+    assert "_friendlyBridgeMessage(error.message" in send
     assert "SearchClipboardRemote" in text
     search = text.split("    _searchClipboard(", 1)[1].split("\n    _", 1)[0]
     assert "SearchClipboardRemote" in search

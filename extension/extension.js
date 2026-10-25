@@ -2370,6 +2370,11 @@ export default class TetherBotExtension extends Extension {
                         onPress();
                         return Clutter.EVENT_STOP;
                     });
+                } else {
+                    button.connect('button-press-event', () => {
+                        holdClipClick();
+                        return Clutter.EVENT_STOP;
+                    });
                 }
                 actions.add_child(button);
             });
@@ -2465,14 +2470,47 @@ export default class TetherBotExtension extends Extension {
             style_class: buttonClass,
             child: icon,
             can_focus: enabled,
-            reactive: enabled,
-            track_hover: enabled,
+            reactive: true,
+            track_hover: true,
             x_expand: false,
             y_align: Clutter.ActorAlign.CENTER,
         });
         button.accessible_name = name;
         button.tooltip_text = name;
         return button;
+    }
+
+    _friendlyBridgeMessage(raw, fallback) {
+        const fallbackText = fallback || 'That could not be done.';
+        const text = raw == null ? '' : String(raw);
+        if (text.toLowerCase().includes('looks like a secret'))
+            return "This note looks like a secret, so it wasn't sent.";
+        let cleaned = text.trim();
+        const dbus = /^(?:GDBus\.Error:[A-Za-z0-9._]+:\s*)/;
+        const quark = /^(?:g-dbus-error-quark|g-io-error-quark):\s*/i;
+        for (let guard = 0; guard < 6; guard++) {
+            const withoutDbus = cleaned.replace(dbus, '').trim();
+            const withoutQuark = withoutDbus.replace(quark, '').trim();
+            if (withoutQuark === cleaned)
+                break;
+            cleaned = withoutQuark;
+        }
+        cleaned = cleaned.replace(/\s+\(\d+\)\s*$/, '').trim();
+        const foldedRaw = text.toLowerCase();
+        if (foldedRaw.includes('noreply') ||
+            foldedRaw.includes('serviceunknown') ||
+            foldedRaw.includes('disconnected') ||
+            foldedRaw.includes('name has no owner'))
+            return 'The bridge did not answer.';
+        const folded = cleaned.toLowerCase();
+        if (!cleaned ||
+            cleaned.includes('\n') ||
+            cleaned.length > 160 ||
+            folded.includes('gdbus') ||
+            folded.includes('org.freedesktop') ||
+            folded.includes('error-quark'))
+            return fallbackText;
+        return cleaned;
     }
 
     _sendClipboard(entryId, action, label) {
@@ -2484,8 +2522,12 @@ export default class TetherBotExtension extends Extension {
             if (!this._enabled)
                 return;
             if (error) {
-                const reason = error.message ? String(error.message) : 'Could not send';
-                this._showClipResult(label, `Not sent: ${reason}`);
+                const reason = this._friendlyBridgeMessage(error.message, 'Could not send');
+                let shown = `Not sent: ${reason}`;
+                if (reason.startsWith('This note looks like a secret') ||
+                    reason.startsWith('Not sent'))
+                    shown = reason;
+                this._showClipResult(label, shown);
                 return;
             }
             const value = Array.isArray(result) ? result[0] : result;

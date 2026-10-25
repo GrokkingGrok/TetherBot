@@ -128,6 +128,7 @@ def test_window_sources_do_not_touch_the_network_or_secrets():
     assert '"Effort:"' in window
     assert '"Sent"' in window
     assert "Not sent" in window
+    assert "clip_send_message" in window
     assert "Images are not sent" in window
     assert "Hidden passwords are not sent" in window
     assert "Uses the search fallback from Settings" in window

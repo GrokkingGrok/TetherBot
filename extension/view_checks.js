@@ -715,7 +715,7 @@ export function runViewChecks() {
         editingStart: true,
     });
     assert(editing.kind === 'edit-start', 'edit start');
-    assert(editing.actions.join(',') === '-5m,-15m,-30m,Cancel', 'quick shifts');
+    assert(editing.actions.join(',') === '-1m,-5m,-15m,-30m,Cancel', 'quick shifts');
     const loose = timerModel({
         running: true,
         timer: {...runningTimer, item_key: '', item_title: ''},

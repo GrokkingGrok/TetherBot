@@ -835,6 +835,14 @@ def _exercise_edit(app, fake, holder, glib, gdk) -> None:
             assert edit is not None
             edit.emit("clicked")
             assert window.edit_start_box.get_visible()
+            shift_labels: list[str] = []
+            shift_child = window.edit_start_box.get_first_child()
+            while shift_child is not None:
+                shift_text = shift_child.get_label() if hasattr(shift_child, "get_label") else None
+                if shift_text:
+                    shift_labels.append(shift_text)
+                shift_child = shift_child.get_next_sibling()
+            assert shift_labels.index("-1m") < shift_labels.index("-5m")
             shift = _find_button(window.edit_start_box, "-5m")
             assert shift is not None
             shift.emit("clicked")
@@ -1719,117 +1727,6 @@ def test_context_send_opens_a_bot_picker():
     assert holder.get("ok") is True
 
 
-def test_tag_entry_takes_focus_and_enter_adds_the_tag():
-    gi = pytest.importorskip("gi")
-    try:
-        gi.require_version("Gtk", "4.0")
-        gi.require_version("Adw", "1")
-        from gi.repository import Adw, Gdk, Gio, GLib
-    except ValueError as exc:
-        pytest.skip(str(exc))
-    if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
-        pytest.skip("GTK window test needs a display")
-
-    from tetherbot.window import WindowApp
-
-    class _Clip:
-        def set_listener(self, listener) -> None:
-            return None
-
-        def set_clipboard_listener(self, listener) -> None:
-            return None
-
-        def get_items(self, spec):
-            return []
-
-        def get_tags(self):
-            return []
-
-        def bots(self):
-            return []
-
-        def get_clipboard(self):
-            return [
-                {
-                    "id": "c-11111111",
-                    "text": "alpha line",
-                    "at": 1,
-                    "pinned": False,
-                    "tags": [],
-                }
-            ]
-
-    class _Isolated(WindowApp):
-        def __init__(self, client: _Clip) -> None:
-            Adw.Application.__init__(
-                self,
-                application_id="io.github.grokkinggrok.TetherBot.TagEntryTest",
-                flags=Gio.ApplicationFlags.NON_UNIQUE,
-            )
-            self._client = client
-            self.window = None
-            self._linger = 0
-
-    app = _Isolated(_Clip())
-    holder: dict = {}
-
-    def finish():
-        try:
-            window = app.window
-            assert window is not None
-            window._set_page("clipboard")
-            plain = _clip_rows(window)[0]
-            _icon(plain, "tetherbot-tag-symbolic").emit("clicked")
-
-            def check() -> bool:
-                try:
-                    popover = window._clip_popover
-                    assert popover is not None
-                    entry = popover.get_child().tag_entry
-                    assert entry.get_editable()
-                    assert entry.get_sensitive()
-                    assert entry.get_can_focus()
-                    assert entry.get_focus_on_click()
-                    focus = window.get_focus()
-                    assert focus is not None
-                    assert focus is entry or focus.is_ancestor(entry)
-                    assert window._on_key(None, Gdk.KEY_a, 0, Gdk.ModifierType(0)) is False
-                    assert window._on_key(None, Gdk.KEY_Return, 0, Gdk.ModifierType(0)) is False
-                    entry.set_text("Later")
-                    entry.emit("activate")
-                    assert entry.get_text() == ""
-                    assert _label_text(popover, "Later") is not None
-                    assert window._on_key(None, Gdk.KEY_Escape, 0, Gdk.ModifierType(0)) is True
-                    assert window._clip_popover is None
-
-                    def _leave() -> bool:
-                        holder["ok"] = True
-                        app.quit()
-                        return False
-
-                    GLib.idle_add(_leave)
-                except Exception as exc:
-                    holder["error"] = exc
-                    app.quit()
-                return False
-
-            GLib.idle_add(check)
-        except Exception as exc:
-            holder["error"] = exc
-            app.quit()
-        return False
-
-    try:
-        app.connect("activate", lambda _app: GLib.idle_add(finish))
-        GLib.timeout_add(8000, app.quit)
-        app.run(["tetherbot-window"])
-    finally:
-        reset_tetherbot_logger()
-    if "error" in holder:
-        raise holder["error"]
-    assert holder.get("ok") is True
-
-
 def _tag_clip_client():
     class _Clip:
         def __init__(self) -> None:
@@ -1899,19 +1796,145 @@ def _pump_quit(app, holder, glib, steps: int = 4):
     glib.idle_add(_pump, steps)
 
 
-def test_tag_save_keeps_typed_text_and_closes():
+def _direct_labels(widget) -> list[str]:
+    labels: list[str] = []
+    child = widget.get_first_child() if hasattr(widget, "get_first_child") else None
+    while child is not None:
+        text = child.get_label() if hasattr(child, "get_label") else None
+        if isinstance(text, str) and text:
+            labels.append(text)
+        child = child.get_next_sibling()
+    return labels
+
+
+def test_tag_editor_layout_and_save_keeps_typed_text():
     gi = pytest.importorskip("gi")
     try:
+        gi.require_version("Gdk", "4.0")
         gi.require_version("Gtk", "4.0")
         gi.require_version("Adw", "1")
-        from gi.repository import GLib
+        from gi.repository import Gdk, GLib
     except ValueError as exc:
         pytest.skip(str(exc))
     if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
         pytest.skip("GTK window test needs a display")
 
     client = _tag_clip_client()
-    app = _isolated_window("io.github.grokkinggrok.TetherBot.TagSaveTest", client)
+    app = _isolated_window("io.github.grokkinggrok.TetherBot.TagLayoutTest", client)
+    holder: dict = {}
+
+    def finish():
+        try:
+            window = app.window
+            assert window is not None
+            window._set_page("clipboard")
+            plain = _clip_rows(window)[0]
+            _icon(plain, "tetherbot-tag-symbolic").emit("clicked")
+
+            def check() -> bool:
+                try:
+                    popover = window._clip_popover
+                    assert popover is not None
+                    box = popover.get_child()
+                    labels = _direct_labels(box)
+                    assert labels[:1] == ["New tag"]
+                    assert "Applied tags" in labels
+                    assert labels.index("New tag") < labels.index("Applied tags")
+                    entry = box.tag_entry
+                    entry_row = entry.get_parent()
+                    assert _find_button(entry_row, "Add") is not None
+                    none = _find_button(box, "None yet")
+                    assert none is not None
+                    assert none.get_visible()
+                    assert "dim-label" in none.get_css_classes()
+                    focus = window.get_focus()
+                    assert focus is not None
+                    assert focus is entry or focus.is_ancestor(entry)
+                    assert window._on_key(None, Gdk.KEY_Return, 0, Gdk.ModifierType(0)) is False
+                    entry.set_text("Later")
+                    entry.emit("activate")
+                    assert entry.get_text() == ""
+                    assert not none.get_visible()
+                    assert _label_text(box, "Later") is not None
+                    entry.set_text("  Soon  ")
+                    add = _find_button(entry_row, "Add")
+                    assert add is not None
+                    add.emit("clicked")
+                    assert _label_text(box, "Soon") is not None
+                    entry.set_text("Skip")
+                    cancel = _find_button(box, "Cancel")
+                    assert cancel is not None
+                    cancel.emit("clicked")
+
+                    def canceled() -> bool:
+                        try:
+                            assert window._clip_popover is None
+                            assert client.saved == []
+                            row = _clip_rows(window)[0]
+                            _icon(row, "tetherbot-tag-symbolic").emit("clicked")
+                            again = window._clip_popover
+                            assert again is not None
+                            again.get_child().tag_entry.set_text("  Kept  ")
+                            save = _find_button(again, "Save")
+                            assert save is not None
+                            save.emit("clicked")
+                            assert client.saved == [
+                                ("c-11111111", [{"name": "Kept", "color": "red"}])
+                            ]
+
+                            def closed() -> bool:
+                                try:
+                                    assert window._clip_popover is None
+                                    assert window.get_visible()
+                                    assert _clip_rows(window)
+                                    _pump_quit(app, holder, GLib)
+                                except Exception as exc:
+                                    holder["error"] = exc
+                                    app.quit()
+                                return False
+
+                            GLib.idle_add(closed)
+                        except Exception as exc:
+                            holder["error"] = exc
+                            app.quit()
+                        return False
+
+                    GLib.idle_add(canceled)
+                except Exception as exc:
+                    holder["error"] = exc
+                    app.quit()
+                return False
+
+            GLib.idle_add(check)
+        except Exception as exc:
+            holder["error"] = exc
+            app.quit()
+        return False
+
+    try:
+        app.connect("activate", lambda _app: GLib.idle_add(finish))
+        GLib.timeout_add(8000, app.quit)
+        app.run(["tetherbot-window"])
+    finally:
+        reset_tetherbot_logger()
+    if "error" in holder:
+        raise holder["error"]
+    assert holder.get("ok") is True
+
+
+def test_tag_popover_stays_open_when_the_pointer_leaves():
+    gi = pytest.importorskip("gi")
+    try:
+        gi.require_version("Gtk", "4.0")
+        gi.require_version("Adw", "1")
+        from gi.repository import GLib, Gtk
+    except ValueError as exc:
+        pytest.skip(str(exc))
+    if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
+        pytest.skip("GTK window test needs a display")
+
+    client = _tag_clip_client()
+    app = _isolated_window("io.github.grokkinggrok.TetherBot.TagPointerTest", client)
     holder: dict = {}
 
     def finish():
@@ -1924,6 +1947,17 @@ def test_tag_save_keeps_typed_text_and_closes():
             popover = window._clip_popover
             assert popover is not None
             entry = popover.get_child().tag_entry
+            seen = {"enter": 0, "leave": 0}
+            motion = Gtk.EventControllerMotion()
+            motion.connect("enter", lambda *_args: seen.__setitem__("enter", seen["enter"] + 1))
+            motion.connect("leave", lambda *_args: seen.__setitem__("leave", seen["leave"] + 1))
+            entry.add_controller(motion)
+            motion.emit("enter", 2.0, 3.0)
+            motion.emit("leave")
+            assert seen == {"enter": 1, "leave": 1}
+            entry.remove_controller(motion)
+            assert window._clip_popover is popover
+            assert popover.get_visible()
             entry.set_text("  Later  ")
             save = _find_button(popover, "Save")
             assert save is not None
@@ -1958,59 +1992,46 @@ def test_tag_save_keeps_typed_text_and_closes():
     assert holder.get("ok") is True
 
 
-def test_tag_popover_survives_pointer_enter_leave_and_close():
+def test_minus_one_minute_sits_left_of_minus_five():
     gi = pytest.importorskip("gi")
     try:
         gi.require_version("Gtk", "4.0")
         gi.require_version("Adw", "1")
-        from gi.repository import Gdk, GLib, Gtk
+        from gi.repository import GLib
     except ValueError as exc:
         pytest.skip(str(exc))
     if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
         pytest.skip("GTK window test needs a display")
 
-    app = _isolated_window(
-        "io.github.grokkinggrok.TetherBot.TagPointerTest",
-        _tag_clip_client(),
-    )
+    fake = _EditFake()
+    fake.timer = {
+        "state": "running",
+        "item_key": "",
+        "item_title": "",
+        "elapsed_s": 5 * 60,
+    }
+    app = _isolated_window("io.github.grokkinggrok.TetherBot.MinusOneTest", fake)
     holder: dict = {}
 
     def finish():
         try:
             window = app.window
             assert window is not None
-            window._set_page("clipboard")
-            plain = _clip_rows(window)[0]
-            _icon(plain, "tetherbot-tag-symbolic").emit("clicked")
-            popover = window._clip_popover
-            assert popover is not None
-            entry = popover.get_child().tag_entry
-            seen = {"enter": 0, "leave": 0}
-            motion = Gtk.EventControllerMotion()
-            motion.connect("enter", lambda *_args: seen.__setitem__("enter", seen["enter"] + 1))
-            motion.connect("leave", lambda *_args: seen.__setitem__("leave", seen["leave"] + 1))
-            entry.add_controller(motion)
-            motion.emit("enter", 2.0, 3.0)
-            motion.emit("leave")
-            assert seen == {"enter": 1, "leave": 1}
-            entry.remove_controller(motion)
-            assert window._on_key(None, Gdk.KEY_Escape, 0, Gdk.ModifierType(0)) is True
-            assert window._clip_popover is None
-
-            def check() -> bool:
-                try:
-                    assert window.get_visible()
-                    assert _clip_rows(window)
-                    _pump_quit(app, holder, GLib)
-                except Exception as exc:
-                    holder["error"] = exc
-                    app.quit()
-                return False
-
-            GLib.idle_add(check)
+            window._request_timer()
+            edit = _find_button(window.timer_actions, "Edit start")
+            assert edit is not None
+            edit.emit("clicked")
+            assert window.edit_start_box.get_visible()
+            labels = _direct_labels(window.edit_start_box)
+            assert labels.index("-1m") < labels.index("-5m")
+            minus = _find_button(window.edit_start_box, "-1m")
+            assert minus is not None
+            minus.emit("clicked")
+            assert fake.adjusted == [-60]
+            holder["ok"] = True
         except Exception as exc:
             holder["error"] = exc
-            app.quit()
+        app.quit()
         return False
 
     try:

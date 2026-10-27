@@ -671,7 +671,7 @@ export function timerModel({
                 kind: 'edit-start',
                 title: 'Edit start',
                 hint: 'HH:MM',
-                actions: ['-5m', '-15m', '-30m', 'Cancel'],
+                actions: ['-1m', '-5m', '-15m', '-30m', 'Cancel'],
             };
         }
         const subject = timer.item_title || (timer.item_key ? 'Timer' : '');

@@ -519,9 +519,6 @@ export default class TetherBotExtension extends Extension {
         this._indicator.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
         this._indicator.menu.addMenuItem(this._botSection);
         this._indicator.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-        this._openItem = new PopupMenu.PopupMenuItem('Open TetherBot');
-        this._openItem.connect('activate', () => this._openWindow(''));
-        this._indicator.menu.addMenuItem(this._openItem);
         this._footer = new PopupMenu.PopupMenuItem('', {reactive: false});
         this._indicator.menu.addMenuItem(this._footer);
         this._syncItem = new PopupMenu.PopupMenuItem('Sync now');
@@ -530,6 +527,9 @@ export default class TetherBotExtension extends Extension {
         const settings = new PopupMenu.PopupMenuItem('Settings');
         settings.connect('activate', () => this.openPreferences());
         this._indicator.menu.addMenuItem(settings);
+        this._openItem = new PopupMenu.PopupMenuItem('Open TetherBot');
+        this._openItem.connect('activate', () => this._openWindow(''));
+        this._indicator.menu.addMenuItem(this._openItem);
         this._indicator.menu.connect('open-state-changed', (_menu, open) => {
             this._menuOpen = open;
             if (open) {
@@ -1249,7 +1249,7 @@ export default class TetherBotExtension extends Extension {
                 style_class: 'tetherbot-edit-row',
                 y_align: Clutter.ActorAlign.CENTER,
             });
-            for (const label of ['-5m', '-15m', '-30m'])
+            for (const label of ['-1m', '-5m', '-15m', '-30m'])
                 row.add_child(this._actionButton(label, () => this._timerAction(label), false));
             const entry = new St.Entry({
                 hint_text: 'HH:MM',
@@ -1370,6 +1370,8 @@ export default class TetherBotExtension extends Extension {
             this._assigning = false;
             this._setHint = '';
             this._render();
+        } else if (label === '-1m') {
+            this._adjustStart(-60);
         } else if (label === '-5m') {
             this._adjustStart(-300);
         } else if (label === '-15m') {

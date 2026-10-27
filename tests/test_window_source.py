@@ -131,8 +131,27 @@ def test_window_sources_do_not_touch_the_network_or_secrets():
     assert "set_autohide(True)" in window
     assert '"Edit clip"' in window
     assert '"Tag clip"' in window
-    assert "notify::is-active" in window
     assert "clip-context" in window
+    tag_editor = window.split("def _build_tag_editor", 1)[1].split(
+        "\ndef _build_context_editor", 1
+    )[0]
+    assert "EventControllerMotion" not in tag_editor
+    assert '"New tag"' in tag_editor
+    assert '"Applied tags"' in tag_editor
+    assert '"None yet"' in tag_editor
+    assert "add_tag(name_row)" in tag_editor
+    assert "release_tag_editor" in tag_editor
+    assert "_queue_clip_popover_close" in window
+    assert "_close_saved" in window
+    editor_window = window.split("class ClipEditorWindow", 1)[1].split(
+        "\nclass WindowApp", 1
+    )[0]
+    assert "notify::is-active" not in editor_window
+    assert "_close_if_inactive" not in editor_window
+    shifts = window.split("self.edit_start_box = Gtk.Box", 1)[1].split(
+        "self.start_entry", 1
+    )[0]
+    assert shifts.index('"-1m"') < shifts.index('"-5m"')
     for name in (
         "_show_clip_text",
         "_show_clip_tags",

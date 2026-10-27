@@ -230,18 +230,51 @@ def _build_text_editor(
     return box
 
 
+def _focus_tag_entry(entry: Gtk.Entry) -> None:
+    try:
+        if entry.get_parent() is None:
+            return
+        entry.grab_focus()
+    except Exception:
+        return
+
+
+def _tag_entry_focused(widget: Gtk.Widget | None) -> bool:
+    while widget is not None:
+        if getattr(widget, "is_tag_value", False):
+            return True
+        widget = widget.get_parent()
+    return False
+
+
 def _build_tag_editor(
     tags: list[dict[str, str]],
     on_save: Callable[[list[dict[str, str]]], None],
+    on_cancel: Callable[[], None],
 ) -> Gtk.Box:
     working = [dict(tag) for tag in tags]
     rows = Gtk.ListBox()
     name_row = Gtk.Entry(placeholder_text="Tag")
     name_row.set_hexpand(True)
+    name_row.set_editable(True)
+    name_row.set_sensitive(True)
+    name_row.set_can_focus(True)
+    name_row.set_focus_on_click(True)
+    name_row.set_activates_default(False)
+    name_row.is_tag_value = True
     color_row = Gtk.DropDown.new_from_strings([name.title() for name in PALETTE])
     add = Gtk.Button(label="Add")
     save = Gtk.Button(label="Save")
     save.add_css_class("suggested-action")
+    cancel = Gtk.Button(label="Cancel")
+    none_label = Gtk.Label(label="None yet", xalign=0)
+    none_label.add_css_class("dim-label")
+    none_label.set_halign(Gtk.Align.START)
+    scroller = Gtk.ScrolledWindow()
+    scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+    scroller.set_propagate_natural_height(True)
+    scroller.set_max_content_height(200)
+    scroller.set_child(rows)
 
     def rebuild() -> None:
         while (child := rows.get_first_child()) is not None:
@@ -257,13 +290,16 @@ def _build_tag_editor(
             remove.connect("clicked", lambda _button, item=index: drop(item))
             line.append(remove)
             rows.append(line)
+        empty = not working
+        none_label.set_visible(empty)
+        scroller.set_visible(not empty)
 
     def drop(index: int) -> None:
         if 0 <= index < len(working):
             working.pop(index)
             rebuild()
 
-    def add_tag(_button: Gtk.Button) -> None:
+    def add_tag(_widget: Gtk.Widget) -> None:
         name = " ".join(name_row.get_text().split())
         if not name or len(name) > 40:
             return
@@ -274,28 +310,74 @@ def _build_tag_editor(
         working.append({"name": name, "color": color})
         name_row.set_text("")
         rebuild()
+        _focus_tag_entry(name_row)
+
+    alive = True
+    map_id = 0
+    focus_id = 0
+
+    def _focus_on_map(_widget: Gtk.Entry) -> None:
+        if alive:
+            _focus_tag_entry(name_row)
+
+    def _focus_after_open() -> bool:
+        nonlocal focus_id
+        focus_id = 0
+        if not alive:
+            return False
+        _focus_tag_entry(name_row)
+        return False
+
+    def release_tag_editor() -> None:
+        """Drop focus callbacks before GTK tears the entry down."""
+
+        nonlocal alive, map_id, focus_id
+        if not alive:
+            return
+        alive = False
+        pending = focus_id
+        focus_id = 0
+        if pending:
+            GLib.source_remove(pending)
+        if map_id:
+            try:
+                name_row.disconnect(map_id)
+            except Exception:
+                pass
+            map_id = 0
 
     def save_tags(_button: Gtk.Button) -> None:
+        add_tag(name_row)
         on_save([dict(tag) for tag in working])
 
+    def cancel_edit(_button: Gtk.Button) -> None:
+        on_cancel()
+
     add.connect("clicked", add_tag)
+    name_row.connect("activate", add_tag)
+    map_id = name_row.connect("map", _focus_on_map)
+    focus_id = GLib.idle_add(_focus_after_open)
     save.connect("clicked", save_tags)
-    editor = Gtk.Box(spacing=6)
-    editor.append(name_row)
-    editor.append(color_row)
-    editor.append(add)
-    scroller = Gtk.ScrolledWindow()
-    scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-    scroller.set_propagate_natural_height(True)
-    scroller.set_max_content_height(200)
-    scroller.set_child(rows)
+    cancel.connect("clicked", cancel_edit)
+    entry_row = Gtk.Box(spacing=6)
+    entry_row.append(name_row)
+    entry_row.append(color_row)
+    entry_row.append(add)
+    actions = Gtk.Box(spacing=6)
+    actions.set_halign(Gtk.Align.END)
+    actions.append(cancel)
+    actions.append(save)
     box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
     box.set_size_request(320, -1)
     _pad_box(box)
-    box.append(_editor_heading("Tags"))
+    box.append(_editor_heading("New tag"))
+    box.append(entry_row)
+    box.append(_editor_heading("Applied tags"))
+    box.append(none_label)
     box.append(scroller)
-    box.append(editor)
-    box.append(save)
+    box.append(actions)
+    box.tag_entry = name_row
+    box.release_tag_editor = release_tag_editor
     rebuild()
     return box
 
@@ -939,6 +1021,8 @@ class TodoWindow(Adw.ApplicationWindow):
         self._clip_pending: tuple[str, str] | None = None
         self._clip_dialog: Adw.AlertDialog | None = None
         self._clip_popover: Gtk.Popover | None = None
+        self._clip_close_queued = False
+        self._clip_popover_closing = False
         self._clip_context_dialog: Gtk.Popover | None = None
         self._popover_reload = False
         self._sort = "due"
@@ -1065,7 +1149,7 @@ class TodoWindow(Adw.ApplicationWindow):
         self.timer_actions = Gtk.Box(spacing=6)
         self.edit_start_box = Gtk.Box(spacing=6)
         self.edit_start_box.set_visible(False)
-        for label, delta in (("-5m", -300), ("-15m", -900), ("-30m", -1800)):
+        for label, delta in (("-1m", -60), ("-5m", -300), ("-15m", -900), ("-30m", -1800)):
             button = Gtk.Button(label=label)
             button.connect("clicked", self._on_adjust_start, delta)
             self.edit_start_box.append(button)
@@ -3225,10 +3309,23 @@ class TodoWindow(Adw.ApplicationWindow):
         popover.set_parent(parent)
         popover.connect("closed", self._on_clip_popover_closed)
         self._clip_popover = popover
+        self._clip_close_queued = False
         popover.popup()
         return popover
 
+    def _release_popover_tag_editor(self, popover: Gtk.Popover | None) -> None:
+        if popover is None:
+            return
+        try:
+            child = popover.get_child()
+        except Exception:
+            return
+        release = getattr(child, "release_tag_editor", None)
+        if callable(release):
+            release()
+
     def _on_clip_popover_closed(self, popover: Gtk.Popover) -> None:
+        self._release_popover_tag_editor(popover)
         reload = self._popover_reload
         self._popover_reload = False
         if self._clip_popover is popover:
@@ -3237,8 +3334,11 @@ class TodoWindow(Adw.ApplicationWindow):
             self._clip_context_dialog = None
 
         def _drop() -> bool:
-            if popover.get_parent() is not None:
-                popover.unparent()
+            try:
+                if popover.get_parent() is not None:
+                    popover.unparent()
+            except Exception:
+                return False
             if reload:
                 self._reload_clip_now()
             return False
@@ -3246,13 +3346,44 @@ class TodoWindow(Adw.ApplicationWindow):
         GLib.idle_add(_drop)
 
     def _close_clip_popover(self) -> None:
+        if self._clip_popover_closing:
+            return
         popover = self._clip_popover
         if popover is None:
             return
-        if popover.get_visible():
-            popover.popdown()
+        self._clip_popover_closing = True
+        try:
+            try:
+                visible = popover.get_visible()
+            except Exception:
+                return
+            if visible:
+                popover.popdown()
+                return
+            self._on_clip_popover_closed(popover)
+        finally:
+            self._clip_popover_closing = False
+
+    def _queue_clip_popover_close(self) -> None:
+        popover = self._clip_popover
+        if popover is None or self._clip_close_queued:
             return
-        self._on_clip_popover_closed(popover)
+        self._clip_close_queued = True
+        self._release_popover_tag_editor(popover)
+
+        def _later() -> bool:
+            self._clip_close_queued = False
+            if self._clip_popover is not popover:
+                return False
+            try:
+                if popover.get_parent() is None:
+                    return False
+            except Exception:
+                return False
+            self._close_clip_popover()
+            return False
+
+        GLib.idle_add(_later)
 
     def _prompt_clip_context(
         self,
@@ -3434,7 +3565,11 @@ class TodoWindow(Adw.ApplicationWindow):
     ) -> None:
         self._show_clip_popover(
             parent,
-            _build_tag_editor(tags, lambda working: self._save_clip_tags(entry_id, working)),
+            _build_tag_editor(
+                tags,
+                lambda working: self._save_clip_tags(entry_id, working),
+                self._queue_clip_popover_close,
+            ),
         )
 
     def _save_clip_tags(self, entry_id: str, tags: list[dict[str, str]]) -> None:
@@ -3449,7 +3584,7 @@ class TodoWindow(Adw.ApplicationWindow):
             self._toast("Tags could not be saved")
             return
         self._popover_reload = True
-        self._close_clip_popover()
+        self._queue_clip_popover_close()
 
     def _reload_clip_now(self) -> None:
         self._clip_gen += 1
@@ -3629,6 +3764,8 @@ class TodoWindow(Adw.ApplicationWindow):
                 return True
             self.close()
             return True
+        if _tag_entry_focused(self.get_focus()):
+            return False
         if _focus_is_text(self):
             return False
         if keyval == Gdk.KEY_Up:
@@ -3683,10 +3820,8 @@ class ClipEditorWindow(Gtk.Window):
         self.set_title(title)
         self.set_icon_name(APP_ID)
         self._saved = False
-        self._seen_active = False
         self._closing = False
-        self._active_since = 0
-        self._close_later = 0
+        self._release_tag_editor: Callable[[], None] | None = None
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         self._slot = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         self._status = Gtk.Label(xalign=0)
@@ -3696,7 +3831,6 @@ class ClipEditorWindow(Gtk.Window):
         outer.append(self._slot)
         outer.append(self._status)
         self.set_child(outer)
-        self.connect("notify::is-active", self._on_active_changed)
         self.connect("close-request", self._on_close_request)
         controller = Gtk.EventControllerKey()
         controller.connect("key-pressed", self._on_editor_key)
@@ -3726,48 +3860,19 @@ class ClipEditorWindow(Gtk.Window):
         if self._closing:
             return
         self._closing = True
-        self._clear_close_later()
+        self._drop_tag_editor()
         self.close()
 
-    def _clear_close_later(self) -> None:
-        if self._close_later:
-            GLib.source_remove(self._close_later)
-            self._close_later = 0
+    def _drop_tag_editor(self) -> None:
+        release = self._release_tag_editor
+        self._release_tag_editor = None
+        if release is not None:
+            release()
 
     def _on_close_request(self, _window: Gtk.Window) -> bool:
         self._closing = True
-        self._clear_close_later()
+        self._drop_tag_editor()
         return False
-
-    def _on_active_changed(self, *_args: object) -> None:
-        if self.is_active():
-            self._seen_active = True
-            if not self._active_since:
-                self._active_since = GLib.get_monotonic_time()
-            return
-        if not self._seen_active or self._saved or self._closing:
-            return
-        GLib.idle_add(self._close_if_inactive)
-
-    def _close_if_inactive(self) -> bool:
-        self._close_later = 0
-        if self._saved or self._closing or self.is_active() or not self._seen_active:
-            return False
-        if _mapped_popover(self) is not None:
-            self._schedule_inactive_close()
-            return False
-        # A dropdown, or the window taking focus, can look inactive for a moment.
-        since = self._active_since
-        if since and GLib.get_monotonic_time() - since < 300_000:
-            self._schedule_inactive_close()
-            return False
-        self.dismiss()
-        return False
-
-    def _schedule_inactive_close(self) -> None:
-        if self._close_later:
-            return
-        self._close_later = GLib.timeout_add(300, self._close_if_inactive)
 
     def _on_editor_key(
         self,
@@ -3951,12 +4056,13 @@ class WindowApp(Adw.Application):
             )
             return
         if kind == "clip-tag":
-            editor.set_editor(
-                _build_tag_editor(
-                    _entry_tags(entry),
-                    lambda tags: self._save_editor_tags(editor, client, ident, tags),
-                )
+            tag_box = _build_tag_editor(
+                _entry_tags(entry),
+                lambda tags: self._save_editor_tags(editor, client, ident, tags),
+                lambda: self._close_editor_later(editor),
             )
+            editor._release_tag_editor = tag_box.release_tag_editor
+            editor.set_editor(tag_box)
             return
         if kind == "clip-context":
             editor.set_editor(
@@ -4007,8 +4113,23 @@ class WindowApp(Adw.Application):
         if not saved:
             editor.note("Tags could not be saved")
             return
-        editor.finish_saved()
-        self._reload_editor_clipboard()
+
+        def _close_saved() -> bool:
+            if editor._closing:
+                return False
+            editor.finish_saved()
+            self._reload_editor_clipboard()
+            return False
+
+        GLib.idle_add(_close_saved)
+
+    def _close_editor_later(self, editor: ClipEditorWindow) -> None:
+        def _close() -> bool:
+            if not editor._closing:
+                editor.dismiss()
+            return False
+
+        GLib.idle_add(_close)
 
     def _send_editor_context(
         self,

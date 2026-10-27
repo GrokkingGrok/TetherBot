@@ -88,7 +88,14 @@ def test_disable_drops_the_proxy_and_handlers():
     ask_at = order.index("_askSection")
     bot_at = order.index("_botSection")
     open_at = order.index("_openItem")
-    assert timer_at < todo_at < ask_at < bot_at < open_at
+    settings_at = order.index("(settings)")
+    assert timer_at < todo_at < ask_at < bot_at < settings_at < open_at
+    assert order.endswith("addMenuItem(this._openItem);")
+    assert "['-1m', '-5m', '-15m', '-30m']" in text
+    assert "label === '-1m'" in text
+    assert "_adjustStart(-60)" in text
+    edit_start = view.split("kind: 'edit-start'", 1)[1].split("},", 1)[0]
+    assert edit_start.index("'-1m'") < edit_start.index("'-5m'")
     assert "compactBotSection" in view
     assert "* 0.25" in view
     render = text.split("    _render() {", 1)[1].split("\n    _", 1)[0]

@@ -301,53 +301,26 @@ def _build_tag_editor(
         rebuild()
         _focus_tag_entry(name_row)
 
-    alive = True
-    map_id = 0
-    focus_id = 0
+    def save_tags(_button: Gtk.Button) -> None:
+        on_save([dict(tag) for tag in working])
 
     def _focus_on_map(_widget: Gtk.Entry) -> None:
-        if alive:
-            _focus_tag_entry(name_row)
+        _focus_tag_entry(name_row)
 
-    def _focus_after_open() -> bool:
-        nonlocal focus_id
-        focus_id = 0
-        if not alive:
-            return False
-        try:
-            if name_row.get_parent() is None:
-                return False
-            name_row.grab_focus()
-        except Exception:
-            return False
+    def _focus_when_pointer_enters(*_args: object) -> None:
+        _focus_tag_entry(name_row)
+
+    def _focus_after_click() -> bool:
+        _focus_tag_entry(name_row)
         return False
-
-    def release_tag_editor() -> None:
-        """Drop focus callbacks before GTK tears the entry down."""
-
-        nonlocal alive, map_id, focus_id
-        if not alive:
-            return
-        alive = False
-        pending = focus_id
-        focus_id = 0
-        if pending:
-            GLib.source_remove(pending)
-        if map_id:
-            try:
-                name_row.disconnect(map_id)
-            except Exception:
-                pass
-            map_id = 0
-
-    def save_tags(_button: Gtk.Button) -> None:
-        add_tag(name_row)
-        on_save([dict(tag) for tag in working])
 
     add.connect("clicked", add_tag)
     name_row.connect("activate", add_tag)
-    map_id = name_row.connect("map", _focus_on_map)
-    focus_id = GLib.idle_add(_focus_after_open)
+    name_row.connect("map", _focus_on_map)
+    pointer = Gtk.EventControllerMotion()
+    pointer.connect("enter", _focus_when_pointer_enters)
+    name_row.add_controller(pointer)
+    GLib.idle_add(_focus_after_click)
     save.connect("clicked", save_tags)
     editor = Gtk.Box(spacing=6)
     editor.append(name_row)
@@ -366,7 +339,6 @@ def _build_tag_editor(
     box.append(editor)
     box.append(save)
     box.tag_entry = name_row
-    box.release_tag_editor = release_tag_editor
     rebuild()
     return box
 
@@ -3299,16 +3271,7 @@ class TodoWindow(Adw.ApplicationWindow):
         popover.popup()
         return popover
 
-    def _release_popover_tag_editor(self, popover: Gtk.Popover | None) -> None:
-        if popover is None:
-            return
-        child = popover.get_child()
-        release = getattr(child, "release_tag_editor", None)
-        if callable(release):
-            release()
-
     def _on_clip_popover_closed(self, popover: Gtk.Popover) -> None:
-        self._release_popover_tag_editor(popover)
         reload = self._popover_reload
         self._popover_reload = False
         if self._clip_popover is popover:
@@ -3529,14 +3492,7 @@ class TodoWindow(Adw.ApplicationWindow):
             self._toast("Tags could not be saved")
             return
         self._popover_reload = True
-        # Pop down after this click returns. Closing here delivers a crossing
-        # event to the entry while it is being torn down.
-        self._release_popover_tag_editor(self._clip_popover)
-        GLib.idle_add(self._close_clip_popover_later)
-
-    def _close_clip_popover_later(self) -> bool:
         self._close_clip_popover()
-        return False
 
     def _reload_clip_now(self) -> None:
         self._clip_gen += 1
@@ -3775,7 +3731,6 @@ class ClipEditorWindow(Gtk.Window):
         self._active_since = 0
         self._close_later = 0
         self._tag_entry: Gtk.Entry | None = None
-        self._release_tag_editor: Callable[[], None] | None = None
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         self._slot = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         self._status = Gtk.Label(xalign=0)
@@ -3814,10 +3769,6 @@ class ClipEditorWindow(Gtk.Window):
     def dismiss(self) -> None:
         if self._closing:
             return
-        release = self._release_tag_editor
-        self._release_tag_editor = None
-        if release is not None:
-            release()
         self._closing = True
         self._clear_close_later()
         self.close()
@@ -3828,10 +3779,6 @@ class ClipEditorWindow(Gtk.Window):
             self._close_later = 0
 
     def _on_close_request(self, _window: Gtk.Window) -> bool:
-        release = self._release_tag_editor
-        self._release_tag_editor = None
-        if release is not None:
-            release()
         self._closing = True
         self._clear_close_later()
         return False
@@ -4054,7 +4001,6 @@ class WindowApp(Adw.Application):
                 lambda tags: self._save_editor_tags(editor, client, ident, tags),
             )
             editor._tag_entry = tag_box.tag_entry
-            editor._release_tag_editor = tag_box.release_tag_editor
             editor.set_editor(tag_box)
             _focus_tag_entry(tag_box.tag_entry)
             return
@@ -4107,13 +4053,8 @@ class WindowApp(Adw.Application):
         if not saved:
             editor.note("Tags could not be saved")
             return
-
-        def _close_saved() -> bool:
-            editor.finish_saved()
-            self._reload_editor_clipboard()
-            return False
-
-        GLib.idle_add(_close_saved)
+        editor.finish_saved()
+        self._reload_editor_clipboard()
 
     def _send_editor_context(
         self,

@@ -2,6 +2,7 @@
 """Smoke the TetherBot window against a fake bridge client."""
 
 import os
+import time
 
 import pytest
 
@@ -1928,6 +1929,240 @@ def _pump_quit(app, holder, glib, steps: int = 4):
         return False
 
     glib.idle_add(_pump, steps)
+
+
+def _walk_widgets(widget):
+    stack = [widget]
+    found = []
+    while stack:
+        current = stack.pop()
+        if current is None:
+            continue
+        found.append(current)
+        child = current.get_first_child() if hasattr(current, "get_first_child") else None
+        while child is not None:
+            stack.append(child)
+            nxt = child.get_next_sibling() if hasattr(child, "get_next_sibling") else None
+            child = nxt
+    return found
+
+
+def _open_popovers(window, gtk) -> list:
+    found = []
+    for widget in _walk_widgets(window):
+        if not isinstance(widget, gtk.Popover):
+            continue
+        try:
+            visible = bool(widget.get_visible())
+        except Exception:
+            continue
+        if visible:
+            found.append(widget)
+    return found
+
+
+def _popover_title(popover) -> str:
+    box = popover.get_child()
+    label = box.get_first_child() if box is not None else None
+    if label is not None and hasattr(label, "get_label"):
+        text = label.get_label()
+        if isinstance(text, str):
+            return text
+    return ""
+
+
+def _after_responsive(glib, action, done, failed, limit: float = 0.5) -> None:
+    """Run action, then call done once an idle fires inside limit seconds."""
+
+    start = time.monotonic()
+    saw = {"idle": False}
+
+    def mark() -> bool:
+        saw["idle"] = True
+        return False
+
+    action()
+    glib.idle_add(mark)
+
+    def poll() -> bool:
+        if saw["idle"]:
+            if time.monotonic() - start > limit:
+                failed("idle tick was late")
+                return False
+            done()
+            return False
+        if time.monotonic() - start > limit:
+            failed("main loop stayed busy")
+            return False
+        glib.timeout_add(20, poll)
+        return False
+
+    glib.timeout_add(20, poll)
+
+
+def test_clip_menu_actions_keep_the_main_loop_responsive():
+    gi = pytest.importorskip("gi")
+    try:
+        gi.require_version("Gtk", "4.0")
+        gi.require_version("Adw", "1")
+        from gi.repository import GLib
+    except ValueError as exc:
+        pytest.skip(str(exc))
+    if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
+        pytest.skip("GTK window test needs a display")
+
+    app = _isolated_window(
+        "io.github.grokkinggrok.TetherBot.ClipLoopTest",
+        _tag_clip_client(),
+    )
+    holder: dict = {}
+    keys = (
+        "clip-tag:c-11111111",
+        "clip-tag:c-11111111",
+        "clip-edit:c-11111111",
+    )
+
+    def finish() -> bool:
+        try:
+            window = app.window
+            assert window is not None
+            window._set_page("clipboard")
+
+            def failed(message: str) -> None:
+                holder["error"] = AssertionError(message)
+                app.quit()
+
+            def step(index: int) -> bool:
+                if index >= len(keys):
+                    window._close_clip_popover()
+
+                    def _clear(left: int) -> bool:
+                        if window._clip_busy() and left > 0:
+                            GLib.timeout_add(30, _clear, left - 1)
+                            return False
+                        _pump_quit(app, holder, GLib)
+                        return False
+
+                    GLib.timeout_add(30, _clear, 20)
+                    return False
+
+                def again() -> None:
+                    GLib.idle_add(step, index + 1)
+
+                _after_responsive(
+                    GLib,
+                    lambda: window.select_key(keys[index]),
+                    again,
+                    failed,
+                )
+                return False
+
+            GLib.idle_add(step, 0)
+        except Exception as exc:
+            holder["error"] = exc
+            app.quit()
+        return False
+
+    try:
+        app.connect("activate", lambda _app: GLib.idle_add(finish))
+        GLib.timeout_add(8000, app.quit)
+        app.run(["tetherbot-window"])
+    finally:
+        reset_tetherbot_logger()
+    if "error" in holder:
+        raise holder["error"]
+    assert holder.get("ok") is True
+
+
+def test_a_burst_of_clip_actions_leaves_the_edit_popover():
+    gi = pytest.importorskip("gi")
+    try:
+        gi.require_version("Gtk", "4.0")
+        gi.require_version("Adw", "1")
+        from gi.repository import GLib, Gtk
+    except ValueError as exc:
+        pytest.skip(str(exc))
+    if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
+        pytest.skip("GTK window test needs a display")
+
+    app = _isolated_window(
+        "io.github.grokkinggrok.TetherBot.ClipBurstTest",
+        _tag_clip_client(),
+    )
+    holder: dict = {}
+    keys = ("clip-tag:c-11111111",) * 5 + ("clip-edit:c-11111111",)
+
+    def finish() -> bool:
+        try:
+            window = app.window
+            assert window is not None
+            same = window
+            window._set_page("clipboard")
+
+            def failed(message: str) -> None:
+                holder["error"] = AssertionError(message)
+                app.quit()
+
+            def settle(spins: int) -> bool:
+                try:
+                    titles = [_popover_title(pop) for pop in _open_popovers(window, Gtk)]
+                    if titles == ["Edit"]:
+                        assert app.window is same
+
+                        def done() -> None:
+                            window._close_clip_popover()
+
+                            def _clear(left: int) -> bool:
+                                if window._clip_busy() and left > 0:
+                                    GLib.timeout_add(30, _clear, left - 1)
+                                    return False
+                                _pump_quit(app, holder, GLib)
+                                return False
+
+                            GLib.timeout_add(30, _clear, 20)
+
+                        _after_responsive(GLib, lambda: None, done, failed)
+                        return False
+                    if spins > 40:
+                        failed(f"popovers ended as {titles}")
+                        return False
+                    GLib.timeout_add(50, settle, spins + 1)
+                except Exception as exc:
+                    holder["error"] = exc
+                    app.quit()
+                return False
+
+            def send(index: int) -> bool:
+                if index >= len(keys):
+                    GLib.timeout_add(30, settle, 0)
+                    return False
+
+                def next_send() -> None:
+                    GLib.timeout_add(100, send, index + 1)
+
+                _after_responsive(
+                    GLib,
+                    lambda: window.select_key(keys[index]),
+                    next_send,
+                    failed,
+                )
+                return False
+
+            GLib.idle_add(send, 0)
+        except Exception as exc:
+            holder["error"] = exc
+            app.quit()
+        return False
+
+    try:
+        app.connect("activate", lambda _app: GLib.idle_add(finish))
+        GLib.timeout_add(15000, app.quit)
+        app.run(["tetherbot-window"])
+    finally:
+        reset_tetherbot_logger()
+    if "error" in holder:
+        raise holder["error"]
+    assert holder.get("ok") is True
 
 
 def _direct_labels(widget) -> list[str]:

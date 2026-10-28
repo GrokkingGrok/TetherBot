@@ -121,6 +121,36 @@ export function clipOpenPlan({bridgeOwned, windowOwned, retried}) {
     return 'open';
 }
 
+// An empty key opens the main window. null means the caller had no intent.
+export function openWindowKey(key) {
+    if (key === undefined)
+        return null;
+    if (key === null || key === '')
+        return '';
+    return typeof key === 'string' ? key : '';
+}
+
+export function openWindowDispatch({inFlight}) {
+    return inFlight ? 'queue' : 'send';
+}
+
+export function windowServicePlan({owned, activating}) {
+    if (owned || activating)
+        return 'skip';
+    return 'start';
+}
+
+// A failed open is tried once more. The next failure is the menu line.
+export function openWindowResult({opened, bridgeOwned, attempt}) {
+    if (opened || !bridgeOwned)
+        return 'done';
+    if (Number(attempt) < 1)
+        return 'retry';
+    return 'error';
+}
+
+export const OPEN_WINDOW_ERROR = "Couldn't open TetherBot.";
+
 export const PROXY_METHODS = [
     'GetItemsRemote',
     'PerformActionRemote',

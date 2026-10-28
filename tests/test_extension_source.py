@@ -22,6 +22,31 @@ def _code(text: str) -> str:
     return "\n".join(line.split("//", 1)[0] for line in text.splitlines())
 
 
+def test_open_tetherbot_calls_openwindow_with_the_main_window_key():
+    text = (EXTENSION / "extension.js").read_text(encoding="utf-8")
+    view = (EXTENSION / "view.js").read_text(encoding="utf-8")
+    assert "this._openWindow('')" in text
+    assert "if (!this._enabled || !key)" not in text
+    call = text.split("    _callOpenWindow(", 1)[1].split("\n    _startOpen(", 1)[0]
+    assert "openWindowKey(key)" in call
+    assert "openWindowDispatch" in call
+    assert "console.debug" in call
+    start = text.split("    _startOpen(", 1)[1].split("\n    _sendOpen(", 1)[0]
+    assert "clipOpenPlan" in start
+    assert "console.debug" in start
+    send = text.split("    _sendOpen(", 1)[1].split("\n    _onOpenResult(", 1)[0]
+    assert "openWindowCall(key)" in send
+    assert "console.debug" in send
+    activate = text.split("    _activateWindowService(", 1)[1].split("\n    _closeForOpen(", 1)[0]
+    assert "windowServicePlan" in activate
+    assert "startWindowCall" in activate
+    opened = text.split("    _activateWindowService(", 1)[1].split("\n    _perform(", 1)[0]
+    assert "_windowOwned = false" not in opened
+    assert "_windowOwned = true" not in opened
+    assert "nameOwner" in text
+    assert 'OPEN_WINDOW_ERROR = "Couldn\'t open TetherBot."' in view
+
+
 def test_shipped_xml_matches_the_bus_source():
     assert SHIPPED_XML.read_text(encoding="utf-8") == DATA_XML.read_text(encoding="utf-8")
 

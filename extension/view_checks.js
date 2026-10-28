@@ -50,6 +50,8 @@ import {
     snoozeIso,
     snoozeMoment,
     startServiceCall,
+    startWindowCall,
+    clipOpenPlan,
     todoFilter,
     undoCall,
     undoFraction,
@@ -196,6 +198,18 @@ export function runViewChecks() {
     assert(activation.flags === 0, 'activation flags');
     assert(activation.interfaceName === 'org.freedesktop.DBus', 'activation interface');
     assert(ACTIVATE_RETRY_MS >= 2000 && ACTIVATE_RETRY_MS <= 10000, 'activation retry');
+    const windowStart = startWindowCall();
+    assert(windowStart.method === 'StartServiceByName', 'window activation method');
+    assert(windowStart.name === WINDOW_APP_ID, 'window activation name');
+    assert(windowStart.flags === 0, 'window activation flags');
+    assert(clipOpenPlan({bridgeOwned: false, windowOwned: true, retried: false}) === 'bridge-down',
+        'a dead bridge stays down');
+    assert(clipOpenPlan({bridgeOwned: true, windowOwned: false, retried: false}) === 'activate-window',
+        'a dead window is started');
+    assert(clipOpenPlan({bridgeOwned: true, windowOwned: false, retried: true}) === 'open',
+        'one retry opens');
+    assert(clipOpenPlan({bridgeOwned: true, windowOwned: true, retried: false}) === 'open',
+        'an owned window opens');
 
     const menu = menuModel({
         running: true,

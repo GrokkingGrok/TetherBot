@@ -102,6 +102,25 @@ export function startServiceCall() {
     };
 }
 
+export function startWindowCall() {
+    return {
+        destination: 'org.freedesktop.DBus',
+        path: '/org/freedesktop/DBus',
+        interfaceName: 'org.freedesktop.DBus',
+        method: 'StartServiceByName',
+        name: WINDOW_APP_ID,
+        flags: 0,
+    };
+}
+
+export function clipOpenPlan({bridgeOwned, windowOwned, retried}) {
+    if (!bridgeOwned)
+        return 'bridge-down';
+    if (!windowOwned && !retried)
+        return 'activate-window';
+    return 'open';
+}
+
 export const PROXY_METHODS = [
     'GetItemsRemote',
     'PerformActionRemote',

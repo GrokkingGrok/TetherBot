@@ -2097,6 +2097,249 @@ def _icon(widget, name: str):
     return match
 
 
+def _pinned_clip_client():
+    class _Clip:
+        def __init__(self) -> None:
+            self.entries = [
+                {
+                    "id": "c-11111111",
+                    "text": "pinned line",
+                    "at": 1,
+                    "pinned": True,
+                    "tags": [],
+                }
+            ]
+            self.listener = None
+            self.edits: list[tuple[str, str]] = []
+            self.saved: list[tuple[str, list]] = []
+
+        def set_listener(self, listener) -> None:
+            return None
+
+        def set_clipboard_listener(self, listener) -> None:
+            self.listener = listener
+
+        def get_items(self, spec):
+            return []
+
+        def get_tags(self):
+            return []
+
+        def bots(self):
+            return []
+
+        def get_clipboard(self):
+            return [dict(entry) for entry in self.entries]
+
+        def _notify(self) -> None:
+            listener = self.listener
+            if listener is not None:
+                listener()
+
+        def edit_clipboard(self, entry_id: str, text: str) -> bool:
+            self.edits.append((entry_id, text))
+            for entry in self.entries:
+                if entry.get("id") == entry_id:
+                    entry["text"] = text
+            self._notify()
+            return True
+
+        def set_clipboard_tags(self, entry_id: str, tags: list) -> bool:
+            self.saved.append((entry_id, [dict(tag) for tag in tags]))
+            for entry in self.entries:
+                if entry.get("id") == entry_id:
+                    entry["tags"] = [dict(tag) for tag in tags]
+            self._notify()
+            return True
+
+    return _Clip()
+
+
+def _visible_clip_row(window, entry_id: str):
+    found = None
+    for row in _clip_rows(window):
+        if getattr(row, "clip_id", "") == entry_id and row.get_visible():
+            found = row
+    assert found is not None, entry_id
+    return found
+
+
+def _editor_settled(window) -> bool:
+    return (
+        window._clip_popover is None
+        and window._closed_popover is None
+        and not window._clip_close_queued
+        and not window._clip_popover_closing
+        and not window._clip_close_source
+        and not window._clip_drop_source
+        and not window._clip_rebuild_deferred
+    )
+
+
+def _run_pinned_script(app_id: str, client, actions: list, timeout_ms: int) -> None:
+    gi = pytest.importorskip("gi")
+    try:
+        gi.require_version("Gtk", "4.0")
+        gi.require_version("Adw", "1")
+        from gi.repository import GLib
+    except ValueError as exc:
+        pytest.skip(str(exc))
+    if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
+        pytest.skip("GTK window test needs a display")
+
+    app = _isolated_window(app_id, client)
+    holder: dict = {}
+
+    def finish() -> bool:
+        try:
+            window = app.window
+            assert window is not None
+            window._set_page("clipboard")
+            state = {"index": 0, "spins": 0, "phase": "act"}
+
+            def tick() -> bool:
+                try:
+                    if state["phase"] == "wait":
+                        if not _editor_settled(window):
+                            state["spins"] += 1
+                            if state["spins"] > 50:
+                                raise AssertionError("clip editor stayed open")
+                            GLib.idle_add(tick)
+                            return False
+                        state["phase"] = "act"
+                        state["spins"] = 0
+                    if state["index"] >= len(actions):
+                        assert window.get_visible()
+                        _visible_clip_row(window, "c-11111111")
+                        _pump_quit(app, holder, GLib, steps=6)
+                        return False
+                    actions[state["index"]](window)
+                    state["index"] += 1
+                    state["phase"] = "wait"
+                    state["spins"] = 0
+                    GLib.idle_add(tick)
+                except Exception as exc:
+                    holder["error"] = exc
+                    app.quit()
+                return False
+
+            GLib.idle_add(tick)
+        except Exception as exc:
+            holder["error"] = exc
+            app.quit()
+        return False
+
+    try:
+        app.connect("activate", lambda _app: GLib.idle_add(finish))
+        GLib.timeout_add(timeout_ms, app.quit)
+        app.run(["tetherbot-window"])
+    finally:
+        reset_tetherbot_logger()
+    if "error" in holder:
+        raise holder["error"]
+    assert holder.get("ok") is True
+
+
+def test_first_pinned_edit_closes_without_crashing():
+    gi = pytest.importorskip("gi")
+    try:
+        gi.require_version("Gdk", "4.0")
+        from gi.repository import Gdk
+    except ValueError as exc:
+        pytest.skip(str(exc))
+
+    client = _pinned_clip_client()
+
+    def save(window) -> None:
+        row = _visible_clip_row(window, "c-11111111")
+        _icon(row, "document-edit-symbolic").emit("clicked")
+        popover = window._clip_popover
+        assert popover is not None
+        button = _find_button(popover, "Save")
+        assert button is not None
+        button.emit("clicked")
+
+    def cancel(window) -> None:
+        row = _visible_clip_row(window, "c-11111111")
+        _icon(row, "document-edit-symbolic").emit("clicked")
+        popover = window._clip_popover
+        assert popover is not None
+        button = _find_button(popover, "Cancel")
+        assert button is not None
+        before = len(client.edits)
+        button.emit("clicked")
+        assert len(client.edits) == before
+
+    def escape(window) -> None:
+        row = _visible_clip_row(window, "c-11111111")
+        _icon(row, "document-edit-symbolic").emit("clicked")
+        assert window._clip_popover is not None
+        before = len(client.edits)
+        window._on_key(None, Gdk.KEY_Escape, 0, Gdk.ModifierType(0))
+        assert len(client.edits) == before
+
+    _run_pinned_script(
+        "io.github.grokkinggrok.TetherBot.PinnedEditTest",
+        client,
+        [save, cancel, escape],
+        20000,
+    )
+    assert len(client.edits) == 1
+    assert client.edits[0][0] == "c-11111111"
+
+
+def test_tag_and_pinned_edit_survive_a_long_run():
+    gi = pytest.importorskip("gi")
+    try:
+        gi.require_version("Gdk", "4.0")
+        from gi.repository import Gdk
+    except ValueError as exc:
+        pytest.skip(str(exc))
+
+    client = _pinned_clip_client()
+
+    def tag_once(window) -> None:
+        row = _visible_clip_row(window, "c-11111111")
+        _icon(row, "tetherbot-tag-symbolic").emit("clicked")
+        popover = window._clip_popover
+        assert popover is not None
+        popover.get_child().tag_entry.set_text("Later")
+        save = _find_button(popover, "Save")
+        assert save is not None
+        save.emit("clicked")
+
+    def edit_once(mode: str):
+        def act(window) -> None:
+            row = _visible_clip_row(window, "c-11111111")
+            _icon(row, "document-edit-symbolic").emit("clicked")
+            popover = window._clip_popover
+            assert popover is not None
+            if mode == "save":
+                button = _find_button(popover, "Save")
+                assert button is not None
+                button.emit("clicked")
+                return
+            if mode == "cancel":
+                button = _find_button(popover, "Cancel")
+                assert button is not None
+                button.emit("clicked")
+                return
+            window._on_key(None, Gdk.KEY_Escape, 0, Gdk.ModifierType(0))
+
+        return act
+
+    modes = ("save", "cancel", "escape")
+    actions = [tag_once] * 50 + [edit_once(modes[index % 3]) for index in range(20)]
+    _run_pinned_script(
+        "io.github.grokkinggrok.TetherBot.ClipStressTest",
+        client,
+        actions,
+        180000,
+    )
+    assert len(client.saved) == 50
+    assert len(client.edits) == 7
+
+
 def _css_count(widget, name: str) -> int:
     count = 0
     child = widget.get_first_child() if hasattr(widget, "get_first_child") else None

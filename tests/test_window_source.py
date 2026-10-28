@@ -141,7 +141,16 @@ def test_window_sources_do_not_touch_the_network_or_secrets():
     assert '"None yet"' in tag_editor
     assert "add_tag(name_row)" in tag_editor
     assert "release_tag_editor" in tag_editor
+    text_editor = window.split("def _build_text_editor", 1)[1].split(
+        "\ndef _focus_tag_entry", 1
+    )[0]
+    assert '"Cancel"' in text_editor
+    assert '"Save"' in text_editor
     assert "_queue_clip_popover_close" in window
+    assert "_clip_rebuild_deferred" in window
+    assert "_drop_closed_popover" in window
+    assert "faulthandler.enable" in window
+    assert "window-faults.log" in window
     assert "_close_saved" in window
     editor_window = window.split("class ClipEditorWindow", 1)[1].split(
         "\nclass WindowApp", 1

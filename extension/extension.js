@@ -21,6 +21,7 @@ import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 
 import {
     BUS_NAME,
+    WINDOW_APP_ID,
     ITEM_FILTER,
     OBJECT_PATH,
     PROXY_SIGNALS,
@@ -46,6 +47,8 @@ import {
     timerModel,
     todoActivation,
     startServiceCall,
+    startWindowCall,
+    clipOpenPlan,
     mergeTodoSearch,
     notificationModel,
     botRowCall,
@@ -152,6 +155,8 @@ export default class TetherBotExtension extends Extension {
         this._Proxy = null;
         this._seenBridge = false;
         this._activationFailed = false;
+        this._windowOwned = false;
+        this._windowWatch = 0;
         this._activatePending = false;
         this._activateRetried = false;
         this._activateSource = 0;
@@ -263,6 +268,17 @@ export default class TetherBotExtension extends Extension {
             () => this._onNameAppeared(),
             () => this._onNameVanished()
         );
+        this._windowWatch = Gio.bus_watch_name(
+            Gio.BusType.SESSION,
+            WINDOW_APP_ID,
+            Gio.BusNameWatcherFlags.NONE,
+            () => {
+                this._windowOwned = true;
+            },
+            () => {
+                this._windowOwned = false;
+            }
+        );
         this._render();
     }
 
@@ -273,6 +289,11 @@ export default class TetherBotExtension extends Extension {
             Gio.bus_unwatch_name(this._nameWatch);
             this._nameWatch = 0;
         }
+        if (this._windowWatch) {
+            Gio.bus_unwatch_name(this._windowWatch);
+            this._windowWatch = 0;
+        }
+        this._windowOwned = false;
         this._dropProxy();
         if (this._source) {
             this._source.destroy();
@@ -654,8 +675,26 @@ export default class TetherBotExtension extends Extension {
         this._activateSource = 0;
     }
 
+    _bridgeProxyCurrent() {
+        const proxy = this._proxy;
+        if (!proxy)
+            return false;
+        if (typeof proxy.get_name_owner !== 'function')
+            return true;
+        try {
+            const owner = proxy.get_name_owner();
+            if (!owner)
+                return false;
+            return true;
+        } catch {
+            return this._running === true;
+        }
+    }
+
     _ensureProxy() {
-        if (this._proxy || !this._Proxy)
+        if (this._proxy && this._running === true && !this._bridgeProxyCurrent())
+            this._dropProxy();
+        if (this._proxy || !this._Proxy || this._running !== true)
             return;
         this._proxy = new this._Proxy(
             Gio.DBus.session,
@@ -1834,12 +1873,76 @@ export default class TetherBotExtension extends Extension {
         this._render();
     }
 
-    _openWindow(key) {
-        if (!this._proxy)
+    _activateWindowService(done) {
+        const call = startWindowCall();
+        let session;
+        try {
+            session = Gio.DBus.session;
+        } catch {
+            session = null;
+        }
+        if (!session) {
+            if (done)
+                done();
+            return;
+        }
+        try {
+            session.call(
+                call.destination,
+                call.path,
+                call.interfaceName,
+                call.method,
+                new GLib.Variant('(su)', [call.name, call.flags]),
+                new GLib.VariantType('(u)'),
+                Gio.DBusCallFlags.NONE,
+                5000,
+                null,
+                () => {
+                    if (this._enabled && done)
+                        done();
+                }
+            );
+        } catch {
+            if (done)
+                done();
+        }
+    }
+
+    _callOpenWindow(key, retried, close) {
+        if (!this._enabled || !key)
+            return;
+        const plan = clipOpenPlan({
+            bridgeOwned: this._running === true,
+            windowOwned: this._windowOwned === true,
+            retried: retried === true,
+        });
+        if (plan === 'bridge-down')
+            return;
+        if (plan === 'activate-window') {
+            this._activateWindowService(() => this._callOpenWindow(key, true, close));
+            return;
+        }
+        this._ensureProxy();
+        if (!this._proxy || !this._proxy.OpenWindowRemote)
             return;
         const call = openWindowCall(key);
-        this._proxy.OpenWindowRemote(...call.args, () => {});
-        this._indicator?.menu.close();
+        this._proxy.OpenWindowRemote(...call.args, (result, error) => {
+            if (!this._enabled || retried === true)
+                return;
+            const opened = !error && (!Array.isArray(result) || result[0] !== false);
+            if (opened || this._running !== true)
+                return;
+            this._windowOwned = false;
+            this._activateWindowService(() => this._callOpenWindow(key, true, null));
+        });
+        if (close === 'clips')
+            this._clipIndicator?.menu.close();
+        else if (close === 'main')
+            this._indicator?.menu.close();
+    }
+
+    _openWindow(key) {
+        this._callOpenWindow(key, false, 'main');
     }
 
     _perform(action, key) {
@@ -2663,11 +2766,7 @@ export default class TetherBotExtension extends Extension {
     }
 
     _openClipboardWindow() {
-        if (!this._proxy)
-            return;
-        const call = openWindowCall('clipboard');
-        this._proxy.OpenWindowRemote(...call.args, () => {});
-        this._clipIndicator?.menu.close();
+        this._callOpenWindow('clipboard', false, 'clips');
     }
 
     _pointerNow() {
@@ -2790,12 +2889,10 @@ export default class TetherBotExtension extends Extension {
     }
 
     _openClipAction(action, entryId) {
-        if (!this._proxy || !entryId)
+        if (!entryId)
             return;
         this._armClipEditorWatch();
-        const call = openWindowCall(`${action}:${entryId}`);
-        this._proxy.OpenWindowRemote(...call.args, () => {});
-        this._clipIndicator?.menu.close();
+        this._callOpenWindow(`${action}:${entryId}`, false, 'clips');
     }
 
     _searchClipboard(entryId) {

@@ -60,7 +60,7 @@ import {
     isMainWindow,
     isClipEditor,
     topRightFrame,
-    clipEditorFrame,
+    actionResultNotice,
 } from './view.js';
 import {
     DEFAULT_EXCLUDED_APPS,
@@ -145,6 +145,8 @@ export default class TetherBotExtension extends Extension {
         this._searched = null;
         this._undoHolds = [];
         this._hiddenDone = new Set();
+        this._sendingKeys = new Set();
+        this._doneSends = new Map();
         this._shownNotices = new Set();
         this._menuOpen = false;
         this._undoSources = [];
@@ -255,10 +257,6 @@ export default class TetherBotExtension extends Extension {
         this._watchedWindows = new Map();
         this._mainWindows = new Map();
         this._displayWindowId = 0;
-        this._clipEditorWatchId = 0;
-        this._clipEditorTimer = 0;
-        this._clipEditorWindows = new Map();
-        this._clipEditorPointer = null;
         this._trackMainWindow();
 
         this._nameWatch = Gio.bus_watch_name(
@@ -344,12 +342,13 @@ export default class TetherBotExtension extends Extension {
         if (this._settings && this._settingsId)
             this._settings.disconnect(this._settingsId);
         this._forgetMainWindows();
-        this._forgetClipEditorWatch();
         this._settings = null;
         this._settingsId = 0;
         this._undoSpan = 0;
         this._undoHolds = [];
         this._hiddenDone = new Set();
+        this._sendingKeys = new Set();
+        this._doneSends = new Map();
         this._shownNotices = new Set();
         this._menuOpen = false;
         this._bots = [];
@@ -770,11 +769,19 @@ export default class TetherBotExtension extends Extension {
             this._applyTimerJson(params[0]);
             this._refreshItems();
         } else if (name === 'ActionResult') {
-            const result = params[1] || '';
-            this._showNotification({
-                title: result === 'accepted' ? 'Accepted' : 'Action failed',
-                body: result,
-            }, 'action_result');
+            const actionId = String(params[0] || '');
+            const result = String(params[1] || '');
+            const key = this._doneSends ? this._doneSends.get(actionId) : '';
+            const tracked = Boolean(key);
+            if (tracked && result !== 'queued_retry') {
+                this._doneSends.delete(actionId);
+                if (result === 'accepted' || result === 'parked' || result === 'dropped' ||
+                    result === 'rejected_key')
+                    this._sendingKeys?.delete(key);
+            }
+            const notice = actionResultNotice(result, tracked);
+            if (notice)
+                this._showNotification(notice, 'action_result');
             this._refresh();
         }
     }
@@ -886,6 +893,7 @@ export default class TetherBotExtension extends Extension {
             undoHolds: this._undoHolds,
             pinExpired: this._todoPointer,
             hiddenKeys: this._hiddenDone ? [...this._hiddenDone] : [],
+            sendingKeys: this._sendingKeys ? [...this._sendingKeys] : [],
             activationFailed: this._activationFailed,
             timer: this._timer,
             assigning: this._assigning,
@@ -1129,6 +1137,8 @@ export default class TetherBotExtension extends Extension {
 
     _todoRow(row) {
         const item = new PopupMenu.PopupBaseMenuItem({reactive: Boolean(row.pick)});
+        if (row.sending)
+            item.add_style_class_name('tetherbot-sending');
         item.track_hover = true;
         item.connect('enter-event', () => {
             this._todoPointer = true;
@@ -1178,6 +1188,12 @@ export default class TetherBotExtension extends Extension {
             text.add_child(new St.Label({text: meta, style_class: 'tetherbot-subtle'}));
             if (row.tracked)
                 text.add_child(this._chipRow({}, row.tracked));
+        }
+        if (row.sending) {
+            text.add_child(new St.Label({
+                text: 'Sending… will retry',
+                style_class: 'tetherbot-subtle',
+            }));
         }
         top.add_child(text);
         if (row.timing) {
@@ -1283,13 +1299,16 @@ export default class TetherBotExtension extends Extension {
             }
             box.add_child(this._timerActions(block.actions || []));
         } else if (block.kind === 'edit-start') {
+            const time = new St.Label({text: block.time || '', style_class: 'tetherbot-clock'});
+            this._timerTimeLabel = time;
+            box.add_child(time);
             const row = new St.BoxLayout({
                 x_expand: true,
                 style_class: 'tetherbot-edit-row',
                 y_align: Clutter.ActorAlign.CENTER,
             });
             for (const label of ['-1m', '-5m', '-15m', '-30m'])
-                row.add_child(this._actionButton(label, () => this._timerAction(label), false));
+                row.add_child(this._shiftButton(label, () => this._timerAction(label)));
             const entry = new St.Entry({
                 hint_text: 'HH:MM',
                 style_class: 'tetherbot-edit-entry',
@@ -1535,7 +1554,7 @@ export default class TetherBotExtension extends Extension {
     _adjustStart(delta) {
         if (!this._proxy)
             return;
-        this._editingStart = false;
+        this._editingStart = true;
         this._proxy.AdjustTimerStartRemote(delta, (_result, error) => {
             this._afterTimerWrite(error);
         });
@@ -1695,6 +1714,17 @@ export default class TetherBotExtension extends Extension {
         return button;
     }
 
+    _shiftButton(label, callback) {
+        const button = new St.Button({
+            label,
+            style_class: 'button tetherbot-action',
+            can_focus: true,
+        });
+        button.connect('clicked', () => callback());
+        button.connect('button-release-event', () => Clutter.EVENT_STOP);
+        return button;
+    }
+
     _undoWindowMs() {
         const settings = this._settings;
         if (!settings || typeof settings.get_int !== 'function')
@@ -1733,15 +1763,15 @@ export default class TetherBotExtension extends Extension {
         const keys = force ? pending.map(hold => hold.key) : dueUndoKeys(pending, now);
         if (!keys.length)
             return;
-        if (!this._hiddenDone)
-            this._hiddenDone = new Set();
+        if (!this._sendingKeys)
+            this._sendingKeys = new Set();
         for (const key of keys) {
             const hold = (this._undoHolds || []).find(item => item && item.key === key);
             if (!hold || hold.sent)
                 continue;
             hold.sent = true;
             hold.until = now;
-            this._hiddenDone.add(key);
+            this._sendingKeys.add(key);
             this._perform('done', key);
         }
     }
@@ -1949,11 +1979,26 @@ export default class TetherBotExtension extends Extension {
         if (!this._proxy || !key)
             return;
         const call = performCall(action, key);
-        this._proxy.PerformActionRemote(...call.args, (_result, error) => {
-            if (!this._enabled || !error || action !== 'done' || !this._hiddenDone)
+        this._proxy.PerformActionRemote(...call.args, (result, error) => {
+            if (!this._enabled)
                 return;
-            this._hiddenDone.delete(key);
-            this._render();
+            if (error) {
+                if (action !== 'done')
+                    return;
+                this._sendingKeys?.delete(key);
+                this._hiddenDone?.delete(key);
+                this._render();
+                return;
+            }
+            if (action !== 'done')
+                return;
+            const actionId = Array.isArray(result) ? result[0] : result;
+            if (typeof actionId === 'string' && actionId) {
+                if (!this._doneSends)
+                    this._doneSends = new Map();
+                this._doneSends.set(actionId, key);
+            }
+            this._hiddenDone?.delete(key);
         });
     }
 
@@ -2769,129 +2814,9 @@ export default class TetherBotExtension extends Extension {
         this._callOpenWindow('clipboard', false, 'clips');
     }
 
-    _pointerNow() {
-        try {
-            const raw = global.get_pointer();
-            if (Array.isArray(raw))
-                return {x: raw[0] || 0, y: raw[1] || 0};
-            if (raw && typeof raw.x === 'number')
-                return {x: raw.x, y: typeof raw.y === 'number' ? raw.y : 0};
-        } catch {
-            // The pointer is not available yet.
-        }
-        return {x: 0, y: 0};
-    }
-
-    _clipWorkArea(metaWindow) {
-        try {
-            let monitor = 0;
-            if (metaWindow.get_monitor)
-                monitor = metaWindow.get_monitor();
-            const area = Main.layoutManager.getWorkAreaForMonitor(monitor);
-            if (!area)
-                return null;
-            return {x: area.x, y: area.y, width: area.width, height: area.height};
-        } catch {
-            return null;
-        }
-    }
-
-    _armClipEditorWatch() {
-        this._forgetClipEditorWatch();
-        this._clipEditorPointer = this._pointerNow();
-        this._clipEditorWindows = new Map();
-        this._clipEditorWatchId = global.display.connect('window-created', (_display, metaWindow) => {
-            this._watchClipEditor(metaWindow);
-        });
-        this._clipEditorTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 3000, () => {
-            this._clipEditorTimer = 0;
-            this._forgetClipEditorWatch();
-            return GLib.SOURCE_REMOVE;
-        });
-    }
-
-    _forgetClipEditorWatch() {
-        if (this._clipEditorTimer) {
-            GLib.source_remove(this._clipEditorTimer);
-            this._clipEditorTimer = 0;
-        }
-        if (this._clipEditorWatchId) {
-            try {
-                global.display.disconnect(this._clipEditorWatchId);
-            } catch {
-                // The display watch is already gone.
-            }
-            this._clipEditorWatchId = 0;
-        }
-        for (const [metaWindow, state] of this._clipEditorWindows || [])
-            this._disconnectWindow(metaWindow, state);
-        this._clipEditorWindows = new Map();
-    }
-
-    _watchClipEditor(metaWindow) {
-        if (!this._enabled || !metaWindow || !this._clipEditorWatchId)
-            return;
-        if (this._clipEditorWindows.has(metaWindow))
-            return;
-        const state = {signals: [], placed: false};
-        const drop = () => {
-            this._disconnectWindow(metaWindow, state);
-            this._clipEditorWindows.delete(metaWindow);
-        };
-        const consider = () => {
-            if (!this._enabled || state.placed || !this._clipEditorWatchId)
-                return;
-            const identity = _windowIdentity(metaWindow);
-            if (!isClipEditor(identity)) {
-                if (!identity.title || (!identity.gtkId && !identity.wmClass))
-                    return;
-                drop();
-                return;
-            }
-            const frame = _frameRect(metaWindow);
-            if (!frame || frame.width <= 0 || frame.height <= 0)
-                return;
-            const area = this._clipWorkArea(metaWindow);
-            if (!area)
-                return;
-            const next = clipEditorFrame(area, frame, this._clipEditorPointer || {x: 0, y: 0});
-            if (!metaWindow.move_frame)
-                return;
-            try {
-                metaWindow.move_frame(true, next.x, next.y);
-            } catch {
-                return;
-            }
-            state.placed = true;
-            drop();
-            this._forgetClipEditorWatch();
-        };
-        this._clipEditorWindows.set(metaWindow, state);
-        for (const name of [
-            'shown',
-            'notify::title',
-            'notify::gtk-application-id',
-            'notify::wm-class',
-            'size-changed',
-        ]) {
-            try {
-                state.signals.push(metaWindow.connect(name, consider));
-            } catch {
-                // This Shell build has no such signal.
-            }
-        }
-        try {
-            state.signals.push(metaWindow.connect('unmanaged', drop));
-        } catch {
-            // Nothing to undo if the window cannot tell us it closed.
-        }
-        consider();
-    }
-
     _openClipAction(action, entryId) {
         if (!entryId)
             return;
-        this._armClipEditorWatch();
         this._callOpenWindow(`${action}:${entryId}`, false, 'clips');
     }
 

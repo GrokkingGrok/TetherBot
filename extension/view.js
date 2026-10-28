@@ -274,6 +274,10 @@ function acted(item) {
     return Boolean(record && typeof record.action === 'string' && record.action);
 }
 
+function sendingRetry(item) {
+    return item?.local?.sending === 'retry';
+}
+
 function snoozed(item, nowMs) {
     const until = item?.local?.snoozed_until;
     if (!until)
@@ -402,7 +406,11 @@ function isOverdue(due, nowMs) {
 }
 
 function visibleOpen(item, nowMs) {
-    if (!item || item.status !== 'open' || snoozed(item, nowMs) || acted(item))
+    if (!item || item.status !== 'open' || snoozed(item, nowMs))
+        return false;
+    if (sendingRetry(item))
+        return true;
+    if (acted(item))
         return false;
     if (item.local && (item.local.done_locally || item.local.resolved))
         return false;
@@ -690,6 +698,7 @@ export function timerModel({
                 kind: 'edit-start',
                 title: 'Edit start',
                 hint: 'HH:MM',
+                time: formatElapsed(elapsed),
                 actions: ['-1m', '-5m', '-15m', '-30m', 'Cancel'],
             };
         }
@@ -836,6 +845,7 @@ export function menuModel({
     activationFailed = true,
     timer = null,
     assigning = false,
+    sendingKeys = [],
 }) {
     const banner = bannerFor({running, activationFailed, state, reason});
     if (!running) {
@@ -875,12 +885,14 @@ export function menuModel({
     const todos = [];
     const timingKey = timerActive(timer) ? String(timer.item_key || '') : '';
     const picking = Boolean(assigning);
+    const extraSending = new Set(sendingKeys || []);
     for (const item of items || []) {
-        if (!item || item.status !== 'open' || snoozed(item, nowMs) || acted(item))
-            continue;
-        if (item.local && (item.local.done_locally || item.local.resolved))
-            continue;
         const key = itemKey(item);
+        const sending = sendingRetry(item) || extraSending.has(key);
+        if (!item || item.status !== 'open' || snoozed(item, nowMs))
+            continue;
+        if (!sending && !visibleOpen(item, nowMs))
+            continue;
         const bot = botId(item);
         if (item.kind === 'ask') {
             const actions = (item.actions || []).filter(action =>
@@ -901,7 +913,8 @@ export function menuModel({
                 bot,
                 botLabel: labels.get(bot) || item.display_name || bot,
                 due: item.due || '',
-                canSendDone: listed && routes.get(bot) === true,
+                canSendDone: listed && routes.get(bot) === true && !sending,
+                sending,
                 chips: chipRow(item),
                 tracked: formatTracked(item.time_tracked_s),
                 timing: Boolean(timingKey) && timingKey === key,
@@ -977,6 +990,19 @@ export function notificationModel(payload, reason, labels) {
         reason: reason || '',
         actions,
     };
+}
+
+export function actionResultNotice(result, trackedDone) {
+    const name = String(result || '');
+    if (name === 'queued_retry')
+        return null;
+    if (trackedDone && (name === 'parked' || name === 'dropped')) {
+        const line = "Couldn't send Done. Try again.";
+        return {title: line, body: line};
+    }
+    if (name === 'accepted')
+        return {title: 'Accepted', body: name};
+    return {title: 'Action failed', body: name};
 }
 
 export function performCall(action, key) {
@@ -1064,7 +1090,7 @@ export function presentTodos(todos, holds, nowMs, pinExpired = false, hiddenKeys
     const merged = [];
     const seen = new Set();
     for (const row of todos || []) {
-        if (hidden.has(row.key) && !pending.has(row.key))
+        if (hidden.has(row.key) && !pending.has(row.key) && !row.sending)
             continue;
         const hold = pending.get(row.key);
         if (hold) {

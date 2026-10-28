@@ -57,6 +57,7 @@ import {
     undoFraction,
     presentTodos,
     mergeTodoSearch,
+    actionResultNotice,
 } from './view.js';
 
 function assert(condition, message) {
@@ -730,6 +731,7 @@ export function runViewChecks() {
     });
     assert(editing.kind === 'edit-start', 'edit start');
     assert(editing.actions.join(',') === '-1m,-5m,-15m,-30m,Cancel', 'quick shifts');
+    assert(editing.time === '1:42:10', 'edit start shows the clock');
     const loose = timerModel({
         running: true,
         timer: {...runningTimer, item_key: '', item_title: ''},
@@ -843,6 +845,43 @@ export function runViewChecks() {
     });
     assert(pickMenu.todos[0].pick === true, 'a todo row is the pick target');
     assert(pickMenu.todos[0].canStart === true, 'the row can still start later');
+    const sendingItem = {
+        key: 'primary/q4-budget',
+        kind: 'todo',
+        title: 'Draft Q4 grant budget',
+        status: 'open',
+        actions: ['done'],
+        source: {bot: 'primary'},
+        local: {acted: {action: 'done', action_id: 'a-1'}, sending: 'retry'},
+    };
+    const sendingMenu = menuModel({
+        running: true,
+        state: 'ok',
+        reason: '',
+        bots: [{name: 'primary', routes: {outbound: true}}],
+        items: [sendingItem],
+        queueLength: 1,
+        nowMs: NOW,
+    });
+    assert(sendingMenu.todos.length === 1, 'a retrying done stays in the menu');
+    assert(sendingMenu.todos[0].sending === true, 'the row is sending');
+    assert(sendingMenu.todos[0].canSendDone === false, 'done waits for the retry');
+    const stillShown = presentTodos(
+        sendingMenu.todos,
+        [],
+        NOW,
+        false,
+        ['primary/q4-budget']
+    );
+    assert(stillShown.todos.length === 1, 'a sending row is not hidden');
+    assert(actionResultNotice('queued_retry', true) === null, 'a retry is not an error');
+    const parkedNotice = actionResultNotice('parked', true);
+    assert(parkedNotice.title === "Couldn't send Done. Try again.", 'park tells the user to retry');
+    assert(parkedNotice.body === "Couldn't send Done. Try again.", 'park body');
+    assert(actionResultNotice('dropped', true).title === "Couldn't send Done. Try again.", 'a dropped done says to retry');
+    assert(actionResultNotice('parked', false).title === 'Action failed', 'another park stays a failure');
+    assert(actionResultNotice('accepted', true).title === 'Accepted', 'accept stays accepted');
+    assert(actionResultNotice('rejected_key', true).title === 'Action failed', 'a rejected key stays a failure');
     const runningLoose = {state: 'running', item_key: '', item_title: ''};
     assert(keepAssigning(true, runningLoose) === true, 'pick stays while choosing a todo');
     assert(keepAssigning(true, {state: 'stopped'}) === true, 'a stopped timer stays pickable');

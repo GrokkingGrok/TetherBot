@@ -1554,19 +1554,153 @@ def test_a_stale_clipboard_load_keeps_an_image_and_routes_edit_and_tag():
                 "c-aaaaaaa3",
             ]
             opened: list[tuple[str, str]] = []
-            window.open_clip_editor = lambda kind, ident: opened.append((kind, ident))
+            window._on_edit_clip = lambda _button, entry: opened.append(
+                ("clip-edit", entry.get("id"))
+            )
+            window._on_tag_clip = lambda _button, entry: opened.append(
+                ("clip-tag", entry.get("id"))
+            )
             window.select_key("clip-edit:c-aaaaaaa2")
             window.select_key("clip-tag:c-aaaaaaa1")
             window.select_key("clip-edit:c-aaaaaaa1")
             assert opened == [
                 ("clip-edit", "c-aaaaaaa2"),
                 ("clip-tag", "c-aaaaaaa1"),
-                ("clip-edit", "c-aaaaaaa1"),
             ]
+            assert window.banner.get_title() != "That clip is gone."
             holder["ok"] = True
         except Exception as exc:
             holder["error"] = exc
         app.quit()
+        return False
+
+    try:
+        app.connect("activate", lambda _app: GLib.idle_add(finish))
+        GLib.timeout_add(8000, app.quit)
+        app.run(["tetherbot-window"])
+    finally:
+        reset_tetherbot_logger()
+    if "error" in holder:
+        raise holder["error"]
+    assert holder.get("ok") is True
+
+
+def test_menu_clip_actions_open_the_page_popover():
+    gi = pytest.importorskip("gi")
+    try:
+        gi.require_version("Gtk", "4.0")
+        gi.require_version("Adw", "1")
+        from gi.repository import GLib
+    except ValueError as exc:
+        pytest.skip(str(exc))
+    if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
+        pytest.skip("GTK window test needs a display")
+
+    class _Clip:
+        def set_listener(self, listener) -> None:
+            return None
+
+        def set_clipboard_listener(self, listener) -> None:
+            return None
+
+        def get_items(self, spec):
+            return []
+
+        def get_tags(self):
+            return []
+
+        def bots(self):
+            return [{"name": "primary", "display_name": "Primary"}]
+
+        def get_clipboard(self):
+            return [
+                {
+                    "id": "c-11111111",
+                    "text": "pinned line",
+                    "at": 2,
+                    "pinned": True,
+                    "tags": [],
+                },
+                {
+                    "id": "c-22222222",
+                    "text": "loose line",
+                    "at": 1,
+                    "pinned": False,
+                    "tags": [],
+                },
+            ]
+
+    app = _isolated_window(
+        "io.github.grokkinggrok.TetherBot.MenuClipTest",
+        _Clip(),
+    )
+    holder: dict = {}
+
+    def _open(window, key: str, ident: str) -> None:
+        window.select_key(key)
+        assert window.get_visible()
+        assert window._page == "clipboard"
+        row = window._clip_row(ident)
+        assert row is not None
+        assert "tether-clip-target" in row.get_css_classes()
+        popover = window._clip_popover
+        assert popover is not None
+        assert popover.get_visible()
+
+    def _when_clear(window, step) -> None:
+        def _poll(left: int) -> bool:
+            if window._clip_busy() and left > 0:
+                GLib.timeout_add(30, _poll, left - 1)
+                return False
+            step()
+            return False
+
+        GLib.timeout_add(30, _poll, 20)
+
+    def finish() -> bool:
+        try:
+            window = app.window
+            assert window is not None
+            window._set_page("clipboard")
+            _open(window, "clip-tag:c-11111111", "c-11111111")
+            window._clip_popover.popdown()
+
+            def _edit() -> None:
+                try:
+                    _open(window, "clip-edit:c-22222222", "c-22222222")
+                    window._clip_popover.popdown()
+
+                    def _context() -> None:
+                        try:
+                            _open(window, "clip-context:c-22222222", "c-22222222")
+                            window._clip_popover.popdown()
+
+                            def _gone() -> None:
+                                try:
+                                    window.select_key("clip-tag:c-99999999")
+                                    assert window._page == "clipboard"
+                                    assert window.banner.get_title() == "That clip is gone."
+                                    assert window.banner.get_revealed()
+                                    assert window._clip_popover is None
+                                    _pump_quit(app, holder, GLib)
+                                except Exception as exc:
+                                    holder["error"] = exc
+                                    app.quit()
+
+                            _when_clear(window, _gone)
+                        except Exception as exc:
+                            holder["error"] = exc
+                            app.quit()
+
+                    _when_clear(window, _context)
+                except Exception as exc:
+                    holder["error"] = exc
+                    app.quit()
+
+            _when_clear(window, _edit)
+        except Exception as exc:
+            holder["error"] = exc
+            app.quit()
         return False
 
     try:

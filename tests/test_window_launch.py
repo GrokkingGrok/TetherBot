@@ -116,3 +116,88 @@ def test_launch_window_reports_a_bus_that_rejects_the_request(monkeypatch):
 
     monkeypatch.setattr(Gio, "bus_get_sync", lambda *_args, **_kwargs: _Bus())
     assert launch_window("primary/sample-01") is False
+
+
+def test_a_dead_window_name_is_started_once_and_the_action_is_sent_again(monkeypatch):
+    gi = pytest.importorskip("gi")
+    gi.require_version("Gio", "2.0")
+    gi.require_version("GLib", "2.0")
+    from gi.repository import Gio
+
+    class _Result:
+        def __init__(self, ok: bool) -> None:
+            self.ok = ok
+
+    class _Bus:
+        def __init__(self) -> None:
+            self.calls: list[tuple[object, object]] = []
+
+        def call(self, *args: object, **_kwargs: object) -> None:
+            method = args[3]
+            callback = args[-1]
+            self.calls.append((args[0], method))
+            if method == "ActivateAction" and sum(item[1] == method for item in self.calls) == 1:
+                callback(self, _Result(False))
+                return
+            if method == "StartServiceByName":
+                assert args[4].unpack() == ("io.github.grokkinggrok.TetherBot", 0)
+                callback(self, _Result(True))
+                return
+            callback(self, _Result(True))
+
+        def call_finish(self, result: _Result) -> _Result:
+            if not result.ok:
+                raise RuntimeError("activation refused")
+            return result
+
+    bus = _Bus()
+    monkeypatch.setattr(Gio, "bus_get_sync", lambda *_args, **_kwargs: bus)
+    assert launch_window("clip-tag:c-11111111") is True
+    assert bus.calls == [
+        ("io.github.grokkinggrok.TetherBot", "ActivateAction"),
+        ("org.freedesktop.DBus", "StartServiceByName"),
+        ("io.github.grokkinggrok.TetherBot", "ActivateAction"),
+    ]
+
+
+def test_load_clipboard_opens_a_proxy_before_it_reports_the_bridge(monkeypatch):
+    gi = pytest.importorskip("gi")
+    gi.require_version("Gio", "2.0")
+    from gi.repository import Gio
+
+    from tetherbot.window import BridgeClient
+
+    ready: list[object] = []
+
+    def _new(*args: object) -> None:
+        ready.append(args[-1])
+
+    monkeypatch.setattr(Gio, "bus_get_sync", lambda *_args, **_kwargs: object())
+    monkeypatch.setattr(Gio.DBusProxy, "new", _new)
+    client = BridgeClient()
+    reported: list[object] = []
+    client.load_clipboard(lambda entries, error: reported.append((entries, error)))
+    assert reported == []
+    assert len(ready) == 1
+
+
+def test_proxy_failure_names_the_bridge_only_when_that_name_is_free():
+    gi = pytest.importorskip("gi")
+    gi.require_version("GLib", "2.0")
+
+    from types import SimpleNamespace
+
+    from tetherbot.window import BridgeClient
+
+    client = BridgeClient()
+    client.bridge_name_owned = lambda: True  # type: ignore[method-assign]
+    owned = client._proxy_failure(SimpleNamespace(message="the bus timed out"))
+    assert str(owned) == "the bus timed out"
+    gone = client._proxy_failure(SimpleNamespace(message="Name has no owner"))
+    assert str(gone) == "Bridge not running"
+    client.bridge_name_owned = lambda: False  # type: ignore[method-assign]
+    missing = client._proxy_failure(SimpleNamespace(message="the bus timed out"))
+    assert str(missing) == "Bridge not running"
+    client.bridge_name_owned = lambda: True  # type: ignore[method-assign]
+    unnamed = client._proxy_failure(None)
+    assert str(unnamed) == "The bridge did not answer."

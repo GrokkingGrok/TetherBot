@@ -368,6 +368,25 @@ def test_clipboard_debug_prints_types_and_not_the_text(tmp_path: Path):
     assert secret not in missing.stdout.getvalue()
 
 
+def test_window_faults_prints_the_log_and_skips_clipboard_text(tmp_path: Path):
+    secret = "ghp_notarealtoken"
+    state = tmp_path / "state"
+    state.mkdir()
+    (state / "clipboard.json").write_text(
+        json.dumps({"entries": [{"id": "c-1234abcd", "text": secret}]}),
+        encoding="utf-8",
+    )
+    (state / "window-faults.log").write_text("Fatal Python error: Aborted\n", encoding="utf-8")
+    context = _context(tmp_path, state_dir=state)
+    assert main(["window-faults"], context) == 0
+    output = context.stdout.getvalue()
+    assert "Fatal Python error: Aborted" in output
+    assert secret not in output
+    missing = _context(tmp_path, state_dir=tmp_path / "empty")
+    assert main(["window-faults"], missing) == 0
+    assert missing.stdout.getvalue() == ""
+
+
 def test_import_does_not_load_gi():
     env = os.environ.copy()
     env["PYTHONPATH"] = str(ROOT / "bridge")

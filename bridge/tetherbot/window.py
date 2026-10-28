@@ -8,11 +8,13 @@ no network calls. Links open only after a click, through the default browser.
 
 from __future__ import annotations
 
+import faulthandler
 import json
 import os
 import re
 import sys
 import time
+import weakref
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -195,6 +197,7 @@ def _build_text_editor(
     *,
     editable: bool,
     on_save: Callable[[str], None] | None,
+    on_cancel: Callable[[], None] | None = None,
 ) -> Gtk.Box:
     view = Gtk.TextView(
         editable=editable,
@@ -215,9 +218,14 @@ def _build_text_editor(
     box.append(_editor_heading(title))
     box.append(scrolled)
     if editable and on_save is not None:
+        actions = Gtk.Box(spacing=6)
+        actions.set_halign(Gtk.Align.END)
+        if on_cancel is not None:
+            cancel = Gtk.Button(label="Cancel")
+            cancel.connect("clicked", lambda _button: on_cancel())
+            actions.append(cancel)
         save = Gtk.Button(label="Save")
         save.add_css_class("suggested-action")
-        save.set_halign(Gtk.Align.END)
 
         def _clicked(_button: Gtk.Button) -> None:
             buffer = view.get_buffer()
@@ -226,11 +234,14 @@ def _build_text_editor(
             )
 
         save.connect("clicked", _clicked)
-        box.append(save)
+        actions.append(save)
+        box.append(actions)
     return box
 
 
 def _focus_tag_entry(entry: Gtk.Entry) -> None:
+    if not _widget_usable(entry):
+        return
     try:
         if entry.get_parent() is None:
             return
@@ -752,10 +763,16 @@ class BridgeClient:
             except (json.JSONDecodeError, TypeError):
                 done([], BridgeError("Clipboard history could not be read"))
 
-        if self._proxy is None:
-            done([], BridgeError("Bridge not running"))
+        def _connected(error: BridgeError | None) -> None:
+            if error is not None or self._proxy is None:
+                done([], error or self._proxy_failure(None))
+                return
+            self._call_async("GetClipboard", "(s)", ("",), _done)
+
+        if self._proxy is not None:
+            _connected(None)
             return
-        self._call_async("GetClipboard", "(s)", ("",), _done)
+        self._open_proxy(_connected)
 
     def load_timer(self, done: Callable[[dict[str, Any], BridgeError | None], None]) -> None:
         """Read the stopwatch without blocking the first paint."""
@@ -812,10 +829,97 @@ class BridgeClient:
             return
         if generation != self._generation:
             return
-        self._proxy = proxy
-        self._proxy.connect("g-signal", self._on_signal)
-        self._proxy.connect("g-properties-changed", self._on_properties)
+        self._bind_proxy(proxy)
         self._load_items()
+
+    def _bind_proxy(self, proxy: Gio.DBusProxy) -> None:
+        self._proxy = proxy
+        proxy.connect("g-signal", self._on_signal)
+        proxy.connect("g-properties-changed", self._on_properties)
+        proxy.connect("notify::g-name-owner", self._on_name_owner)
+
+    def _on_name_owner(self, proxy: Gio.DBusProxy, _pspec: Any) -> None:
+        """Drop a proxy whose bridge name no longer has an owner."""
+
+        if self._proxy is not proxy:
+            return
+        try:
+            owner = proxy.get_name_owner()
+        except Exception:
+            owner = None
+        if not owner:
+            self._proxy = None
+
+    def bridge_name_owned(self) -> bool:
+        """True when ``io.github.grokkinggrok.TetherBot1`` has an owner."""
+
+        try:
+            bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+            reply = bus.call_sync(
+                "org.freedesktop.DBus",
+                "/org/freedesktop/DBus",
+                "org.freedesktop.DBus",
+                "NameHasOwner",
+                GLib.Variant("(s)", (BUS_NAME,)),
+                GLib.VariantType("(b)"),
+                Gio.DBusCallFlags.NONE,
+                1000,
+                None,
+            )
+        except (GLib.Error, AttributeError):
+            return False
+        if reply is None:
+            return False
+        unpacked = reply.unpack()
+        return bool(unpacked and unpacked[0] is True)
+
+    def _proxy_failure(self, exc: GLib.Error | None) -> BridgeError:
+        """Bridge-down text only when that bus name has no owner."""
+
+        message = "" if exc is None else (exc.message or "")
+        if "name has no owner" in message.casefold() or not self.bridge_name_owned():
+            return BridgeError("Bridge not running")
+        return BridgeError(message or "The bridge did not answer.")
+
+    def _open_proxy(self, done: Callable[[BridgeError | None], None]) -> None:
+        """Create the bridge proxy. A missing proxy is not a dead bridge."""
+
+        if self._proxy is not None:
+            done(None)
+            return
+        try:
+            bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+        except GLib.Error as exc:
+            done(self._proxy_failure(exc))
+            return
+
+        def _ready(_source: object, result: Gio.AsyncResult) -> None:
+            try:
+                proxy = Gio.DBusProxy.new_finish(result)
+            except GLib.Error as exc:
+                done(self._proxy_failure(exc))
+                return
+            self._bind_proxy(proxy)
+            done(None)
+
+        Gio.DBusProxy.new(
+            bus,
+            Gio.DBusProxyFlags.NONE,
+            None,
+            BUS_NAME,
+            OBJECT_PATH,
+            INTERFACE,
+            None,
+            _ready,
+        )
+
+    def drop_sources(self) -> None:
+        """Remove the signal idle. Safe to call more than once."""
+
+        source = self._signal_idle
+        self._signal_idle = 0
+        if source:
+            GLib.source_remove(source)
 
     def _load_items(self) -> None:
         waiting = self._waiting
@@ -1021,10 +1125,17 @@ class TodoWindow(Adw.ApplicationWindow):
         self._clip_pending: tuple[str, str] | None = None
         self._clip_dialog: Adw.AlertDialog | None = None
         self._clip_popover: Gtk.Popover | None = None
+        self._closed_popover: Gtk.Popover | None = None
         self._clip_close_queued = False
         self._clip_popover_closing = False
         self._clip_context_dialog: Gtk.Popover | None = None
         self._popover_reload = False
+        self._clip_rebuild_deferred = False
+        self._clip_drop_source = 0
+        self._clip_close_source = 0
+        self._clip_flash_gen = 0
+        self._clip_flash_sources: set[int] = set()
+        self._glib_sources: set[int] = set()
         self._sort = "due"
         self._query = ""
         self._bot_query = ""
@@ -1549,6 +1660,7 @@ class TodoWindow(Adw.ApplicationWindow):
         *,
         clear_missing: bool,
     ) -> None:
+        self._cancel_clip_flashes()
         self._park_list_focus()
         hot = bool(
             self._list_hovered or self._guard_rows or self._doomed or self._any_pointer_row()
@@ -1617,7 +1729,7 @@ class TodoWindow(Adw.ApplicationWindow):
         if not self._doomed or self._drop_idle:
             return
         self._drop_wait = True
-        self._drop_idle = GLib.idle_add(self._drop_doomed)
+        self._drop_idle = self._remember_source(GLib.idle_add(self._drop_doomed))
 
     def _drop_doomed(self) -> bool:
         """Unparent hidden rows only after one more main-loop turn.
@@ -1626,12 +1738,22 @@ class TodoWindow(Adw.ApplicationWindow):
         while the row widget is still alive.
         """
 
+        source = self._drop_idle
+        self._drop_idle = 0
+        self._glib_sources.discard(source)
         if self._drop_wait:
             self._drop_wait = False
-            return GLib.SOURCE_CONTINUE
+            self._drop_idle = self._remember_source(GLib.idle_add(self._drop_doomed))
+            return False
         kept: list[Gtk.ListBoxRow] = []
-        for row in self._doomed:
-            if row.get_parent() is None:
+        for row in list(self._doomed):
+            if not _widget_usable(row):
+                continue
+            try:
+                parent = row.get_parent()
+            except Exception:
+                continue
+            if parent is None:
                 _dispose_widget(row)
                 continue
             if _row_blocked(self, row):
@@ -1642,10 +1764,8 @@ class TodoWindow(Adw.ApplicationWindow):
         self._doomed = kept
         if kept:
             self._drop_wait = True
-            self._drop_idle = GLib.timeout_add(50, self._drop_doomed)
-        else:
-            self._drop_idle = 0
-        return GLib.SOURCE_REMOVE
+            self._drop_idle = self._remember_source(GLib.timeout_add(50, self._drop_doomed))
+        return False
 
     def _fit_to_list(self) -> None:
         """Size the window to the list once. A later user resize sticks."""
@@ -1655,7 +1775,7 @@ class TodoWindow(Adw.ApplicationWindow):
         sidebar = self._sidebar_inner_width()
         if sidebar <= 1:
             if not self._fit_correct:
-                self._fit_correct = GLib.idle_add(self._correct_fit)
+                self._fit_correct = self._remember_source(GLib.idle_add(self._correct_fit))
             return
         window_width = self.get_width()
         if not isinstance(window_width, int) or window_width < WINDOW_MIN_WIDTH:
@@ -1675,7 +1795,7 @@ class TodoWindow(Adw.ApplicationWindow):
         self._fit_width = sidebar
         self._saw_fitted_layout = False
         if not self._fit_correct:
-            self._fit_correct = GLib.idle_add(self._correct_fit)
+            self._fit_correct = self._remember_source(GLib.idle_add(self._correct_fit))
 
     def _correct_fit(self) -> bool:
         """Measure again once the sidebar has its real width.
@@ -1685,18 +1805,20 @@ class TodoWindow(Adw.ApplicationWindow):
         user already made is left alone.
         """
 
+        source = self._fit_correct
         self._fit_correct = 0
+        self._glib_sources.discard(source)
         if self._user_sized:
-            return GLib.SOURCE_REMOVE
+            return False
         sidebar = self._sidebar_inner_width()
         if sidebar <= 1:
-            self._fit_correct = GLib.idle_add(self._correct_fit)
-            return GLib.SOURCE_REMOVE
+            self._fit_correct = self._remember_source(GLib.idle_add(self._correct_fit))
+            return False
         if self._height_fitted and abs(sidebar - self._fit_width) <= 16:
-            return GLib.SOURCE_REMOVE
+            return False
         self._height_fitted = False
         self._fit_to_list()
-        return GLib.SOURCE_REMOVE
+        return False
 
     def _sidebar_inner_width(self) -> int:
         page = self.split.get_sidebar()
@@ -2555,9 +2677,54 @@ class TodoWindow(Adw.ApplicationWindow):
     def _on_window_close(self, _window: Gtk.Window) -> bool:
         self._flush_due(True, rebuild=False)
         self._cancel_after_send()
+        self._cancel_tracked_sources()
         self._undo_holds.clear()
         self.drop_undo_timers()
+        drop = getattr(self.client, "drop_sources", None)
+        if callable(drop):
+            drop()
         return False
+
+    def _remember_source(self, source: int) -> int:
+        if source:
+            self._glib_sources.add(int(source))
+        return source
+
+    def _forget_source(self, source: int) -> None:
+        if not source:
+            return
+        self._glib_sources.discard(int(source))
+        try:
+            GLib.source_remove(source)
+        except Exception:
+            return
+
+    def _cancel_tracked_sources(self) -> None:
+        """Remove idles and timeouts before widgets are destroyed."""
+
+        self._clip_flash_gen += 1
+        self._release_popover_tag_editor(self._clip_popover)
+        self._clip_popover = None
+        self._closed_popover = None
+        self._clip_close_queued = False
+        self._clip_rebuild_deferred = False
+        pending = list(self._glib_sources)
+        self._glib_sources.clear()
+        self._clip_flash_sources.clear()
+        self._clip_close_source = 0
+        self._clip_drop_source = 0
+        self._drop_idle = 0
+        self._fit_correct = 0
+        self._after_send_idle = 0
+        self._undo_source = 0
+        self._undo_paint = 0
+        for source in pending:
+            if not source:
+                continue
+            try:
+                GLib.source_remove(source)
+            except Exception:
+                continue
 
     def drop_undo_timers(self) -> None:
         """Stop undo ticks. Safe to call more than once."""
@@ -2566,10 +2733,8 @@ class TodoWindow(Adw.ApplicationWindow):
         paint = self._undo_paint
         self._undo_source = 0
         self._undo_paint = 0
-        if source:
-            GLib.source_remove(source)
-        if paint:
-            GLib.source_remove(paint)
+        self._forget_source(source)
+        self._forget_source(paint)
 
     def _set_list_hover(self, hovered: bool) -> None:
         self._list_hovered = hovered
@@ -2578,7 +2743,7 @@ class TodoWindow(Adw.ApplicationWindow):
 
     def _arm_undo(self) -> None:
         if self._undo_source:
-            GLib.source_remove(self._undo_source)
+            self._forget_source(self._undo_source)
             self._undo_source = 0
         now = _now_ms()
         soonest = 0
@@ -2589,13 +2754,17 @@ class TodoWindow(Adw.ApplicationWindow):
             if soonest == 0 or remain < soonest:
                 soonest = remain
         if soonest > 0:
-            self._undo_source = GLib.timeout_add(max(1, soonest), self._on_undo_due)
+            self._undo_source = self._remember_source(
+                GLib.timeout_add(max(1, soonest), self._on_undo_due)
+            )
         self._arm_undo_paint()
 
     def _on_undo_due(self) -> bool:
+        source = self._undo_source
         self._undo_source = 0
+        self._glib_sources.discard(source)
         self._flush_due(False)
-        return GLib.SOURCE_REMOVE
+        return False
 
     def _flush_due(self, force: bool, *, rebuild: bool = True) -> None:
         """Send every cleared row whose shared window has ended, as one queue batch.
@@ -2654,13 +2823,12 @@ class TodoWindow(Adw.ApplicationWindow):
     def _schedule_after_send(self) -> None:
         if self._after_send_idle:
             return
-        self._after_send_idle = GLib.idle_add(self._after_send)
+        self._after_send_idle = self._remember_source(GLib.idle_add(self._after_send))
 
     def _cancel_after_send(self) -> None:
         source = self._after_send_idle
         self._after_send_idle = 0
-        if source:
-            GLib.source_remove(source)
+        self._forget_source(source)
 
     def _after_send(self) -> bool:
         """One list update after a send attempt.
@@ -2670,16 +2838,18 @@ class TodoWindow(Adw.ApplicationWindow):
         instead of freeing it.
         """
 
+        source = self._after_send_idle
         self._after_send_idle = 0
+        self._glib_sources.discard(source)
         if self._failed_row_under_pointer():
-            self._after_send_idle = GLib.timeout_add(50, self._after_send)
-            return GLib.SOURCE_REMOVE
+            self._after_send_idle = self._remember_source(GLib.timeout_add(50, self._after_send))
+            return False
         refresh = self._after_send_refresh
         self._after_send_refresh = False
         if refresh:
             self.refresh()
         self._settle_holds(fill=not refresh)
-        return GLib.SOURCE_REMOVE
+        return False
 
     def _list_hot(self) -> bool:
         return bool(
@@ -2753,12 +2923,14 @@ class TodoWindow(Adw.ApplicationWindow):
 
     def _arm_undo_paint(self) -> None:
         if self._undo_holds and not self._undo_paint:
-            self._undo_paint = GLib.timeout_add(100, self._on_undo_paint)
+            self._undo_paint = self._remember_source(GLib.timeout_add(100, self._on_undo_paint))
 
     def _on_undo_paint(self) -> bool:
         if not self._undo_holds:
+            source = self._undo_paint
             self._undo_paint = 0
-            return GLib.SOURCE_REMOVE
+            self._glib_sources.discard(source)
+            return False
         self._paint_undo_bars()
         now = _now_ms()
         due = bool(due_undo_keys(self._undo_holds, now))
@@ -2769,8 +2941,10 @@ class TodoWindow(Adw.ApplicationWindow):
         if due or (stale and not self._list_hovered):
             self._drop_expired_undos()
         if not self._undo_holds:
+            source = self._undo_paint
             self._undo_paint = 0
-            return GLib.SOURCE_REMOVE
+            self._glib_sources.discard(source)
+            return False
         return GLib.SOURCE_CONTINUE
 
     def _paint_undo_bars(self) -> None:
@@ -2928,9 +3102,49 @@ class TodoWindow(Adw.ApplicationWindow):
             rows.append(self._make_bot_row(bot, text, now))
         self._install_rows(rows, "", clear_missing=False)
 
+    def _clip_busy(self) -> bool:
+        """True while a clip editor is open or one of its callbacks is queued."""
+
+        if (
+            self._clip_close_queued
+            or self._clip_popover_closing
+            or self._clip_close_source
+            or self._clip_drop_source
+        ):
+            return True
+        for popover in (self._clip_popover, self._closed_popover):
+            if popover is None:
+                continue
+            if not _widget_usable(popover):
+                continue
+            try:
+                if popover.get_parent() is not None:
+                    return True
+            except Exception:
+                return True
+        return False
+
+    def _note_clip_rebuild(self) -> None:
+        self._clip_rebuild_deferred = True
+
+    def _defer_clip_rebuild(self) -> bool:
+        if not self._clip_busy():
+            return False
+        self._note_clip_rebuild()
+        return True
+
+    def _flush_clip_rebuild(self) -> None:
+        if self._clip_busy() or not self._clip_rebuild_deferred:
+            return
+        self._clip_rebuild_deferred = False
+        self._reload_clip_now()
+
     def _on_clipboard_changed(self) -> None:
-        if self._page == "clipboard":
-            self._reload_clipboard()
+        if self._page != "clipboard":
+            return
+        if self._defer_clip_rebuild():
+            return
+        self._reload_clipboard()
 
     def _on_clip_search(self, entry: Gtk.SearchEntry) -> None:
         self._clip_query = entry.get_text()
@@ -2938,6 +3152,8 @@ class TodoWindow(Adw.ApplicationWindow):
             self._fill_clipboard_rows()
 
     def _reload_clipboard(self) -> None:
+        if self._defer_clip_rebuild():
+            return
         self._clip_gen += 1
         token = self._clip_gen
         if hasattr(self.client, "load_clipboard"):
@@ -2974,6 +3190,8 @@ class TodoWindow(Adw.ApplicationWindow):
         else:
             self.banner.set_revealed(False)
             self._clip_entries = entries
+        if self._defer_clip_rebuild():
+            return
         self._fill_clipboard_rows()
         self._apply_clip_pending(loaded=True)
 
@@ -3013,6 +3231,8 @@ class TodoWindow(Adw.ApplicationWindow):
         return row
 
     def _fill_clipboard_rows(self) -> None:
+        if self._defer_clip_rebuild():
+            return
         self._sync_clip_tags()
         query = self._clip_query.casefold().strip()
         tag_filter = self._clip_tag
@@ -3326,24 +3546,44 @@ class TodoWindow(Adw.ApplicationWindow):
 
     def _on_clip_popover_closed(self, popover: Gtk.Popover) -> None:
         self._release_popover_tag_editor(popover)
-        reload = self._popover_reload
+        if self._popover_reload:
+            self._note_clip_rebuild()
         self._popover_reload = False
         if self._clip_popover is popover:
             self._clip_popover = None
         if self._clip_context_dialog is popover:
             self._clip_context_dialog = None
+        if _widget_usable(popover):
+            self._closed_popover = popover
+        self._schedule_closed_popover_drop()
 
-        def _drop() -> bool:
+    def _schedule_closed_popover_drop(self) -> None:
+        if self._clip_drop_source:
+            return
+        self._clip_drop_source = self._remember_source(
+            GLib.idle_add(self._drop_closed_popover)
+        )
+
+    def _drop_closed_popover(self) -> bool:
+        """Unparent the editor, then rebuild the list it used to sit on."""
+
+        source = self._clip_drop_source
+        self._clip_drop_source = 0
+        self._glib_sources.discard(source)
+        popover = self._closed_popover
+        self._closed_popover = None
+        if popover is not None and _widget_usable(popover):
             try:
-                if popover.get_parent() is not None:
-                    popover.unparent()
+                parent = popover.get_parent()
             except Exception:
-                return False
-            if reload:
-                self._reload_clip_now()
-            return False
-
-        GLib.idle_add(_drop)
+                parent = None
+            if parent is not None and _widget_usable(parent):
+                try:
+                    popover.unparent()
+                except Exception:
+                    pass
+        self._flush_clip_rebuild()
+        return False
 
     def _close_clip_popover(self) -> None:
         if self._clip_popover_closing:
@@ -3372,18 +3612,31 @@ class TodoWindow(Adw.ApplicationWindow):
         self._release_popover_tag_editor(popover)
 
         def _later() -> bool:
+            source = self._clip_close_source
+            self._clip_close_source = 0
+            self._glib_sources.discard(source)
             self._clip_close_queued = False
-            if self._clip_popover is not popover:
+            current = self._clip_popover
+            if current is None or not _widget_usable(current):
+                self._clip_popover = None
+                self._flush_clip_rebuild()
                 return False
             try:
-                if popover.get_parent() is None:
-                    return False
+                parent = current.get_parent()
             except Exception:
+                self._clip_popover = None
+                self._flush_clip_rebuild()
+                return False
+            if parent is None:
+                self._clip_popover = None
+                self._flush_clip_rebuild()
+                return False
+            if not _widget_usable(parent):
                 return False
             self._close_clip_popover()
             return False
 
-        GLib.idle_add(_later)
+        self._clip_close_source = self._remember_source(GLib.idle_add(_later))
 
     def _prompt_clip_context(
         self,
@@ -3411,19 +3664,38 @@ class TodoWindow(Adw.ApplicationWindow):
         self._send_clip_now(entry, "clip-todo-context", label, target)
         self._close_clip_popover()
 
+    def _cancel_clip_flashes(self) -> None:
+        """Drop copy flashes before a rebuild disposes their labels."""
+
+        self._clip_flash_gen += 1
+        pending = list(self._clip_flash_sources)
+        self._clip_flash_sources.clear()
+        for source in pending:
+            self._forget_source(source)
+
     def _flash_clip_label(self, label: Gtk.Label, message: str) -> None:
         previous = label.get_label()
         label.set_label(message)
+        token = self._clip_flash_gen
+        holder: dict[str, int] = {"source": 0}
 
         def _restore() -> bool:
+            source = holder["source"]
+            self._clip_flash_sources.discard(source)
+            self._glib_sources.discard(source)
+            if token != self._clip_flash_gen or not _widget_usable(label):
+                return False
             try:
+                if label.get_parent() is None:
+                    return False
                 if label.get_label() == message:
                     label.set_label(previous)
             except Exception:
                 return False
             return False
 
-        GLib.timeout_add(2000, _restore)
+        holder["source"] = self._remember_source(GLib.timeout_add(2000, _restore))
+        self._clip_flash_sources.add(holder["source"])
 
     def _on_copy_clip(self, _button: Gtk.Button, entry: dict[str, Any] | str) -> None:
         if isinstance(entry, str):
@@ -3471,6 +3743,8 @@ class TodoWindow(Adw.ApplicationWindow):
             self.client.pin_clipboard(ident, entry.get("pinned") is not True)
         except BridgeError as exc:
             self._toast(friendly_bridge_message(exc))
+            return
+        if self._defer_clip_rebuild():
             return
         self._reload_clip_now()
 
@@ -3533,14 +3807,23 @@ class TodoWindow(Adw.ApplicationWindow):
         entry_id: str | None,
     ) -> None:
         on_save = None
+        on_cancel = None
         if editable and entry_id is not None:
 
             def on_save(body: str, ident: str = entry_id) -> None:
                 self._save_clip_text(ident, body)
 
+            on_cancel = self._queue_clip_popover_close
+
         self._show_clip_popover(
             parent,
-            _build_text_editor(title, text, editable=editable, on_save=on_save),
+            _build_text_editor(
+                title,
+                text,
+                editable=editable,
+                on_save=on_save,
+                on_cancel=on_cancel,
+            ),
         )
 
     def _save_clip_text(self, entry_id: str, text: str) -> None:
@@ -3555,7 +3838,8 @@ class TodoWindow(Adw.ApplicationWindow):
             self._toast("That line could not be edited")
             return
         self._popover_reload = True
-        self._close_clip_popover()
+        self._note_clip_rebuild()
+        self._queue_clip_popover_close()
 
     def _show_clip_tags(
         self,
@@ -3587,6 +3871,8 @@ class TodoWindow(Adw.ApplicationWindow):
         self._queue_clip_popover_close()
 
     def _reload_clip_now(self) -> None:
+        if self._defer_clip_rebuild():
+            return
         self._clip_gen += 1
         if hasattr(self.client, "get_clipboard"):
             try:
@@ -3900,6 +4186,7 @@ class WindowApp(Adw.Application):
         self.window: TodoWindow | None = None
         self._linger = 0
         self._clip_editor: ClipEditorWindow | None = None
+        self._editor_sources: set[int] = set()
 
     def do_startup(self) -> None:
         Adw.Application.do_startup(self)
@@ -3907,6 +4194,42 @@ class WindowApp(Adw.Application):
         action = Gio.SimpleAction.new("select-item", GLib.VariantType.new("s"))
         action.connect("activate", self._on_select_item)
         self.add_action(action)
+
+    def do_shutdown(self) -> None:
+        self._cancel_editor_sources()
+        self._release_linger()
+        window = self.window
+        if window is not None and hasattr(window, "_cancel_tracked_sources"):
+            window._cancel_tracked_sources()
+        Adw.Application.do_shutdown(self)
+
+    def _editor_source_ids(self) -> set[int]:
+        sources = getattr(self, "_editor_sources", None)
+        if not isinstance(sources, set):
+            sources = set()
+            self._editor_sources = sources
+        return sources
+
+    def _track_editor_idle(self, callback: Callable[[], bool]) -> None:
+        holder: dict[str, int] = {"source": 0}
+        sources = self._editor_source_ids()
+
+        def _run() -> bool:
+            sources.discard(holder["source"])
+            return bool(callback())
+
+        holder["source"] = GLib.idle_add(_run)
+        if holder["source"]:
+            sources.add(int(holder["source"]))
+
+    def _cancel_editor_sources(self) -> None:
+        pending = list(self._editor_source_ids())
+        self._editor_sources.clear()
+        for source in pending:
+            try:
+                GLib.source_remove(source)
+            except Exception:
+                continue
 
     def do_activate(self) -> None:
         if self.window is None:
@@ -3933,7 +4256,7 @@ class WindowApp(Adw.Application):
     def _end_linger(self) -> bool:
         self._linger = 0
         self.release()
-        return GLib.SOURCE_REMOVE
+        return False
 
     def _release_linger(self) -> None:
         if not self._linger:
@@ -4052,6 +4375,7 @@ class WindowApp(Adw.Application):
                     text,
                     editable=True,
                     on_save=lambda body: self._save_editor_text(editor, client, ident, body),
+                    on_cancel=lambda: self._close_editor_later(editor),
                 )
             )
             return
@@ -4115,21 +4439,21 @@ class WindowApp(Adw.Application):
             return
 
         def _close_saved() -> bool:
-            if editor._closing:
+            if not _widget_usable(editor) or editor._closing:
                 return False
             editor.finish_saved()
             self._reload_editor_clipboard()
             return False
 
-        GLib.idle_add(_close_saved)
+        self._track_editor_idle(_close_saved)
 
     def _close_editor_later(self, editor: ClipEditorWindow) -> None:
         def _close() -> bool:
-            if not editor._closing:
+            if _widget_usable(editor) and not editor._closing:
                 editor.dismiss()
             return False
 
-        GLib.idle_add(_close)
+        self._track_editor_idle(_close)
 
     def _send_editor_context(
         self,
@@ -4180,7 +4504,37 @@ def apply_runs(
                 buffer.apply_tag(style, start, end)
 
 
+_FAULT_LOG: Any = None
+
+
+def window_fault_log_path() -> Path:
+    """Trace file for a window-process crash. Clipboard text is not written here."""
+
+    raw = os.environ.get("XDG_STATE_HOME")
+    base = Path(raw) if raw else Path.home() / ".local" / "state"
+    return base / "tetherbot" / "window-faults.log"
+
+
+def enable_window_fault_log() -> None:
+    """Append interpreter crashes to the state directory."""
+
+    global _FAULT_LOG
+    path = window_fault_log_path()
+    try:
+        path.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
+        handle = path.open("a", encoding="utf-8")
+    except OSError:
+        return
+    try:
+        faulthandler.enable(file=handle, all_threads=True)
+    except Exception:
+        handle.close()
+        return
+    _FAULT_LOG = handle
+
+
 def main(argv: list[str] | None = None) -> int:
+    enable_window_fault_log()
     args = sys.argv if argv is None else [sys.argv[0], *argv]
     try:
         app = WindowApp()
@@ -4739,15 +5093,58 @@ def _pointer_on_row(row: Gtk.ListBoxRow) -> bool:
 def _row_blocked(window: TodoWindow, row: Gtk.ListBoxRow) -> bool:
     """True when unparenting this row can crash a pointer or key grab."""
 
+    if not _widget_usable(row):
+        return True
     if _pointer_on_row(row):
         return True
     focus = window.get_focus()
-    return focus is not None and focus is not window.list and _widget_inside(focus, row)
+    if focus is not None and focus is not window.list and _widget_inside(focus, row):
+        return True
+    for popover in (window._clip_popover, window._closed_popover):
+        if popover is None or not _widget_usable(popover):
+            continue
+        try:
+            parent = popover.get_parent()
+        except Exception:
+            return True
+        if parent is not None and (parent == row or _widget_inside(parent, row)):
+            return True
+    pending = bool(
+        window._clip_close_source or window._clip_drop_source or window._clip_close_queued
+    )
+    return bool(pending and getattr(row, "clip_id", ""))
+
+
+_DISPOSED: weakref.WeakSet[Any] = weakref.WeakSet()
+
+
+def _mark_disposed(widget: Gtk.Widget) -> None:
+    try:
+        _DISPOSED.add(widget)
+    except TypeError:
+        return
+
+
+def _widget_usable(widget: Gtk.Widget | None) -> bool:
+    """False after dispose or once GTK has started tearing the widget down."""
+
+    if widget is None:
+        return False
+    try:
+        if widget in _DISPOSED:
+            return False
+    except TypeError:
+        pass
+    try:
+        return not bool(widget.in_destruction())
+    except Exception:
+        return False
 
 
 def _dispose_widget(widget: Gtk.Widget) -> None:
     """Drop the Python wrapper's hold on a widget that has left the list."""
 
+    _mark_disposed(widget)
     dispose = getattr(widget, "run_dispose", None)
     if not callable(dispose):
         return

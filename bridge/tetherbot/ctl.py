@@ -255,6 +255,8 @@ def _dispatch(args: argparse.Namespace, context: CtlContext) -> int:
         return _timer(args, context)
     if args.command == "clipboard-debug":
         return _clipboard_debug(context)
+    if args.command == "window-faults":
+        return _window_faults(context)
     raise CtlError("unknown command")
 
 
@@ -442,6 +444,29 @@ def _dbus_timer(method: str, signature: str, args: tuple[object, ...]) -> str:
     return str(unpacked)
 
 
+def window_faults_path(state_dir: Path | None = None) -> Path:
+    """The window process appends fault traces here. The text is not a secret."""
+
+    directory = state_dir if state_dir is not None else default_state_dir()
+    return directory / "window-faults.log"
+
+
+def _window_faults(context: CtlContext) -> int:
+    """Print the window fault log. A missing file prints nothing."""
+
+    path = window_faults_path(context.state_dir)
+    if not path.is_file():
+        return 0
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        raise CtlError("could not read window faults") from exc
+    if text and not text.endswith("\n"):
+        text = f"{text}\n"
+    print(text, file=context.stdout, end="")
+    return 0
+
+
 def _clipboard_debug(context: CtlContext) -> int:
     """Print the last offer's types and decision. The text is not read aloud."""
 
@@ -482,6 +507,7 @@ def _parser() -> argparse.ArgumentParser:
     timer_commands.add_parser("resume")
     timer_commands.add_parser("stop")
     commands.add_parser("clipboard-debug")
+    commands.add_parser("window-faults")
     return parser
 
 

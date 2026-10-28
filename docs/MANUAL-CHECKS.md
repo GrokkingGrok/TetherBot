@@ -2100,7 +2100,7 @@ journalctl --user -b /usr/bin/gnome-shell --no-pager | tail -n 80
 
 ## M137. Make a todo with context sends the text
 
-**Preconditions.** Same webhook as M136. The routine knows `clip-todo-context`. Use the panel menu for this check. The editor at the pointer is M152. The window picker is M140.
+**Preconditions.** Same webhook as M136. The routine knows `clip-todo-context`. Use the panel menu for this check. The menu editor is M164. The window picker is M140.
 
 **Look for.**
 
@@ -2148,7 +2148,7 @@ journalctl --user -b /usr/bin/gnome-shell --no-pager | tail -n 80
 - Cancel closes the popover and the row does not say Sent.
 - Send closes the popover and the row says Sent.
 - Make a todo and Tell me more still send on one click and do not open the popover.
-- In the panel menu, Make a todo with context opens a small window at the pointer. That check is M152.
+- In the panel menu, Make a todo with context opens the window on the Clipboard page and the same popover. That check is M164.
 
 **Reset.** Set Context effort back to Low if you changed it.
 
@@ -2307,8 +2307,8 @@ The roadmap does not add a Paste button. [CLIPBOARD.md](CLIPBOARD.md) says a Pas
 - On the Clipboard page, Edit, Tag, Preview, and Make a todo with context open as popovers pointing at the button you pressed. Preview opens from the row.
 - Clicking away or Escape closes that popover and does not save.
 - Save on Edit and Tag saves. Send on Make a todo with context sends, and the row says Sent. Cancel does not.
-- In the panel menu, Edit, Tag, and Make a todo with context open a small editor. Its top-left is at the mouse, on the screen, and the full window is not opened behind it. If the window was already open, it stays where it was.
-- Escape closes that editor. Moving the pointer off it leaves it open. Save and Send still do that action.
+- In the panel menu, Edit, Tag, and Make a todo with context open the window on the Clipboard page and the same popover. That check is M164.
+- Escape closes the popover. Moving the pointer off it leaves it open. Save and Send still do that action.
 - Make a todo and Tell me more still send on one click.
 
 **Reset.** None.
@@ -2322,7 +2322,7 @@ The roadmap does not add a Paste button. [CLIPBOARD.md](CLIPBOARD.md) says a Pas
 - On the Clipboard page, Tag opens a popover. The top label is New tag. The value field is under that label, and Add is beside the field. The caret is in the field.
 - Applied tags is under that row. With no tags, the muted line says None yet. After a tag is added, the chip sits under Applied tags and None yet is gone.
 - Save and Cancel are at the bottom. Cancel closes without storing. Enter and Add both add the tag. Typing a tag and clicking Save, without Add, stores that tag and closes the popover.
-- The panel menu Tag editor shows the same labels and the same order. Save stores the tag and closes the small editor. The main window stays open.
+- Tag from the panel menu opens the window on the Clipboard page with the same popover. Save stores the tag and closes the popover. The window stays open.
 
 **Reset.** None.
 
@@ -2334,7 +2334,7 @@ The roadmap does not add a Paste button. [CLIPBOARD.md](CLIPBOARD.md) says a Pas
 
 - Open Tag on the Clipboard page. Move the pointer onto the field, off the popover, and back. The popover stays open. Save then stores the tag and the window stays open.
 - A click outside the popover, Escape, Save, and Cancel each close it once.
-- In the panel menu, move the pointer off the small tag editor and back. It stays open. Escape closes it.
+- From the panel menu, Tag opens the window popover. Move the pointer off that popover and back. It stays open. Escape closes it.
 
 **Reset.** None.
 
@@ -2387,11 +2387,51 @@ The roadmap does not add a Paste button. [CLIPBOARD.md](CLIPBOARD.md) says a Pas
 
 **Look for.**
 
-- After that window process is gone, Tag on a clipboard row in the panel menu opens the tag editor.
+- After that window process is gone, Tag on a clipboard row in the panel menu opens the window on the Clipboard page with that row highlighted and the tag popover open.
 - The editor does not say the bridge is not running.
 - Tag from an open TetherBot window still saves.
 
 **Reset.** Open TetherBot again when you want the window back.
+
+## M164. Edit and Tag from the menu open in the window
+
+**Preconditions.** Log out and back in after this version is installed, so the menu loads. Quit the TetherBot window and open it again. Have a pinned text entry and an unpinned text entry in the clipboard history.
+
+**Look for.**
+
+- Take a screenshot of the window with the highlighted row and the popover, for a design check, before the other steps.
+- From the panel menu, Edit, Tag, and Make a todo with context each close the menu, open the TetherBot window on the Clipboard page, scroll that row into view, and open that action's popover on the row's button.
+- The row has an accent background and a 2px accent bar on its left edge while the popover is open. The text stays readable. After the popover closes, the highlight fades over about 1.5 seconds.
+- This works for a pinned entry and an unpinned entry.
+- If the clip is already gone, the Clipboard page opens and the line says That clip is gone.
+
+**Reset.** None.
+
+## M161. Timer shifts add up with the menu open
+
+**Preconditions.** A timer is running. Log out and back in so the menu timer loads.
+
+**Look for.**
+
+- Edit start stays open while you tap `-1m`, `-5m`, `-15m`, and `-30m`. The menu stays open. The taps add up. For example, `-15m`, then `-5m`, then `-1m` three times moves the start 23 minutes earlier.
+- The clock on that row updates after each tap.
+- The start does not move into the future, and it does not move more than 24 hours.
+- Set, the time field, and the close control still leave the edit row the way they do today.
+
+**Reset.** None.
+
+## M169. A Done queued for retry stays in the list
+
+**Preconditions.** Log out and back in so the menu loads. Reopen the TetherBot window. Have a test todo. You can turn Wi-Fi off for this check.
+
+**Look for.**
+
+- Turn Wi-Fi off and press Done on the test todo. The todo stays in the menu and in the window, dimmed, with the line Sending… will retry. It is not shown as an error.
+- Turn Wi-Fi back on. After the send is accepted, the todo leaves the list.
+- If the send is parked or the retries run out, the todo comes back as a normal row and the desktop says Couldn't send Done. Try again.
+- Pressing Done again while the first send is still waiting does not add a second queued send.
+
+**Reset.** Turn Wi-Fi back on.
 
 ## When you are finished
 

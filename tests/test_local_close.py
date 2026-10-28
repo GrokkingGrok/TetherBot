@@ -121,7 +121,9 @@ def test_retry_stays_hidden_and_park_or_reject_shows_the_item(tmp_path: Path):
     assert retrying.api is not None
     retrying.api.call("PerformAction", ("primary/sample-01", "done", "{}"))
     _send(retrying, clock)
-    assert _keys(retrying) == []
+    shown = json.loads(retrying.api.call("GetItems", ("{}",))[0])
+    assert [row["key"] for row in shown] == ["primary/sample-01"]
+    assert shown[0]["local"]["sending"] == "retry"
     assert retrying.api.properties()["QueueLength"] == 1
     row = retrying.queue.snapshot()[0]
     assert row.state == "pending"
@@ -149,6 +151,41 @@ def test_retry_stays_hidden_and_park_or_reject_shows_the_item(tmp_path: Path):
     assert _keys(rejected) == ["primary/sample-01"]
     assert rejected.store.get("primary/sample-01").acted is None
     assert rejected.reason == "re-paste key"
+
+
+def test_pending_done_stays_until_accept_and_returns_after_park(tmp_path: Path):
+    staying, _clock = _boot(tmp_path, Script([500]))
+    assert staying.api is not None and staying.queue is not None
+    action_id = staying.api.call("PerformAction", ("primary/sample-01", "done", "{}"))[0]
+    assert staying.api.call("PerformAction", ("primary/sample-01", "done", "{}"))[0] == action_id
+    assert len([row for row in staying.queue.snapshot() if row.action == "done"]) == 1
+    shown = json.loads(staying.api.call("GetItems", ("{}",))[0])
+    assert shown[0]["key"] == "primary/sample-01"
+    assert shown[0]["local"]["sending"] == "retry"
+
+    accepted, accepted_clock = _boot(tmp_path / "accept", Script([200]))
+    assert accepted.api is not None
+    accepted.api.call("PerformAction", ("primary/sample-01", "done", "{}"))
+    assert _keys(accepted) == ["primary/sample-01"]
+    _send(accepted, accepted_clock)
+    assert _keys(accepted) == []
+
+    parked, parked_clock = _boot(tmp_path / "park", Script([HttpOutcome("timeout")] * 2))
+    assert parked.api is not None and parked.queue is not None
+    first = parked.api.call("PerformAction", ("primary/sample-01", "done", "{}"))[0]
+    _send(parked, parked_clock)
+    parked_clock.moment = NOW + timedelta(minutes=3)
+    parked.tick_webhook()
+    assert parked.queue.snapshot()[0].state == "parked"
+    returned = json.loads(parked.api.call("GetItems", ("{}",))[0])
+    assert [row["key"] for row in returned] == ["primary/sample-01"]
+    assert returned[0]["local"].get("sending") != "retry"
+    second = parked.api.call("PerformAction", ("primary/sample-01", "done", "{}"))[0]
+    assert second != first
+    pending = [
+        row for row in parked.queue.snapshot() if row.action == "done" and row.state == "pending"
+    ]
+    assert len(pending) == 1
 
 
 def test_accept_resolves_and_a_duplicate_stays_resolved(tmp_path: Path):

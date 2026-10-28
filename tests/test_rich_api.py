@@ -184,7 +184,10 @@ def test_undo_drops_a_queued_done_and_reopens_after_send(tmp_path: Path):
     _load(daemon, _todo("todo-01", title="Send the note"))
     key = "primary/todo-01"
     action_id = daemon.api.call("PerformAction", (key, "done", "{}"))[0]
-    assert _keys(daemon) == []
+    shown = json.loads(daemon.api.call("GetItems", ("{}",))[0])
+    assert [row["key"] for row in shown] == [key]
+    assert shown[0]["local"]["sending"] == "retry"
+    assert [row.action_id for row in daemon.queue.snapshot()] == [action_id]
     dropped = json.loads(daemon.api.call("Undo", (key,))[0])
     assert dropped == {"result": "dropped"}
     assert daemon.queue.snapshot() == ()

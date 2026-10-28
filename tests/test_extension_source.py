@@ -390,15 +390,25 @@ def test_the_panel_menu_loads_tetherbot_icons_from_the_extension():
     assert "icon_size: 58" in text
     friendly = text.split("    _friendlyBridgeMessage(", 1)[1].split("\n    _", 1)[0]
     assert "looks like a secret" in friendly
-    assert "get_pointer" in text
-    assert "clipEditorFrame" in text
+    assert "get_pointer" not in text
+    assert "clipEditorFrame" not in text
+    assert "_armClipEditorWatch" not in text
+    assert "_watchClipEditor" not in text
     assert "isClipEditor" in text
-    watch = text.split("    _watchClipEditor(", 1)[1].split("\n    _", 1)[0]
-    assert "move_frame(true, next.x, next.y)" in watch
-    assert "move_resize_frame" not in watch
     assert "getWorkAreaForMonitor" in text
+    opened = text.split("    _openClipAction(", 1)[1].split("\n    _", 1)[0]
+    assert "_callOpenWindow" in opened
+    assert "clip-edit" in text
+    assert "clip-tag" in text
+    assert "clip-context" in text
+    adjust = text.split("    _adjustStart(", 1)[1].split("\n    _", 1)[0]
+    assert "_editingStart = false" not in adjust
+    assert "_editingStart = true" in adjust
+    shift = text.split("    _shiftButton(", 1)[1].split("\n    _", 1)[0]
+    assert "button-release-event" in shift
+    assert "EVENT_STOP" in shift
     disable = text.split("    disable() {", 1)[1].split("\n    _buildMenu", 1)[0]
-    assert "_forgetClipEditorWatch()" in disable
+    assert "_forgetClipEditorWatch()" not in disable
     assert "This note looks like a secret, so it wasn't sent." in friendly
     assert "The bridge did not answer." in friendly
     send = text.split("    _sendClipboard(", 1)[1].split("\n    _", 1)[0]
@@ -417,6 +427,8 @@ def test_the_panel_menu_loads_tetherbot_icons_from_the_extension():
     assert "width: 58px" in css
     assert ".tetherbot-dimmed" in css
     assert "opacity: 0.45" in css
+    assert ".tetherbot-sending" in css
+    assert "opacity: 0.7" in css
 
 
 def test_clipboard_send_icons_are_filled_and_credited():

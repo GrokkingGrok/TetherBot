@@ -117,6 +117,14 @@ class ActionQueue:
         self._actions[chosen] = queued
         return chosen
 
+    def pending_id(self, item: str, action: str) -> str | None:
+        """The open action id for this item and action, if one is still pending."""
+
+        for row in self._actions.values():
+            if row.state == "pending" and row.item == item and row.action == action:
+                return row.action_id
+        return None
+
     def next_batch(
         self,
         now: datetime,

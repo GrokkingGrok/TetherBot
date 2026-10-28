@@ -415,6 +415,13 @@ class WebhookSender:
         for action_id in ids:
             ctx.queue.note(action_id, detail)
             ctx.api.emit_action_result(action_id, "queued_retry", detail)
+        keys = [
+            action.item
+            for action in ctx.queue.snapshot()
+            if action.action_id in ids and action.item
+        ]
+        if keys:
+            ctx.api.emit_items_changed([], keys, [])
         del bot
 
     def _stop_bot(self, ctx: Any, bot: str, plan: Plan) -> None:

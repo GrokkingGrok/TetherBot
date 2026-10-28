@@ -220,6 +220,7 @@ class BridgeApi:
         zone = _chip_zone(now)
         colors = self._daemon.store.tag_color_map()
         hidden = self._hidden_bots()
+        pending_done = _pending_done_keys(self._daemon.queue)
         rows = []
         for item in self._daemon.store.items():
             if item.bot in hidden:
@@ -227,7 +228,7 @@ class BridgeApi:
             recent = done_seconds is not None and _recently_done(item, now, done_seconds)
             if item.status != "open" and not recent:
                 continue
-            if (item.acted or item.resolved) and not recent:
+            if (item.acted or item.resolved) and not recent and item.key not in pending_done:
                 continue
             if not include_snoozed and _snoozed(item.snoozed_until, now):
                 continue
@@ -259,6 +260,7 @@ class BridgeApi:
                         colors,
                         totals,
                         self._display_name(item.bot),
+                        sending="retry" if item.key in pending_done else None,
                     )
                     for item in rows
                 ]
@@ -271,6 +273,7 @@ class BridgeApi:
             raise ServiceError(NOT_FOUND, "item not found")
         now = self._daemon.now()
         zone = _chip_zone(now)
+        sending = "retry" if key in _pending_done_keys(self._daemon.queue) else None
         return (
             _dumps(
                 _item_payload(
@@ -280,6 +283,7 @@ class BridgeApi:
                     self._daemon.store.tag_color_map(),
                     self._tracked(),
                     self._display_name(item.bot),
+                    sending=sending,
                 )
             ),
         )
@@ -1156,6 +1160,10 @@ class BridgeApi:
         args: dict[str, Any],
         action_id: str | None = None,
     ) -> str:
+        if action == "done":
+            existing = self._daemon.queue.pending_id(item, "done")
+            if existing:
+                return existing
         try:
             chosen = self._daemon.queue.enqueue(
                 bot=bot,
@@ -1615,6 +1623,16 @@ def _timer_error(exc: TimerError) -> ServiceError:
     return ServiceError(names.get(exc.code, FAILED), str(exc))
 
 
+def _pending_done_keys(queue: Any) -> set[str]:
+    """Items whose ``done`` action is still pending, including a retry."""
+
+    return {
+        action.item
+        for action in queue.snapshot()
+        if action.state == "pending" and action.action == "done" and action.item
+    }
+
+
 def _item_payload(
     item: Any,
     now: datetime,
@@ -1622,6 +1640,7 @@ def _item_payload(
     colors: Mapping[str, str],
     totals: Mapping[str, int] | None = None,
     display_name: str = "",
+    sending: str | None = None,
 ) -> dict[str, Any]:
     payload = item.protocol_dict()
     payload["key"] = item.key
@@ -1641,6 +1660,8 @@ def _item_payload(
         local["acted"] = dict(item.acted)
     if item.resolved:
         local["resolved"] = item.resolved
+    if sending:
+        local["sending"] = sending
     payload["local"] = local
     payload["redacted_fields"] = list(item.redacted_fields)
     return payload

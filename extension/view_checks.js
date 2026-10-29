@@ -52,6 +52,11 @@ import {
     startServiceCall,
     startWindowCall,
     clipOpenPlan,
+    openWindowKey,
+    openWindowDispatch,
+    openWindowResult,
+    windowServicePlan,
+    OPEN_WINDOW_ERROR,
     todoFilter,
     undoCall,
     undoFraction,
@@ -211,6 +216,29 @@ export function runViewChecks() {
         'one retry opens');
     assert(clipOpenPlan({bridgeOwned: true, windowOwned: true, retried: false}) === 'open',
         'an owned window opens');
+    assert(openWindowKey(undefined) === null, 'a call with no intent is ignored');
+    assert(openWindowKey(null) === '', 'null opens the main window');
+    assert(openWindowKey('') === '', 'an empty key opens the main window');
+    assert(openWindowCall(openWindowKey('')).args[0] === '',
+        'Open TetherBot uses the main-window key');
+    assert(openWindowKey('bots') === 'bots', 'a page key is kept');
+    assert(openWindowDispatch({inFlight: false}) === 'send', 'the first open is sent');
+    assert(openWindowDispatch({inFlight: true}) === 'queue', 'a second press waits');
+    assert(windowServicePlan({owned: false, activating: false}) === 'start',
+        'a missing window starts');
+    assert(windowServicePlan({owned: true, activating: false}) === 'skip',
+        'an owned window is not started again');
+    assert(windowServicePlan({owned: false, activating: true}) === 'skip',
+        'one activation is enough');
+    assert(openWindowResult({opened: true, bridgeOwned: true, attempt: 0}) === 'done',
+        'an open window is done');
+    assert(openWindowResult({opened: false, bridgeOwned: false, attempt: 0}) === 'done',
+        'a dead bridge stays quiet');
+    assert(openWindowResult({opened: false, bridgeOwned: true, attempt: 0}) === 'retry',
+        'one failure tries again');
+    assert(openWindowResult({opened: false, bridgeOwned: true, attempt: 1}) === 'error',
+        'the second failure is the menu line');
+    assert(OPEN_WINDOW_ERROR === "Couldn't open TetherBot.", 'open failure line');
 
     const menu = menuModel({
         running: true,

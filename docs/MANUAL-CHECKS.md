@@ -2433,6 +2433,52 @@ The roadmap does not add a Paste button. [CLIPBOARD.md](CLIPBOARD.md) says a Pas
 
 **Reset.** Turn Wi-Fi back on.
 
+## M170. Open TetherBot opens the window
+
+**Preconditions.** Log out and back in after this version is installed, so the menu loads. Have one text clip in the clipboard history.
+
+**Look for.**
+
+- With the TetherBot window closed, Open TetherBot in the panel menu, five times. Each press opens the window.
+- With the window already open, Open TetherBot five times. Each press raises that same window.
+
+**Reset.** None.
+
+## M171. A later Edit from the menu still opens
+
+**Preconditions.** Same login as M170. The window can be closed.
+
+**Look for.**
+
+- Edit on a clipboard row in the panel menu opens the window on the Clipboard page, highlights that row, and opens Edit.
+- Edit again, twice more. Each press does that again.
+- The menu shows Couldn't open TetherBot only when the window cannot be opened.
+
+**Reset.** None.
+
+## M172. Tag on an open window stays responsive
+
+**Preconditions.** Same login as M170. Leave the TetherBot window open.
+
+**Look for.**
+
+- From the panel menu, Tag, then Edit, then Make a todo with context, each twice.
+- Each press highlights that row and opens that popover. The window does not freeze. You can still click in it.
+
+**Reset.** None.
+
+## M173. Repeated menu opens stay on one window
+
+**Preconditions.** Same login as M170.
+
+**Look for.**
+
+- Close the TetherBot window. Edit from the panel menu three times in a row.
+- Each press opens the window, highlights the row, and opens Edit. The window does not freeze.
+- One TetherBot window is open afterward.
+
+**Reset.** None.
+
 ## When you are finished
 
 ```bash

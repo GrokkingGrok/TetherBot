@@ -94,6 +94,10 @@ TetherBot is pre-alpha. Check items off as they land. Design detail is in [SPEC.
 - [ ] Manual check M175: Tag and Edit from the menu wait until the row is ready, close the previous popover, and leave the window responsive. A missing clip says That clip is gone. The steps are in [MANUAL-CHECKS.md](MANUAL-CHECKS.md). It has not been run on the desktop yet. It needs a log out.
 - [ ] Manual check M176: one window service is running after menu opens. Restart window, or `make restart-window`, replaces a wedged window. The menu says TetherBot window restarted. The steps are in [MANUAL-CHECKS.md](MANUAL-CHECKS.md). It has not been run on the desktop yet. It needs a log out.
 - [ ] Manual check M177: `journalctl --user` shows each menu open and each clip popover. The steps are in [MANUAL-CHECKS.md](MANUAL-CHECKS.md). It has not been run on the desktop yet. It needs a log out.
+- [ ] Manual check M180: menu Tag and menu Edit open the popover on the first press when the window is closed. The steps are in [MANUAL-CHECKS.md](MANUAL-CHECKS.md). It has not been run on the desktop yet. It needs a log out.
+- [ ] Manual check M181: with the window open on Clipboard, menu Tag and menu Edit open the popover every time and the window stays responsive. The steps are in [MANUAL-CHECKS.md](MANUAL-CHECKS.md). It has not been run on the desktop yet. It reopens the window.
+- [ ] Manual check M182: five quick menu Tag presses leave one popover, and menu Edit while a Tag popover is open switches to Edit. Copying while a popover is open does not freeze the window. The steps are in [MANUAL-CHECKS.md](MANUAL-CHECKS.md). It has not been run on the desktop yet. It reopens the window.
+- [ ] Manual check M183: the window journal has no `Finalizing GtkButton` line for a popover, and no `clip popup skipped` line without a later popup or give-up. The steps are in [MANUAL-CHECKS.md](MANUAL-CHECKS.md). It has not been run on the desktop yet. It reopens the window. Re-run M171–M173 on this build.
 
 ## v0.2 — early adopters
 

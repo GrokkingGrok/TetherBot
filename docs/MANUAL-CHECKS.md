@@ -2526,6 +2526,51 @@ The roadmap does not add a Paste button. [CLIPBOARD.md](CLIPBOARD.md) says a Pas
 
 **Reset.** None.
 
+## M180. The first menu press opens the popover
+
+**Preconditions.** Same login as M174. The window can be closed. Have one text clip.
+
+**Look for.**
+
+- With the window closed, press Tag from the menu. The window opens, the row highlights, and the tag popover opens on that press.
+- Close the popover and the window. Press Edit from the menu. The window opens and the edit popover opens on that press.
+
+**Reset.** Leave the window open on Clipboard.
+
+## M181. Menu Tag and Edit keep working
+
+**Preconditions.** Same login as M180. Leave the window open on Clipboard.
+
+**Look for.**
+
+- Press Tag, close the popover, and press Edit. Do that several times. The matching popover opens every time.
+- After each open, type in the editor, scroll the list, and switch tabs. The window stays responsive.
+
+**Reset.** Leave the window open on Clipboard.
+
+## M182. One popover, then a switch, then a copy
+
+**Preconditions.** Same login as M180. Leave the window open on Clipboard. Have two text clips.
+
+**Look for.**
+
+- Press Tag five times quickly on one clip. One popover is open. The window does not freeze.
+- With that Tag popover open, press Edit on a different clip. Tag closes. Edit opens.
+- With a popover open, copy something new. The window does not freeze.
+
+**Reset.** Leave the window open.
+
+## M183. The journal shows the popup or the give-up
+
+**Preconditions.** Same login as M180. Re-run M171, M172, and M173 on this build.
+
+**Look for.**
+
+- `journalctl --user -u tetherbot-window.service --since "-10 min"` has no `Finalizing GtkButton` line that mentions `GtkPopover`.
+- That journal has no `clip popup skipped` line unless a later line for the same open says `clip popup` or `gave up`.
+
+**Reset.** None.
+
 ## When you are finished
 
 ```bash

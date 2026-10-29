@@ -134,22 +134,102 @@ export function openWindowDispatch({inFlight}) {
     return inFlight ? 'queue' : 'send';
 }
 
-export function windowServicePlan({owned, activating}) {
-    if (owned || activating)
+export function windowServicePlan({owned, activating, started, force}) {
+    if (force)
+        return activating ? 'skip' : 'start';
+    if (owned || activating || started)
         return 'skip';
     return 'start';
 }
 
-// A failed open is tried once more. The next failure is the menu line.
-export function openWindowResult({opened, bridgeOwned, attempt}) {
+// A failed open is tried once more. A timeout asks the window before that retry.
+export function openWindowResult({opened, bridgeOwned, attempt, timedOut}) {
     if (opened || !bridgeOwned)
         return 'done';
+    if (timedOut)
+        return 'ping';
     if (Number(attempt) < 1)
         return 'retry';
     return 'error';
 }
 
+export function pingResult({answered, restarted}) {
+    if (answered)
+        return 'retry';
+    if (restarted)
+        return 'error';
+    return 'restart';
+}
+
+export function dbusTimedOut(error) {
+    const text = String(error && error.message ? error.message : error || '').toLowerCase();
+    return text.includes('timeout');
+}
+
+// Presses that arrive before the owner reply collapse to the newest key.
+export function planQuickOpens(keys, {owned = false} = {}) {
+    let queued = null;
+    let key = null;
+    let inFlight = 0;
+    let maxInFlight = 0;
+    for (const next of keys || []) {
+        if (inFlight) {
+            queued = next;
+            continue;
+        }
+        inFlight = 1;
+        maxInFlight = 1;
+        key = next;
+    }
+    const chosen = queued == null ? key : queued;
+    return {
+        activations: !owned && chosen != null ? 1 : 0,
+        maxInFlight,
+        sent: chosen == null ? [] : [chosen],
+    };
+}
+
+export function claimNewestOpen(current, queued) {
+    if (!queued || queued.key == null || queued.key === current)
+        return {key: current, close: null, replaced: false};
+    return {key: queued.key, close: queued.close, replaced: true};
+}
+
+export const WINDOW_SYSTEMD_UNIT = 'tetherbot-window.service';
+
+export function templatedWindowUnits() {
+    return [
+        'app-io.github.grokkinggrok.TetherBot@0.service',
+        'app-io.github.grokkinggrok.TetherBot@1.service',
+        'app-glib-io.github.grokkinggrok.TetherBot@0.service',
+        'app-glib-io.github.grokkinggrok.TetherBot@1.service',
+    ];
+}
+
+export function isTemplatedWindowUnit(name) {
+    return typeof name === 'string' &&
+        name.includes('TetherBot') &&
+        name.includes('@') &&
+        !name.includes('TetherBot1');
+}
+
+export function extraWindowUnits(units, ownerPid) {
+    const names = [];
+    const owner = Number(ownerPid) || 0;
+    for (const unit of units || []) {
+        if (!unit || !isTemplatedWindowUnit(unit.name))
+            continue;
+        const pid = Number(unit.pid) || 0;
+        if (owner && pid === owner)
+            continue;
+        names.push(unit.name);
+    }
+    return names;
+}
+
 export const OPEN_WINDOW_ERROR = "Couldn't open TetherBot.";
+export const WINDOW_RESTARTED = 'TetherBot window restarted.';
+export const OPEN_TIMEOUT_MS = 2000;
 
 export const PROXY_METHODS = [
     'GetItemsRemote',

@@ -93,8 +93,14 @@ def test_install_and_uninstall_are_idempotent(tmp_path: Path):
     )
     window_bin = home / ".local" / "bin" / "tetherbot-window"
     assert "Name=io.github.grokkinggrok.TetherBot" in window_dbus
+    assert "SystemdService=tetherbot-window.service" in window_dbus
     assert f"Exec={window_bin}" in window_dbus
     assert "@TETHERBOT_WINDOW@" not in window_dbus
+    window_unit = (home / ".config" / "systemd" / "user" / "tetherbot-window.service").read_text(
+        encoding="utf-8"
+    )
+    assert "BusName=io.github.grokkinggrok.TetherBot" in window_unit
+    assert "%h/.local/bin/tetherbot-window" in window_unit
     desktop = (
         home / ".local" / "share" / "applications" / "io.github.grokkinggrok.TetherBot.desktop"
     ).read_text(encoding="utf-8")
@@ -144,6 +150,7 @@ def test_install_and_uninstall_are_idempotent(tmp_path: Path):
     subprocess.run(["bash", str(uninstall)], check=True, env=env, timeout=60)
     assert not (home / ".local" / "bin" / "tetherbot").exists()
     assert not (home / ".local" / "bin" / "tetherbot-window").exists()
+    assert not (home / ".config" / "systemd" / "user" / "tetherbot-window.service").exists()
     assert not (dbus_path / "io.github.grokkinggrok.TetherBot.service").exists()
     assert not (
         home / ".local" / "share" / "applications" / "io.github.grokkinggrok.TetherBot.desktop"

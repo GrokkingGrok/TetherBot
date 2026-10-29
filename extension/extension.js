@@ -53,7 +53,14 @@ import {
     openWindowDispatch,
     openWindowResult,
     windowServicePlan,
+    pingResult,
+    dbusTimedOut,
+    claimNewestOpen,
+    WINDOW_SYSTEMD_UNIT,
+    templatedWindowUnits,
     OPEN_WINDOW_ERROR,
+    WINDOW_RESTARTED,
+    OPEN_TIMEOUT_MS,
     mergeTodoSearch,
     notificationModel,
     botRowCall,
@@ -168,6 +175,11 @@ export default class TetherBotExtension extends Extension {
         this._openInFlight = false;
         this._openQueued = null;
         this._openError = '';
+        this._openNotice = '';
+        this._openStarted = false;
+        this._openRestarted = false;
+        this._openPid = 0;
+        this._openBegan = 0;
         this._activatePending = false;
         this._activateRetried = false;
         this._activateSource = 0;
@@ -305,6 +317,11 @@ export default class TetherBotExtension extends Extension {
         this._openInFlight = false;
         this._openQueued = null;
         this._openError = '';
+        this._openNotice = '';
+        this._openStarted = false;
+        this._openRestarted = false;
+        this._openPid = 0;
+        this._openBegan = 0;
         this._dropProxy();
         if (this._source) {
             this._source.destroy();
@@ -560,6 +577,9 @@ export default class TetherBotExtension extends Extension {
         const settings = new PopupMenu.PopupMenuItem('Settings');
         settings.connect('activate', () => this.openPreferences());
         this._indicator.menu.addMenuItem(settings);
+        const restart = new PopupMenu.PopupMenuItem('Restart window');
+        restart.connect('activate', () => this._restartWindowFromMenu());
+        this._indicator.menu.addMenuItem(restart);
         this._openItem = new PopupMenu.PopupMenuItem('Open TetherBot');
         this._openItem.connect('activate', () => this._openWindow(''));
         this._indicator.menu.addMenuItem(this._openItem);
@@ -911,7 +931,7 @@ export default class TetherBotExtension extends Extension {
             timer: this._timer,
             assigning: this._assigning,
         });
-        const banner = this._running && this._openError ? this._openError : model.banner;
+        const banner = this._openError || this._openNotice || model.banner;
         this._banner.label.text = banner;
         this._banner.visible = Boolean(banner);
         this._syncTick(view);
@@ -1917,12 +1937,14 @@ export default class TetherBotExtension extends Extension {
         this._render();
     }
 
-    _activateWindowService(done) {
+    _activateWindowService(done, force) {
         const plan = windowServicePlan({
             owned: this._windowOwned === true,
             activating: this._windowActivating === true,
+            started: this._openStarted === true,
+            force: force === true,
         });
-        console.debug(`TetherBot: window service ${plan}`);
+        console.debug(`TetherBot: window service ${plan} pid ${this._openPid}`);
         if (plan === 'skip') {
             if (this._enabled && done)
                 done();
@@ -1941,6 +1963,7 @@ export default class TetherBotExtension extends Extension {
             return;
         }
         this._windowActivating = true;
+        this._openStarted = true;
         const finish = () => {
             this._windowActivating = false;
             if (this._enabled && done)
@@ -1955,13 +1978,244 @@ export default class TetherBotExtension extends Extension {
                 new GLib.Variant('(su)', [call.name, call.flags]),
                 new GLib.VariantType('(u)'),
                 Gio.DBusCallFlags.NONE,
-                5000,
+                OPEN_TIMEOUT_MS,
                 null,
                 () => finish()
             );
         } catch {
             finish();
         }
+    }
+
+    _systemd(method, parameters, done) {
+        let session;
+        try {
+            session = Gio.DBus.session;
+        } catch {
+            session = null;
+        }
+        if (!session) {
+            done();
+            return;
+        }
+        try {
+            session.call(
+                'org.freedesktop.systemd1',
+                '/org/freedesktop/systemd1',
+                'org.freedesktop.systemd1.Manager',
+                method,
+                parameters,
+                null,
+                Gio.DBusCallFlags.NONE,
+                OPEN_TIMEOUT_MS,
+                null,
+                (connection, result) => {
+                    try {
+                        connection.call_finish(result);
+                    } catch (error) {
+                        console.debug(`TetherBot: ${method} ${error && error.message ? error.message : error}`);
+                    }
+                    done();
+                }
+            );
+        } catch (error) {
+            console.debug(`TetherBot: ${method} ${error && error.message ? error.message : error}`);
+            done();
+        }
+    }
+
+    _stopWindowUnit(name, done) {
+        this._systemd('KillUnit', new GLib.Variant('(ssi)', [name, 'all', 9]), () => {
+            this._systemd('ResetFailedUnit', new GLib.Variant('(s)', [name]), () => done());
+        });
+    }
+
+    _restartWindowService(done) {
+        const units = [WINDOW_SYSTEMD_UNIT, ...templatedWindowUnits()];
+        const stopAt = index => {
+            if (!this._enabled) {
+                if (done)
+                    done();
+                return;
+            }
+            if (index >= units.length) {
+                this._openStarted = false;
+                this._activateWindowService(done, true);
+                return;
+            }
+            this._stopWindowUnit(units[index], () => stopAt(index + 1));
+        };
+        stopAt(0);
+    }
+
+    _restartWindowFromMenu() {
+        this._closeForOpen('main');
+        this._openNotice = WINDOW_RESTARTED;
+        this._openError = '';
+        this._render();
+        console.debug('TetherBot: Restart window');
+        this._restartWindowService(() => {
+            console.debug(`TetherBot: window restarted pid ${this._openPid}`);
+        });
+    }
+
+    _readWindowOwner(done) {
+        let session;
+        try {
+            session = Gio.DBus.session;
+        } catch {
+            session = null;
+        }
+        if (!session) {
+            done({owned: this._windowOwned === true, pid: this._openPid || 0});
+            return;
+        }
+        try {
+            session.call(
+                'org.freedesktop.DBus',
+                '/org/freedesktop/DBus',
+                'org.freedesktop.DBus',
+                'NameHasOwner',
+                new GLib.Variant('(s)', [WINDOW_APP_ID]),
+                new GLib.VariantType('(b)'),
+                Gio.DBusCallFlags.NONE,
+                1000,
+                null,
+                (connection, result) => {
+                    let owned;
+                    try {
+                        const reply = connection.call_finish(result);
+                        const unpacked = reply.deep_unpack();
+                        owned = unpacked === true || (Array.isArray(unpacked) && unpacked[0] === true);
+                    } catch {
+                        owned = this._windowOwned === true;
+                    }
+                    this._windowOwned = owned;
+                    if (!owned) {
+                        this._openPid = 0;
+                        done({owned: false, pid: 0});
+                        return;
+                    }
+                    this._readWindowPid(connection, done);
+                }
+            );
+        } catch {
+            done({owned: this._windowOwned === true, pid: this._openPid || 0});
+        }
+    }
+
+    _readWindowPid(connection, done) {
+        const finishPid = pid => {
+            this._openPid = pid;
+            done({owned: true, pid});
+        };
+        try {
+            connection.call(
+                'org.freedesktop.DBus',
+                '/org/freedesktop/DBus',
+                'org.freedesktop.DBus',
+                'GetNameOwner',
+                new GLib.Variant('(s)', [WINDOW_APP_ID]),
+                new GLib.VariantType('(s)'),
+                Gio.DBusCallFlags.NONE,
+                1000,
+                null,
+                (bus, result) => {
+                    let unique;
+                    try {
+                        const reply = bus.call_finish(result);
+                        const unpacked = reply.deep_unpack();
+                        unique = Array.isArray(unpacked) ? String(unpacked[0]) : String(unpacked || '');
+                    } catch {
+                        finishPid(0);
+                        return;
+                    }
+                    if (!unique) {
+                        finishPid(0);
+                        return;
+                    }
+                    try {
+                        bus.call(
+                            'org.freedesktop.DBus',
+                            '/org/freedesktop/DBus',
+                            'org.freedesktop.DBus',
+                            'GetConnectionUnixProcessID',
+                            new GLib.Variant('(s)', [unique]),
+                            new GLib.VariantType('(u)'),
+                            Gio.DBusCallFlags.NONE,
+                            1000,
+                            null,
+                            (same, pidResult) => {
+                                try {
+                                    const reply = same.call_finish(pidResult);
+                                    const unpacked = reply.deep_unpack();
+                                    const pid = Array.isArray(unpacked) ? unpacked[0] : unpacked;
+                                    finishPid(Number(pid) || 0);
+                                } catch {
+                                    finishPid(0);
+                                }
+                            }
+                        );
+                    } catch {
+                        finishPid(0);
+                    }
+                }
+            );
+        } catch {
+            finishPid(0);
+        }
+    }
+
+    _pingWindow(done) {
+        let session;
+        try {
+            session = Gio.DBus.session;
+        } catch {
+            session = null;
+        }
+        if (!session) {
+            done(false);
+            return;
+        }
+        let parameters;
+        try {
+            const empty = GLib.Variant.new_array(new GLib.VariantType('v'), []);
+            parameters = new GLib.Variant('(sava{sv})', ['ping', empty, {}]);
+        } catch {
+            done(false);
+            return;
+        }
+        try {
+            session.call(
+                WINDOW_APP_ID,
+                '/io/github/grokkinggrok/TetherBot',
+                'org.freedesktop.Application',
+                'ActivateAction',
+                parameters,
+                null,
+                Gio.DBusCallFlags.NONE,
+                OPEN_TIMEOUT_MS,
+                null,
+                (connection, result) => {
+                    try {
+                        connection.call_finish(result);
+                        done(true);
+                    } catch (error) {
+                        console.debug(`TetherBot: Ping ${error && error.message ? error.message : error}`);
+                        done(false);
+                    }
+                }
+            );
+        } catch (error) {
+            console.debug(`TetherBot: Ping ${error && error.message ? error.message : error}`);
+            done(false);
+        }
+    }
+
+    _logOpen(key, plan, pid, attempt, result, duration) {
+        console.debug(
+            `TetherBot: OpenWindow key ${JSON.stringify(key)} plan ${plan} pid ${pid} attempt ${attempt} result ${result} duration ${duration}`
+        );
     }
 
     _closeForOpen(close) {
@@ -1978,74 +2232,160 @@ export default class TetherBotExtension extends Extension {
         if (openKey === null)
             return;
         const step = openWindowDispatch({inFlight: this._openInFlight === true});
-        console.debug(`TetherBot: OpenWindow ${JSON.stringify(openKey)} step ${step}`);
+        this._logOpen(openKey, step, this._openPid, 0, step, 0);
         if (step === 'queue') {
             this._openQueued = {key: openKey, close};
             this._closeForOpen(close);
             return;
         }
         if (this._running !== true) {
-            console.debug(`TetherBot: OpenWindow ${JSON.stringify(openKey)} plan bridge-down`);
+            this._logOpen(openKey, 'bridge-down', this._openPid, 0, 'bridge-down', 0);
             return;
         }
         this._closeForOpen(close);
+        this._openBegan = Date.now();
         this._startOpen(openKey, close, 0);
+    }
+
+    _claimOpen(key, close) {
+        const claimed = claimNewestOpen(key, this._openQueued);
+        if (!claimed.replaced)
+            return {key, close};
+        this._openQueued = null;
+        this._logOpen(key, 'drop', this._openPid, 0, 'stale', 0);
+        return {key: claimed.key, close: claimed.close};
     }
 
     _startOpen(key, close, attempt) {
         this._openInFlight = true;
-        const plan = clipOpenPlan({
-            bridgeOwned: this._running === true,
-            windowOwned: this._windowOwned === true,
-            retried: attempt > 0,
+        const chosen = this._claimOpen(key, close);
+        const began = this._openBegan || Date.now();
+        this._readWindowOwner(owner => {
+            if (!this._enabled) {
+                this._settleOpen(false);
+                return;
+            }
+            const latest = this._claimOpen(chosen.key, chosen.close);
+            const plan = clipOpenPlan({
+                bridgeOwned: this._running === true,
+                windowOwned: owner.owned === true,
+                retried: attempt > 0,
+            });
+            const start = windowServicePlan({
+                owned: owner.owned === true,
+                activating: this._windowActivating === true,
+                started: this._openStarted === true,
+            });
+            this._logOpen(latest.key, plan, owner.pid, attempt, start, Date.now() - began);
+            if (plan === 'bridge-down') {
+                this._settleOpen(false);
+                return;
+            }
+            const coldStart = plan === 'activate-window' || attempt > 0;
+            const shouldStart = start === 'start' && coldStart;
+            if (shouldStart) {
+                this._activateWindowService(() => {
+                    this._sendOpen(latest.key, latest.close, attempt, began);
+                });
+                return;
+            }
+            this._sendOpen(latest.key, latest.close, attempt, began);
         });
-        console.debug(
-            `TetherBot: OpenWindow ${JSON.stringify(key)} plan ${plan} attempt ${attempt}`
-        );
-        if (plan === 'bridge-down') {
-            this._settleOpen(false);
-            return;
-        }
-        const start = windowServicePlan({
-            owned: this._windowOwned === true,
-            activating: this._windowActivating === true,
-        });
-        const retryStart = attempt > 0 && start === 'start';
-        if (plan === 'activate-window' || retryStart) {
-            this._activateWindowService(() => this._sendOpen(key, close, attempt));
-            return;
-        }
-        this._sendOpen(key, close, attempt);
     }
 
-    _sendOpen(key, close, attempt) {
+    _sendOpen(key, close, attempt, began) {
+        const latest = this._claimOpen(key, close);
+        const started = began || this._openBegan || Date.now();
         this._ensureProxy();
-        if (!this._proxy || !this._proxy.OpenWindowRemote) {
-            console.debug(`TetherBot: OpenWindow no proxy attempt ${attempt}`);
-            this._onOpenResult(key, close, attempt, [false], null);
+        if (!this._proxy || typeof this._proxy.call !== 'function') {
+            this._onOpenResult(latest.key, latest.close, attempt, false, false, started);
             return;
         }
-        const call = openWindowCall(key);
-        this._proxy.OpenWindowRemote(...call.args, (result, error) => {
-            this._onOpenResult(key, close, attempt, result, error);
-        });
+        const call = openWindowCall(latest.key);
+        try {
+            this._proxy.call(
+                call.method,
+                new GLib.Variant('(s)', call.args),
+                Gio.DBusCallFlags.NONE,
+                OPEN_TIMEOUT_MS,
+                null,
+                (proxy, result) => {
+                    let opened;
+                    let timedOut = false;
+                    try {
+                        const reply = proxy.call_finish(result);
+                        const unpacked = reply.deep_unpack();
+                        if (Array.isArray(unpacked))
+                            opened = unpacked[0] !== false;
+                        else
+                            opened = unpacked !== false;
+                    } catch (error) {
+                        opened = false;
+                        timedOut = dbusTimedOut(error);
+                    }
+                    this._onOpenResult(latest.key, latest.close, attempt, opened, timedOut, started);
+                }
+            );
+        } catch (error) {
+            this._onOpenResult(
+                latest.key,
+                latest.close,
+                attempt,
+                false,
+                dbusTimedOut(error),
+                started
+            );
+        }
     }
 
-    _onOpenResult(key, close, attempt, result, error) {
-        const opened = !error && (!Array.isArray(result) || result[0] !== false);
+    _onOpenResult(key, close, attempt, opened, timedOut, began) {
         const outcome = openWindowResult({
             opened,
             bridgeOwned: this._running === true,
             attempt,
+            timedOut,
         });
-        console.debug(`TetherBot: OpenWindow result ${outcome} attempt ${attempt}`);
+        const started = began || this._openBegan || Date.now();
+        this._logOpen(key, outcome, this._openPid, attempt, outcome, Date.now() - started);
         if (!this._enabled) {
             this._openInFlight = false;
             this._openQueued = null;
             return;
         }
-        if (this._openQueued && this._openQueued.key !== key) {
-            this._settleOpen(opened);
+        const queued = this._openQueued;
+        if (queued && queued.key !== key) {
+            this._openQueued = null;
+            this._openBegan = Date.now();
+            this._startOpen(queued.key, queued.close, 0);
+            return;
+        }
+        if (outcome === 'ping') {
+            this._pingWindow(answered => {
+                const next = pingResult({
+                    answered,
+                    restarted: this._openRestarted === true,
+                });
+                this._logOpen(key, 'ping', this._openPid, attempt, next, Date.now() - started);
+                if (!this._enabled) {
+                    this._settleOpen(false);
+                    return;
+                }
+                if (next === 'restart') {
+                    this._openRestarted = true;
+                    this._openNotice = WINDOW_RESTARTED;
+                    this._render();
+                    this._restartWindowService(() => {
+                        this._sendOpen(key, close, 1, Date.now());
+                    });
+                    return;
+                }
+                if (next === 'retry') {
+                    this._startOpen(key, close, attempt + 1);
+                    return;
+                }
+                this._openError = OPEN_WINDOW_ERROR;
+                this._settleOpen(false);
+            });
             return;
         }
         if (outcome === 'retry') {
@@ -2059,14 +2399,19 @@ export default class TetherBotExtension extends Extension {
 
     _settleOpen(opened) {
         this._openInFlight = false;
-        if (opened)
-            this._openError = '';
         const queued = this._openQueued;
         this._openQueued = null;
+        if (opened) {
+            this._openError = '';
+            this._openNotice = '';
+        }
         if (queued && this._enabled) {
+            this._openBegan = Date.now();
             this._startOpen(queued.key, queued.close, 0);
             return;
         }
+        this._openStarted = false;
+        this._openRestarted = false;
         this._render();
     }
 

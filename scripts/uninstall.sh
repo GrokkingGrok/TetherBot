@@ -44,6 +44,7 @@ APP_DIR="${DATA_HOME}/tetherbot/app"
 DATA_DIR="${DATA_HOME}/tetherbot"
 UNIT_DIR="${CONFIG_HOME}/systemd/user"
 UNIT_PATH="${UNIT_DIR}/tetherbot.service"
+WINDOW_UNIT_PATH="${UNIT_DIR}/tetherbot-window.service"
 DEFAULT_WANTS="${UNIT_DIR}/default.target.wants/tetherbot.service"
 SESSION_WANTS="${UNIT_DIR}/graphical-session.target.wants/tetherbot.service"
 DBUS_PATH="${DATA_HOME}/dbus-1/services/io.github.grokkinggrok.TetherBot1.service"
@@ -58,8 +59,9 @@ EXT_DIR="${DATA_HOME}/gnome-shell/extensions/tetherbot@grokkinggrok.github.io"
 if command -v systemctl >/dev/null 2>&1 \
   && systemctl --user show-environment >/dev/null 2>&1; then
   systemctl --user disable --now tetherbot.service >/dev/null 2>&1 || true
+  systemctl --user stop tetherbot-window.service >/dev/null 2>&1 || true
 fi
-rm -f "${UNIT_PATH}" "${DEFAULT_WANTS}" "${SESSION_WANTS}" \
+rm -f "${UNIT_PATH}" "${WINDOW_UNIT_PATH}" "${DEFAULT_WANTS}" "${SESSION_WANTS}" \
   "${DBUS_PATH}" "${WINDOW_DBUS_PATH}" "${DESKTOP_PATH}" \
   "${ICON_PATH}" "${ICON_SYMBOLIC_PATH}" \
   "${BIN_DIR}/tetherbot" "${BIN_DIR}/tetherbotctl" "${BIN_DIR}/git-credential-tetherbot" \

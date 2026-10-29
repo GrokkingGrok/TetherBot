@@ -1641,6 +1641,19 @@ def test_menu_clip_actions_open_the_page_popover():
         window.select_key(key)
         assert window.get_visible()
         assert window._page == "clipboard"
+        deadline = time.monotonic() + 1
+        ctx = GLib.MainContext.default()
+        while time.monotonic() < deadline:
+            row = window._clip_row(ident)
+            popover = window._clip_popover
+            if (
+                row is not None
+                and "tether-clip-target" in row.get_css_classes()
+                and popover is not None
+                and popover.get_visible()
+            ):
+                return
+            ctx.iteration(False)
         row = window._clip_row(ident)
         assert row is not None
         assert "tether-clip-target" in row.get_css_classes()

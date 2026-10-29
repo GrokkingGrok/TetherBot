@@ -56,7 +56,14 @@ import {
     openWindowDispatch,
     openWindowResult,
     windowServicePlan,
+    pingResult,
+    dbusTimedOut,
+    planQuickOpens,
+    claimNewestOpen,
+    extraWindowUnits,
+    isTemplatedWindowUnit,
     OPEN_WINDOW_ERROR,
+    WINDOW_RESTARTED,
     todoFilter,
     undoCall,
     undoFraction,
@@ -239,6 +246,41 @@ export function runViewChecks() {
     assert(openWindowResult({opened: false, bridgeOwned: true, attempt: 1}) === 'error',
         'the second failure is the menu line');
     assert(OPEN_WINDOW_ERROR === "Couldn't open TetherBot.", 'open failure line');
+    assert(WINDOW_RESTARTED === 'TetherBot window restarted.', 'restart line');
+    assert(openWindowResult({opened: false, bridgeOwned: true, attempt: 0, timedOut: true}) === 'ping',
+        'a silent open asks the window');
+    assert(openWindowResult({opened: false, bridgeOwned: true, attempt: 1, timedOut: false}) === 'error',
+        'a failed retry is the menu line');
+    assert(pingResult({answered: true, restarted: false}) === 'retry', 'a live window is tried again');
+    assert(pingResult({answered: false, restarted: false}) === 'restart', 'a silent window is replaced');
+    assert(pingResult({answered: false, restarted: true}) === 'error', 'one restart then the menu line');
+    assert(dbusTimedOut({message: 'Timeout was reached'}) === true, 'a timeout is a timeout');
+    assert(dbusTimedOut({message: 'refused'}) === false, 'a refusal is an answer');
+    const burst = planQuickOpens([
+        'clip-tag:c-11111111',
+        'clip-tag:c-22222222',
+        'clip-tag:c-33333333',
+        'clip-tag:c-44444444',
+        'clip-tag:c-55555555',
+    ], {owned: false});
+    assert(burst.activations === 1, 'five presses start the window once');
+    assert(burst.maxInFlight === 1, 'one open is in flight');
+    assert(burst.sent.join(',') === 'clip-tag:c-55555555', 'the last key is the one sent');
+    assert(planQuickOpens(['clip-edit:c-11111111'], {owned: true}).activations === 0,
+        'an owned window is not started');
+    const replaced = claimNewestOpen(
+        'clip-tag:c-11111111',
+        {key: 'clip-edit:c-22222222', close: 'clips'}
+    );
+    assert(replaced.key === 'clip-edit:c-22222222', 'a newer press replaces the queued key');
+    assert(extraWindowUnits([
+        {name: 'app-io.github.grokkinggrok.TetherBot@0.service', pid: 10},
+        {name: 'app-io.github.grokkinggrok.TetherBot@1.service', pid: 11},
+        {name: 'tetherbot.service', pid: 4},
+    ], 10).join(',') === 'app-io.github.grokkinggrok.TetherBot@1.service',
+    'the name owner stays and the other window unit stops');
+    assert(isTemplatedWindowUnit('io.github.grokkinggrok.TetherBot1.service') === false,
+        'the bridge unit is not a window instance');
 
     const menu = menuModel({
         running: true,

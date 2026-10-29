@@ -27,17 +27,21 @@ def test_open_tetherbot_calls_openwindow_with_the_main_window_key():
     view = (EXTENSION / "view.js").read_text(encoding="utf-8")
     assert "this._openWindow('')" in text
     assert "if (!this._enabled || !key)" not in text
-    call = text.split("    _callOpenWindow(", 1)[1].split("\n    _startOpen(", 1)[0]
+    call = text.split("    _callOpenWindow(", 1)[1].split("\n    _claimOpen(", 1)[0]
     assert "openWindowKey(key)" in call
     assert "openWindowDispatch" in call
-    assert "console.debug" in call
+    assert "_logOpen" in call
     start = text.split("    _startOpen(", 1)[1].split("\n    _sendOpen(", 1)[0]
     assert "clipOpenPlan" in start
-    assert "console.debug" in start
+    assert "_readWindowOwner" in start
+    assert "_logOpen" in start
     send = text.split("    _sendOpen(", 1)[1].split("\n    _onOpenResult(", 1)[0]
-    assert "openWindowCall(key)" in send
-    assert "console.debug" in send
-    activate = text.split("    _activateWindowService(", 1)[1].split("\n    _closeForOpen(", 1)[0]
+    assert "openWindowCall(latest.key)" in send
+    assert "OPEN_TIMEOUT_MS" in send
+    assert "NameHasOwner" in text
+    assert "Restart window" in text
+    assert "_logOpen" in text
+    activate = text.split("    _activateWindowService(", 1)[1].split("\n    _systemd(", 1)[0]
     assert "windowServicePlan" in activate
     assert "startWindowCall" in activate
     opened = text.split("    _activateWindowService(", 1)[1].split("\n    _perform(", 1)[0]

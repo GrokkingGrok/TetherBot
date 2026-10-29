@@ -17,6 +17,7 @@ APP_PATH = "/io/github/grokkinggrok/TetherBot"
 
 Launcher = Callable[[str], bool]
 _LOG = logging.getLogger("tetherbot")
+_window_start_sent = False
 
 
 def launch_window(item_key: str) -> bool:
@@ -91,7 +92,66 @@ def _on_activate(bus: object, result: object, *, item_key: str = "", retried: bo
         if retried or not item_key:
             _LOG.info("window did not open")
             return
-        _start_window(bus, item_key)
+        _start_if_unowned(bus, item_key)
+
+
+def _reply_owned(reply: object) -> bool:
+    unpack = getattr(reply, "unpack", None)
+    if not callable(unpack):
+        return False
+    try:
+        data = unpack()
+    except Exception:
+        return False
+    if isinstance(data, tuple):
+        return bool(data[0]) if data else False
+    return bool(data)
+
+
+def _start_if_unowned(bus: object, item_key: str) -> None:
+    """Start the window name once, and only when that name has no owner."""
+
+    def _owned(source: object, result: object) -> None:
+        global _window_start_sent
+        owned = False
+        try:
+            finish = getattr(source, "call_finish")
+            owned = _reply_owned(finish(result))
+        except Exception:
+            owned = False
+        if owned or _window_start_sent:
+            _LOG.info("window name owned=%s start-sent=%s", owned, _window_start_sent)
+            _activate_action(source, item_key, retried=True)
+            return
+        _window_start_sent = True
+        _LOG.info("window start once")
+        _start_window(source, item_key)
+
+    try:
+        import gi
+
+        gi.require_version("GLib", "2.0")
+        gi.require_version("Gio", "2.0")
+        from gi.repository import Gio, GLib
+    except (ImportError, ValueError):
+        _LOG.info("window did not open")
+        return
+    try:
+        call = getattr(bus, "call")
+        call(
+            "org.freedesktop.DBus",
+            "/org/freedesktop/DBus",
+            "org.freedesktop.DBus",
+            "NameHasOwner",
+            GLib.Variant("(s)", (APP_ID,)),
+            GLib.VariantType("(b)"),
+            Gio.DBusCallFlags.NONE,
+            1000,
+            None,
+            _owned,
+        )
+    except Exception:
+        _LOG.info("window did not open")
 
 
 def _start_window(bus: object, item_key: str) -> bool:

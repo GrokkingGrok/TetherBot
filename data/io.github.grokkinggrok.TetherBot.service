@@ -1,4 +1,7 @@
 [D-BUS Service]
 Name=io.github.grokkinggrok.TetherBot
 # scripts/install.sh replaces the next line with the absolute launcher path.
+# The session bus starts tetherbot-window.service, one instance.
+# Exec is the fallback when systemd activation is not available.
 Exec=@TETHERBOT_WINDOW@
+SystemdService=tetherbot-window.service

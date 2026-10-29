@@ -2479,6 +2479,53 @@ The roadmap does not add a Paste button. [CLIPBOARD.md](CLIPBOARD.md) says a Pas
 
 **Reset.** None.
 
+## M174. One menu open at a time
+
+**Preconditions.** Reinstall so `tetherbot-window.service` is on disk, then log out and back in. Have two text clips.
+
+**Look for.**
+
+- With the window closed, press Tag, then Edit, from the menu three times quickly each. The window opens once. The popover matches the last press. The window does not freeze.
+- With the window open, repeat that. The row highlights. One popover is open. You can type and switch tabs.
+
+**Reset.** None.
+
+## M175. The next popover waits for the row
+
+**Preconditions.** Same login as M174. Leave the window open.
+
+**Look for.**
+
+- Tag a clip, then immediately Edit a different clip. The first popover closes. The second opens. The window stays responsive.
+- Edit a clip that is already gone. Within 2 seconds the page says That clip is gone. No popover is left open.
+
+**Reset.** None.
+
+## M176. One window service, and a way to replace it
+
+**Preconditions.** Same login as M174.
+
+**Look for.**
+
+- `systemctl --user list-units 'TetherBot*' 'app-*TetherBot*'` shows one window service.
+- The journal has no second `@1` activation for this open.
+- Stop the window unit during a menu press, or `kill -STOP` its PID. Within a few seconds the menu says TetherBot window restarted. or Couldn't open TetherBot.
+- Restart window in the menu recovers it. `make restart-window` does the same from a terminal.
+- If you used `kill -STOP`, run `kill -CONT` on that PID if it is still there, or stop the unit.
+
+**Reset.** Leave one window running, or close it.
+
+## M177. Menu opens are in the journal
+
+**Preconditions.** Same login as M174.
+
+**Look for.**
+
+- `journalctl --user --user-unit tetherbot-window.service` shows a clip request line, whether the row was mapped, and popup or popdown.
+- The Shell journal shows an OpenWindow line with the key, the plan, the owner pid, the attempt, the result, and the duration.
+
+**Reset.** None.
+
 ## When you are finished
 
 ```bash

@@ -1,0 +1,19 @@
+[Unit]
+Description=TetherBot window
+PartOf=graphical-session.target
+After=graphical-session.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=dbus
+BusName=io.github.grokkinggrok.TetherBot
+ExecStart=%h/.local/bin/tetherbot-window
+Restart=on-failure
+RestartSec=3
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+NoNewPrivileges=yes
+LockPersonality=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+UMask=0077

@@ -104,6 +104,8 @@ install -m 0755 "${ROOT}/scripts/launchers/git-credential-tetherbot" \
   "${BIN_DIR}/git-credential-tetherbot"
 install -m 0755 "${ROOT}/scripts/launchers/tetherbot-window" "${WINDOW}"
 install -m 0644 "${ROOT}/systemd/tetherbot.service" "${UNIT_DIR}/tetherbot.service"
+install -m 0644 "${ROOT}/systemd/tetherbot-window.service" \
+  "${UNIT_DIR}/tetherbot-window.service"
 write_template "${ROOT}/systemd/io.github.grokkinggrok.TetherBot1.service" \
   "${DBUS_DIR}/io.github.grokkinggrok.TetherBot1.service" \
   'Exec=@TETHERBOT_LAUNCHER@' "${LAUNCHER}"

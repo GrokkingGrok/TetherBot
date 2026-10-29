@@ -90,6 +90,10 @@ TetherBot is pre-alpha. Check items off as they land. Design detail is in [SPEC.
 - [ ] Manual check M171: Edit from the panel menu still opens the window and the popover after the first time. If that open fails twice, the menu says Couldn't open TetherBot. The steps are in [MANUAL-CHECKS.md](MANUAL-CHECKS.md). It has not been run on the desktop yet. It needs a log out.
 - [ ] Manual check M172: Tag, Edit, and Make a todo with context from the panel menu, with the window already open, highlight the row and open the popover. The window stays responsive. The steps are in [MANUAL-CHECKS.md](MANUAL-CHECKS.md). It has not been run on the desktop yet. It needs a log out.
 - [ ] Manual check M173: repeated menu opens stay on one window. A press while one open is in flight does not start a second window service. The steps are in [MANUAL-CHECKS.md](MANUAL-CHECKS.md). It has not been run on the desktop yet. It needs a log out.
+- [ ] Manual check M174: five quick menu opens keep one window start, one OpenWindow in flight, and the newest key. A failed open and a failed retry say Couldn't open TetherBot. The steps are in [MANUAL-CHECKS.md](MANUAL-CHECKS.md). It has not been run on the desktop yet. It needs a log out.
+- [ ] Manual check M175: Tag and Edit from the menu wait until the row is ready, close the previous popover, and leave the window responsive. A missing clip says That clip is gone. The steps are in [MANUAL-CHECKS.md](MANUAL-CHECKS.md). It has not been run on the desktop yet. It needs a log out.
+- [ ] Manual check M176: one window service is running after menu opens. Restart window, or `make restart-window`, replaces a wedged window. The menu says TetherBot window restarted. The steps are in [MANUAL-CHECKS.md](MANUAL-CHECKS.md). It has not been run on the desktop yet. It needs a log out.
+- [ ] Manual check M177: `journalctl --user` shows each menu open and each clip popover. The steps are in [MANUAL-CHECKS.md](MANUAL-CHECKS.md). It has not been run on the desktop yet. It needs a log out.
 
 ## v0.2 — early adopters
 

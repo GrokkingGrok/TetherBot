@@ -10,6 +10,17 @@ TetherBot is a local bridge between a GNOME desktop and [Grok Bot](https://grok.
 
 The bridge is generic inside: transport adapters are plugins, so a later official API can be added without rewriting the extension. It is not a general-purpose AI hub. It shows what your own bots wrote, and it sends only the actions you click.
 
+## If the window freezes
+
+Restarting the Shell extension leaves the window process running. A frozen window stays frozen until that process is replaced.
+
+```bash
+systemctl --user list-units 'TetherBot*' 'app-*TetherBot*'
+systemctl --user stop tetherbot-window.service
+```
+
+`make restart-window` stops that unit and any leftover `app-io.github.grokkinggrok.TetherBot@N` instance, then starts one window. The panel menu item Restart window does the same. Reopen from the menu afterward. `journalctl --user -u tetherbot-window.service` shows the clip lines. The Shell journal shows the `TetherBot: OpenWindow` lines.
+
 ## Architecture
 
 ```mermaid

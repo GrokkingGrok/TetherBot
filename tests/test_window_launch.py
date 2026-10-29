@@ -128,14 +128,25 @@ def test_a_dead_window_name_is_started_once_and_the_action_is_sent_again(monkeyp
         def __init__(self, ok: bool) -> None:
             self.ok = ok
 
+    class _Reply:
+        def __init__(self, payload: tuple[object, ...]) -> None:
+            self._payload = payload
+
+        def unpack(self) -> tuple[object, ...]:
+            return self._payload
+
     class _Bus:
-        def __init__(self) -> None:
+        def __init__(self, owned: bool) -> None:
+            self.owned = owned
             self.calls: list[tuple[object, object]] = []
 
         def call(self, *args: object, **_kwargs: object) -> None:
             method = args[3]
             callback = args[-1]
             self.calls.append((args[0], method))
+            if method == "NameHasOwner":
+                callback(self, _Reply((self.owned,)))
+                return
             if method == "ActivateAction" and sum(item[1] == method for item in self.calls) == 1:
                 callback(self, _Result(False))
                 return
@@ -145,19 +156,35 @@ def test_a_dead_window_name_is_started_once_and_the_action_is_sent_again(monkeyp
                 return
             callback(self, _Result(True))
 
-        def call_finish(self, result: _Result) -> _Result:
+        def call_finish(self, result: _Result | _Reply) -> _Result | _Reply:
+            if isinstance(result, _Reply):
+                return result
             if not result.ok:
                 raise RuntimeError("activation refused")
             return result
 
-    bus = _Bus()
+    import tetherbot.window_launch as window_launch
+
+    monkeypatch.setattr(window_launch, "_window_start_sent", False)
+    bus = _Bus(False)
     monkeypatch.setattr(Gio, "bus_get_sync", lambda *_args, **_kwargs: bus)
     assert launch_window("clip-tag:c-11111111") is True
     assert bus.calls == [
         ("io.github.grokkinggrok.TetherBot", "ActivateAction"),
+        ("org.freedesktop.DBus", "NameHasOwner"),
         ("org.freedesktop.DBus", "StartServiceByName"),
         ("io.github.grokkinggrok.TetherBot", "ActivateAction"),
     ]
+    monkeypatch.setattr(window_launch, "_window_start_sent", False)
+    owned = _Bus(True)
+    monkeypatch.setattr(Gio, "bus_get_sync", lambda *_args, **_kwargs: owned)
+    assert launch_window("clip-tag:c-11111111") is True
+    assert owned.calls == [
+        ("io.github.grokkinggrok.TetherBot", "ActivateAction"),
+        ("org.freedesktop.DBus", "NameHasOwner"),
+        ("io.github.grokkinggrok.TetherBot", "ActivateAction"),
+    ]
+    assert ("org.freedesktop.DBus", "StartServiceByName") not in owned.calls
 
 
 def test_load_clipboard_opens_a_proxy_before_it_reports_the_bridge(monkeypatch):

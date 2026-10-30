@@ -155,7 +155,10 @@ def test_window_sources_do_not_touch_the_network_or_secrets():
     assert "faulthandler.enable" in window
     assert "window-faults.log" in window
     assert "_close_saved" not in window
-    assert "notify::is-active" not in window
+    assert window.count('notify::is-active') == 1
+    active = window.split("def _on_window_active", 1)[1].split("\n    def ", 1)[0]
+    assert "_commit_current_note_draft" in active
+    assert "close(" not in active
     assert "_close_if_inactive" not in window
     shifts = window.split("self.edit_start_box = Gtk.Box", 1)[1].split(
         "self.start_entry", 1

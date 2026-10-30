@@ -241,6 +241,9 @@ def test_compiled_schema_loads_the_defaults(tmp_path: Path):
     assert 'name="clipboard-search-fallback"' in text
     assert 'name="clipboard-images"' in text
     assert 'name="context-effort"' in text
+    assert 'name="keep-leftmost"' in text
+    keep_left = text.split('name="keep-leftmost"', 1)[1].split("</key>", 1)[0]
+    assert "<default>false</default>" in keep_left
     assert "<default>'low'</default>" in text.split('name="context-effort"', 1)[1].split(
         "</key>", 1
     )[0]

@@ -97,6 +97,7 @@ assert(!FEED_RESET_KEYS.includes('clipboard-lookalike'), 'reset does not clear p
 assert(!FEED_RESET_KEYS.includes('clipboard-search-fallback'), 'reset does not clear the search fallback');
 assert(!FEED_RESET_KEYS.includes('clipboard-images'), 'reset does not clear copied images');
 assert(!FEED_RESET_KEYS.includes('context-effort'), 'reset does not clear context effort');
+assert(!FEED_RESET_KEYS.includes('keep-leftmost'), 'reset does not clear keep leftmost');
 assert(searchFallback(SEARCH_FALLBACK_DEFAULT) === SEARCH_FALLBACK_DEFAULT, 'the search fallback default is https');
 assert(searchFallback('http://example.test/?q={searchTerms}') === null, 'the search fallback rejects http');
 assert(searchFallback('https://example.test/search') === null, 'the search fallback needs a placeholder');
@@ -181,6 +182,25 @@ assert(!/new Adw\.EntryRow\(\{[^}]*subtitle/.test(searchFn), 'an entry row does 
 assert(
     prefsSource.includes('1 month = 30 days, 1 year = 365 days'),
     'how many names a month and a year'
+);
+const schema = readFileSync(
+    join(dirname(fileURLToPath(import.meta.url)), 'schemas/org.gnome.shell.extensions.tetherbot.gschema.xml'),
+    'utf8'
+);
+const keepLeft = schema.split('name="keep-leftmost"')[1].split('</key>')[0];
+assert(keepLeft.includes('<default>false</default>'), 'keep-leftmost defaults off');
+assert(
+    keepLeft.includes('Keep TetherBot leftmost in its panel section'),
+    'keep-leftmost names the panel section'
+);
+assert(prefsSource.includes('keep-leftmost'), 'prefs stores keep leftmost');
+assert(
+    prefsSource.includes('Keep TetherBot leftmost in its panel section'),
+    'prefs has the leftmost switch'
+);
+assert(
+    prefsSource.includes('Another extension that loads later, or the shell, can still insert an item before it.'),
+    'prefs explains the panel limit'
 );
 assert(
     !prefsSource.includes('A month is 30 days and a year is 365 days.'),

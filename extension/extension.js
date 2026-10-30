@@ -73,6 +73,7 @@ import {
     isClipEditor,
     topRightFrame,
     actionResultNotice,
+    panelSnapIndexes,
 } from './view.js';
 import {
     DEFAULT_EXCLUDED_APPS,
@@ -266,13 +267,18 @@ export default class TetherBotExtension extends Extension {
         this._undoSpan = 0;
         try {
             this._settings = this.getSettings();
-            this._settingsId = this._settings.connect('changed', () => {
+            this._settingsId = this._settings.connect('changed', (_settings, key) => {
+                if (key === 'keep-leftmost') {
+                    this._snapPanelOrder();
+                    return;
+                }
                 this._reloadBridgeSettings();
             });
         } catch {
             this._settings = null;
             this._settingsId = 0;
         }
+        this._snapPanelOrder();
         this._watchClipboard();
 
         this._watchedWindows = new Map();
@@ -612,6 +618,7 @@ export default class TetherBotExtension extends Extension {
         this._clearActivateTimer();
         this._ensureProxy();
         this._render();
+        this._snapPanelOrder();
     }
 
     _onNameVanished() {
@@ -2569,6 +2576,39 @@ export default class TetherBotExtension extends Extension {
         this._clipIndicator.menu.addMenuItem(openItem);
         this._fillClipboardMenu();
         Main.panel.addToStatusArea(`${this.uuid}-clipboard`, this._clipIndicator, 1);
+    }
+
+    _keepLeftmost() {
+        const settings = this._settings;
+        if (!settings || typeof settings.get_boolean !== 'function')
+            return false;
+        try {
+            return settings.get_boolean('keep-leftmost') === true;
+        } catch {
+            return false;
+        }
+    }
+
+    _snapPanelOrder() {
+        const indexes = panelSnapIndexes(this._keepLeftmost());
+        if (!indexes)
+            return;
+        this._movePanelChild(this._indicator, indexes.indicator);
+        this._movePanelChild(this._clipIndicator, indexes.clipboard);
+    }
+
+    _movePanelChild(indicator, index) {
+        try {
+            const container = indicator ? indicator.container : null;
+            if (!container || typeof container.get_parent !== 'function')
+                return;
+            const parent = container.get_parent();
+            if (!parent || typeof parent.set_child_at_index !== 'function')
+                return;
+            parent.set_child_at_index(container, index);
+        } catch (error) {
+            console.debug(`TetherBot: panel order was not changed: ${error}`);
+        }
     }
 
     _watchClipboard() {

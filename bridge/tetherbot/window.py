@@ -42,6 +42,11 @@ from tetherbot.clipboard_search import (  # noqa: E402
 from tetherbot.log import configure_logging  # noqa: E402
 from tetherbot.markdown import Run, render  # noqa: E402
 from tetherbot.model import looks_like_secret  # noqa: E402
+from tetherbot.note_drafts import (  # noqa: E402
+    note_drafts_path,
+    read_note_drafts,
+    write_note_drafts,
+)
 from tetherbot.todos import PALETTE  # noqa: E402
 from tetherbot.ui_settings import EXTENSION_UUID, load_ui_settings  # noqa: E402
 from tetherbot.window_launch import APP_ID  # noqa: E402
@@ -92,6 +97,7 @@ _CLIP_NOT_OPENED = "Couldn't open that clip."
 _CLIP_ACTION_WAIT_S = 2.0
 _CLIP_POPDOWN_MS = 300
 _CLIP_FRAME_MS = 32
+_NOTE_DRAFT_MS = 500
 _LOG = logging.getLogger("tetherbot")
 _DONE_RETRY_LINE = "Sending… will retry"
 _DONE_PARKED_LINE = "Couldn't send Done. Try again."
@@ -1097,12 +1103,24 @@ WINDOW_MIN_WIDTH = 1400
 class TodoWindow(Adw.ApplicationWindow):
     """List, filters, and a Markdown detail pane."""
 
-    def __init__(self, app: Adw.Application, client: Any) -> None:
+    def __init__(
+        self,
+        app: Adw.Application,
+        client: Any,
+        drafts_path: Path | None = None,
+    ) -> None:
         super().__init__(application=app, title="TetherBot")
         self.set_default_size(WINDOW_DEFAULT_WIDTH, 800)
         self.set_size_request(WINDOW_MIN_WIDTH, 680)
         self.set_icon_name(APP_ID)
         self.client = client
+        self._note_drafts_path = drafts_path
+        self._note_drafts, self._note_drafts_writable = read_note_drafts(drafts_path)
+        self._note_secret_drafts: dict[str, str] = {}
+        self._note_empty_held: set[str] = set()
+        self._note_draft_mute = 0
+        self._note_draft_source = 0
+        self._note_sends: dict[str, tuple[str, str]] = {}
         self._filling = False
         self._view = "all"
         self._page = "todos"
@@ -1186,6 +1204,7 @@ class TodoWindow(Adw.ApplicationWindow):
         self.open_uri = _open_uri
         self._build()
         self.connect("close-request", self._on_window_close)
+        self.connect("notify::is-active", self._on_window_active)
         self.connect("realize", self._bind_size_watch)
         keys = Gtk.EventControllerKey()
         keys.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
@@ -1408,7 +1427,10 @@ class TodoWindow(Adw.ApplicationWindow):
             top_margin=4,
             bottom_margin=4,
         )
-        self.note_buffer.connect("changed", lambda _buffer: self._sync_done_note())
+        self.note_buffer.connect("changed", self._on_note_changed)
+        note_focus = Gtk.EventControllerFocus()
+        note_focus.connect("leave", self._on_note_focus_leave)
+        self.note_view.add_controller(note_focus)
         note_scroll = Gtk.ScrolledWindow(child=self.note_view, hexpand=True)
         note_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         note_scroll.set_propagate_natural_height(True)
@@ -1551,6 +1573,7 @@ class TodoWindow(Adw.ApplicationWindow):
         self._fill_tags(tags if isinstance(tags, list) else [])
         self._fill_bot_chips()
         self._show_page_list()
+        self._prune_note_drafts()
         self._request_timer()
         self._fit_to_list()
 
@@ -2005,7 +2028,11 @@ class TodoWindow(Adw.ApplicationWindow):
         self._link_tags.clear()
         incoming = item.get("key") if isinstance(item, dict) else None
         if previous != incoming:
-            self.note_buffer.set_text("")
+            self._cancel_note_draft_timer()
+            if isinstance(previous, str) and previous:
+                self._store_note_draft(previous, self._note_raw())
+            incoming_key = incoming if isinstance(incoming, str) else ""
+            self._set_note_text(self._draft_text(incoming_key))
         self._restore_kept_note(incoming)
         if item is None:
             self.sending_line.set_visible(False)
@@ -2537,8 +2564,172 @@ class TodoWindow(Adw.ApplicationWindow):
             self._mark_done(key)
 
     def _note_text(self) -> str:
-        start, end = self.note_buffer.get_bounds()
-        return self.note_buffer.get_text(start, end, True).strip()
+        return self._note_raw().strip()
+
+    def _note_raw(self) -> str:
+        buffer = getattr(self, "note_buffer", None)
+        if buffer is None:
+            return ""
+        try:
+            start, end = buffer.get_bounds()
+            text = buffer.get_text(start, end, True)
+        except Exception:
+            return ""
+        return text if isinstance(text, str) else ""
+
+    def _set_note_text(self, text: str) -> None:
+        self._note_draft_mute += 1
+        try:
+            self.note_buffer.set_text(text)
+        finally:
+            self._note_draft_mute -= 1
+        self._sync_done_note()
+
+    def _on_note_changed(self, _buffer: Gtk.TextBuffer) -> None:
+        self._sync_done_note()
+        if self._note_draft_mute:
+            return
+        item = self._current
+        key = item.get("key") if isinstance(item, dict) else None
+        if isinstance(key, str):
+            self._note_empty_held.discard(key)
+        self._arm_note_draft_save()
+
+    def _on_note_focus_leave(self, _controller: Gtk.EventControllerFocus) -> None:
+        self._commit_current_note_draft()
+
+    def _on_window_active(self, _window: Gtk.Window, _param: GLib.ParamSpec) -> None:
+        try:
+            active = bool(self.is_active())
+        except Exception:
+            return
+        if not active:
+            self._commit_current_note_draft()
+
+    def _arm_note_draft_save(self) -> None:
+        self._cancel_note_draft_timer()
+        self._note_draft_source = self._remember_source(
+            GLib.timeout_add(_NOTE_DRAFT_MS, self._on_note_draft_due)
+        )
+
+    def _on_note_draft_due(self) -> bool:
+        source = self._note_draft_source
+        self._note_draft_source = 0
+        self._glib_sources.discard(source)
+        self._commit_current_note_draft()
+        return False
+
+    def _cancel_note_draft_timer(self) -> None:
+        source = self._note_draft_source
+        self._note_draft_source = 0
+        self._forget_source(source)
+
+    def _commit_current_note_draft(self) -> None:
+        self._cancel_note_draft_timer()
+        item = self._current
+        key = item.get("key") if isinstance(item, dict) else None
+        if not isinstance(key, str) or not key:
+            return
+        self._store_note_draft(key, self._note_raw())
+
+    def _draft_text(self, key: str) -> str:
+        if not key:
+            return ""
+        secret = self._note_secret_drafts.get(key)
+        if isinstance(secret, str) and secret:
+            return secret
+        text = self._note_drafts.get(key, "")
+        return text if isinstance(text, str) else ""
+
+    def _store_note_draft(self, key: str, text: str) -> None:
+        """Remember this todo's note. An empty field deletes it. A secret stays in memory."""
+
+        if not key:
+            return
+        stripped = text.strip()
+        if looks_like_secret(stripped):
+            self._note_empty_held.discard(key)
+            changed = key in self._note_drafts
+            self._note_drafts.pop(key, None)
+            if self._note_secret_drafts.get(key) != text:
+                self._note_secret_drafts[key] = text
+                changed = True
+            if changed:
+                self._write_note_drafts()
+            return
+        if not stripped:
+            # Done with note clears the field. That is not the user deleting the draft.
+            if key in self._note_empty_held:
+                return
+            if key not in self._note_drafts and key not in self._note_secret_drafts:
+                return
+            self._note_drafts.pop(key, None)
+            self._note_secret_drafts.pop(key, None)
+            self._write_note_drafts()
+            return
+        self._note_empty_held.discard(key)
+        self._note_secret_drafts.pop(key, None)
+        if self._note_drafts.get(key) == text:
+            return
+        self._note_drafts[key] = text
+        self._write_note_drafts()
+
+    def _write_note_drafts(self) -> None:
+        try:
+            write_note_drafts(
+                self._note_drafts_path,
+                self._note_drafts,
+                writable=self._note_drafts_writable,
+            )
+        except OSError:
+            return
+
+    def _clear_sent_note_draft(self, key: str, note: str) -> None:
+        stored = self._note_drafts.get(key, "")
+        secret = self._note_secret_drafts.get(key, "")
+        if stored.strip() != note and secret.strip() != note:
+            return
+        self._note_drafts.pop(key, None)
+        self._note_secret_drafts.pop(key, None)
+        self._note_empty_held.discard(key)
+        self._write_note_drafts()
+        current = self._current.get("key") if isinstance(self._current, dict) else None
+        if current == key and self._note_raw().strip() == note:
+            self._set_note_text("")
+
+    def _prune_note_drafts(self) -> None:
+        """Drop a draft only when the bridge says that todo is gone."""
+
+        present = {
+            item.get("key")
+            for item in self._items
+            if isinstance(item, dict) and isinstance(item.get("key"), str)
+        }
+        present.update(self._undo_holds)
+        missing = [
+            key
+            for key in list(self._note_drafts) + list(self._note_secret_drafts)
+            if key not in present
+        ]
+        getter = getattr(self.client, "get_item", None)
+        if not callable(getter) or not missing:
+            return
+        changed = False
+        for key in missing:
+            try:
+                getter(key)
+            except BridgeError as exc:
+                message = str(exc).casefold().replace(" ", "")
+                if "notfound" not in message:
+                    continue
+                if key in self._note_drafts or key in self._note_secret_drafts:
+                    self._note_drafts.pop(key, None)
+                    self._note_secret_drafts.pop(key, None)
+                    changed = True
+            except Exception:
+                continue
+        if changed:
+            self._write_note_drafts()
 
     def _sync_done_note(self) -> None:
         item = self._current
@@ -2575,8 +2766,10 @@ class TodoWindow(Adw.ApplicationWindow):
         if looks_like_secret(note):
             self._toast(SECRET_NOTE_MESSAGE)
             return
+        self._commit_current_note_draft()
         self._mark_done(key, note)
-        self.note_buffer.set_text("")
+        self._set_note_text("")
+        self._note_empty_held.add(key)
 
     def _undo_window_ms(self) -> int:
         """The shared undo length, from settings, in milliseconds."""
@@ -2705,12 +2898,19 @@ class TodoWindow(Adw.ApplicationWindow):
 
     def _on_action_result(self, action_id: str, result: str, _detail: str) -> None:
         known = action_id in self._done_actions
+        if result == "accepted":
+            pending = self._note_sends.pop(action_id, None)
+            if pending is not None:
+                self._clear_sent_note_draft(pending[0], pending[1])
+        elif result in {"parked", "dropped", "rejected_key"}:
+            self._note_sends.pop(action_id, None)
         if result in {"accepted", "parked", "dropped", "rejected_key"}:
             self._done_actions.discard(action_id)
         if known and result in {"parked", "dropped"}:
             self._toast(_DONE_PARKED_LINE)
 
     def _on_window_close(self, _window: Gtk.Window) -> bool:
+        self._commit_current_note_draft()
         self._flush_due(True, rebuild=False)
         self._cancel_after_send()
         self._cancel_tracked_sources()
@@ -2743,6 +2943,8 @@ class TodoWindow(Adw.ApplicationWindow):
         self._clip_highlight_id = ""
         self._clip_highlight_hold = False
         self._clip_highlight_source = 0
+        self._commit_current_note_draft()
+        self._cancel_note_draft_timer()
         self._clip_action_gen += 1
         self._clip_pending = None
         self._clip_action_source = 0
@@ -2861,6 +3063,8 @@ class TodoWindow(Adw.ApplicationWindow):
                 continue
             if isinstance(action_id, str) and action_id:
                 self._done_actions.add(action_id)
+                if isinstance(note, str) and note.strip():
+                    self._note_sends[action_id] = (key, note.strip())
             hold["sent"] = True
             hold["until"] = _now_ms()
             needs_ui = True
@@ -4717,9 +4921,10 @@ class TodoWindow(Adw.ApplicationWindow):
 class WindowApp(Adw.Application):
     """Single instance. ``select-item`` opens or raises the window."""
 
-    def __init__(self, client: Any | None = None) -> None:
+    def __init__(self, client: Any | None = None, drafts_path: Path | None = None) -> None:
         super().__init__(application_id=APP_ID, flags=Gio.ApplicationFlags.DEFAULT_FLAGS)
         self._client = client
+        self._drafts_path = drafts_path
         self.window: TodoWindow | None = None
         self._linger = 0
         self._editor_sources: set[int] = set()
@@ -4778,7 +4983,11 @@ class WindowApp(Adw.Application):
     def do_activate(self) -> None:
         if self.window is None:
             client = self._client if self._client is not None else BridgeClient()
-            self.window = TodoWindow(self, client)
+            self.window = TodoWindow(
+                self,
+                client,
+                drafts_path=getattr(self, "_drafts_path", None),
+            )
             self.window.connect("close-request", self._on_close)
         self.window.present()
         self.window.refresh()
@@ -4787,6 +4996,8 @@ class WindowApp(Adw.Application):
     def _on_close(self, window: TodoWindow) -> bool:
         """Keep the process up briefly so the next open is not a cold start."""
 
+        if hasattr(window, "_commit_current_note_draft"):
+            window._commit_current_note_draft()
         window._flush_due(True)
         window._undo_holds.clear()
         window.drop_undo_timers()
@@ -4878,7 +5089,7 @@ def main(argv: list[str] | None = None) -> int:
     enable_window_fault_log()
     args = sys.argv if argv is None else [sys.argv[0], *argv]
     try:
-        app = WindowApp()
+        app = WindowApp(drafts_path=note_drafts_path())
     except Exception:
         print(
             "tetherbot-window: GTK 4 and libadwaita are required.",

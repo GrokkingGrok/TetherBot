@@ -98,6 +98,17 @@ TetherBot is pre-alpha. Check items off as they land. Design detail is in [SPEC.
 - [ ] Manual check M181: with the window open on Clipboard, menu Tag and menu Edit open the popover every time and the window stays responsive. The steps are in [MANUAL-CHECKS.md](MANUAL-CHECKS.md). It has not been run on the desktop yet. It reopens the window.
 - [ ] Manual check M182: five quick menu Tag presses leave one popover, and menu Edit while a Tag popover is open switches to Edit. Copying while a popover is open does not freeze the window. The steps are in [MANUAL-CHECKS.md](MANUAL-CHECKS.md). It has not been run on the desktop yet. It reopens the window.
 - [ ] Manual check M183: the window journal has no `Finalizing GtkButton` line for a popover, and no `clip popup skipped` line without a later popup or give-up. The steps are in [MANUAL-CHECKS.md](MANUAL-CHECKS.md). It has not been run on the desktop yet. It reopens the window. Re-run M171–M173 on this build.
+- [x] M178. A todo note is saved when the field loses focus, when the window loses focus or closes, and before another todo is shown. The draft is in `note-drafts.json` and comes back after a list rebuild or a new window process.
+- [x] M179. Window tests cover a blur save, switching todos, a retry while offline, a new window process, and clearing a draft only after Done with note is accepted.
+- [x] M184. Settings has Keep TetherBot leftmost in its panel section. When it is on, the indicator and the clipboard icon snap to the start of that section on load and when the switch is turned on.
+- [ ] Manual check M178: a note stays after a click away, a todo switch, an offline Done on another todo, closing the window, a successful Done with note, and an extension restart. The steps are in [MANUAL-CHECKS.md](MANUAL-CHECKS.md). It has not been run on the desktop yet. It reopens the window.
+- [ ] Manual check M184: Keep leftmost puts the TetherBot indicator and the clipboard icon at the left end of their panel section, including after a reload. Turning it off and reloading restores the default place. The steps are in [MANUAL-CHECKS.md](MANUAL-CHECKS.md). It has not been run on the desktop yet. It needs a log out.
+
+### Plan from 2026-10-29
+- [x] Near term, batch N15 (not tied to the clipboard): M178 saves todo note drafts when the field loses focus, so they survive todo switches, offline/reconnect, list rebuilds, and restarts. M179 adds tests for it. M184 adds a setting, Keep leftmost in panel, that snaps the TetherBot indicator to the start of its panel section when it loads and when the setting is turned on.
+- [ ] Before 2026-11-04: write the clipboard unification plan. One process owns the clip UI (a single UI owner), so menu Tag/Edit popovers never cross D-Bus.
+- [ ] From 2026-11-04: start the unification plan.
+- Paused until unification: the N13c/N13d clipboard freeze follow-ups (M171–M177 and M180–M183 stay open), and the N14 clip features (URL clips M165, tab order M166, Edit-start separator M167, unpin-to-top M168). Notes moved out of N14 into N15.
 
 ## v0.2 — early adopters
 

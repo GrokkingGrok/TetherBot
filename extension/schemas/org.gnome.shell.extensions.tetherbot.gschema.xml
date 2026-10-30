@@ -79,6 +79,11 @@
       <summary>Context effort</summary>
       <description>How much context a clipboard send asks the bot to use. Low checks only that bot's own context. Medium also asks the other bots. High also searches connectors (email, Drive, finance). The default is low.</description>
     </key>
+    <key name="keep-leftmost" type="b">
+      <default>false</default>
+      <summary>Keep TetherBot leftmost in its panel section</summary>
+      <description>When on, the TetherBot indicator moves to the left end of its panel section when the extension loads and when this is turned on. The clipboard icon stays beside it. Another extension that loads later, or the shell, can still insert an item before it. Turning this off leaves the icons where they are until the next reload. The default is off.</description>
+    </key>
     <key name="history-unit" type="s">
       <choices>
         <choice value="hours"/>

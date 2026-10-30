@@ -84,6 +84,7 @@ export default class TetherBotPreferences extends ExtensionPreferences {
         this._applyingClipboard = false;
         this._showingClipboard = false;
         this._buildFeed(page, settings);
+        this._buildPanel(page, settings);
         this._buildContext(page, settings);
         this._buildHistory(page, settings);
         this._buildClipboard(page, settings);
@@ -142,6 +143,32 @@ export default class TetherBotPreferences extends ExtensionPreferences {
         reset.add_suffix(button);
         reset.activatable_widget = button;
         group.add(reset);
+        page.add(group);
+    }
+
+    _buildPanel(page, settings) {
+        const group = new Adw.PreferencesGroup({
+            title: 'Panel',
+            description: 'Keep leftmost puts TetherBot at the left end of its panel section, with the clipboard icon beside it. Another extension that loads later, or the shell, can still insert an item before it. Turning this off leaves the icons where they are until the next reload.',
+        });
+        const row = new Adw.SwitchRow({
+            title: 'Keep TetherBot leftmost in its panel section',
+            subtitle: 'Snaps when the extension loads and when this is turned on. It does not lock the place.',
+        });
+        const apply = () => {
+            this._applyingPanel = true;
+            row.active = settings.get_boolean('keep-leftmost');
+            this._applyingPanel = false;
+        };
+        row.connect('notify::active', () => {
+            if (this._applyingPanel)
+                return;
+            if (settings.get_boolean('keep-leftmost') !== row.active)
+                settings.set_boolean('keep-leftmost', row.active);
+        });
+        settings.connect('changed::keep-leftmost', apply);
+        apply();
+        group.add(row);
         page.add(group);
     }
 

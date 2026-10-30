@@ -2571,6 +2571,33 @@ The roadmap does not add a Paste button. [CLIPBOARD.md](CLIPBOARD.md) says a Pas
 
 **Reset.** None.
 
+## M178. A note stays with its todo
+
+**Preconditions.** The window is open on the todo list. Have two open todos.
+
+**Look for.**
+
+- Type a note on a todo, click the list, then click that todo again. The note is still there.
+- Type a note on todo A, switch to todo B, then back to A. The note is still there.
+- Type a note on A, turn off Wi-Fi, mark a throwaway todo Done, turn Wi-Fi on, wait for the send, then go back to A. The note is still there.
+- Type a note, close the window, then reopen it from the menu. The note is still there.
+- Done with note on A: after it sends, A's field is empty, and another todo's draft is untouched.
+- Type a note, run `gnome-extensions disable tetherbot@grokkinggrok.github.io` then `gnome-extensions enable tetherbot@grokkinggrok.github.io`, or restart the window service, then reopen. The note is still there.
+
+**Reset.** Leave the window open.
+
+## M184. Keep leftmost in the panel
+
+**Preconditions.** Log out and back in so this extension and its schema are loaded. Open Settings.
+
+**Look for.**
+
+- Turn on Keep TetherBot leftmost in its panel section. The TetherBot indicator jumps to the left end of its panel section, and the clipboard icon sits directly after it.
+- Disable and re-enable the extension, or log out and back in. It is still leftmost.
+- Turn the setting off and reload the extension. The icons go back to the default place. `journalctl --user -b | grep -i tetherbot` shows no error from that move.
+
+**Reset.** Leave the setting wherever you want it.
+
 ## When you are finished
 
 ```bash

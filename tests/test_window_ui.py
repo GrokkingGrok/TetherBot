@@ -1914,7 +1914,7 @@ def _tag_clip_client():
     return _Clip()
 
 
-def _isolated_window(app_id: str, client):
+def _isolated_window(app_id: str, client, drafts_path=None):
     from gi.repository import Adw, Gio
 
     from tetherbot.window import WindowApp
@@ -1927,6 +1927,7 @@ def _isolated_window(app_id: str, client):
                 flags=Gio.ApplicationFlags.NON_UNIQUE,
             )
             self._client = client
+            self._drafts_path = drafts_path
             self.window = None
             self._linger = 0
 

@@ -11,6 +11,14 @@ export const UPDATE_MESSAGE = 'This feed uses a newer protocol. Update TetherBot
 export const BRIDGE_DOWN = 'Bridge not running';
 export const ACTIVATE_RETRY_MS = 4000;
 
+export function panelSnapIndexes(keepLeftmost) {
+    // Version 1 snaps on load and when the setting turns on. It does not
+    // watch the panel box, so a later extension can still insert before us.
+    if (keepLeftmost !== true)
+        return null;
+    return {indicator: 0, clipboard: 1};
+}
+
 const CLIP_EDITOR_TITLES = [
     'Edit clip',
     'Tag clip',

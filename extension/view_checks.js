@@ -70,6 +70,7 @@ import {
     presentTodos,
     mergeTodoSearch,
     actionResultNotice,
+    panelSnapIndexes,
 } from './view.js';
 
 function assert(condition, message) {
@@ -1008,6 +1009,11 @@ export function runViewChecks() {
     const tall = topRightFrame({x: 10, y: 40, width: 1000, height: 700}, {width: 1280, height: 900});
     assert(tall.x === 10 && tall.y === 40, 'a wide window stays inside the work area');
     assert(tall.height === 700, 'a tall window stops at the work area');
+    assert(panelSnapIndexes(false) === null, 'leftmost off does not move the panel');
+    assert(panelSnapIndexes(undefined) === null, 'a missing leftmost value does not move the panel');
+    const snapped = panelSnapIndexes(true);
+    assert(snapped.indicator === 0, 'the indicator snaps to index 0');
+    assert(snapped.clipboard === 1, 'the clipboard icon snaps to index 1');
 }
 
 if (typeof process !== 'undefined' && process.argv[1] && process.argv[1].endsWith('view_checks.js'))

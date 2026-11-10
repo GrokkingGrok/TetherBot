@@ -540,3 +540,62 @@ def test_clip_menu_editors_never_open_the_window():
     assert "OpenWindow" not in menu
     assert "_openWindow(" not in menu
     assert "_openClipboardWindow(" not in menu
+
+
+def _method(text: str, name: str) -> str:
+    head = f"\n    {name}("
+    assert head in text, name
+    return text.split(head, 1)[1].split("\n    }\n", 1)[0]
+
+
+_MENU_EDITOR_METHODS = (
+    "_onClipMenuEvent",
+    "_queueClipRebuild",
+    "_mountClipEditor",
+    "_tagEditor",
+    "_saveClipTags",
+    "_openClipEditor",
+)
+
+
+def test_menu_tag_editor_is_inline():
+    """M186: Tag opens an editor inside the menu and saves with SetClipboardTags."""
+
+    text = (EXTENSION / "extension.js").read_text(encoding="utf-8")
+    view = (EXTENSION / "view.js").read_text(encoding="utf-8")
+    editors = (EXTENSION / "clip_editors.js").read_text(encoding="utf-8")
+    inline = (EXTENSION / "clip_inline.js").read_text(encoding="utf-8")
+    assert "'GetTagsRemote'" in view
+    menu = text.split("    _appendClipboardRows(entries) {", 1)[1].split(
+        "\n    _installIconTheme()", 1
+    )[0]
+    assert "['tetherbot-tag-symbolic', 'Tag', !masked, () => {" in menu
+    assert "this._openClipEditor('tag', entry);" in menu
+    assert "this._clipEditors?.close();" in menu
+    for name in _MENU_EDITOR_METHODS:
+        body = _method(text, name)
+        assert "OpenWindow" not in body, name
+        assert "_openWindow(" not in body, name
+        assert "_openClipboardWindow(" not in body, name
+    save = _method(text, "_saveClipTags")
+    assert "SetClipboardTagsRemote(entryId, tagsPayload(chips)," in save
+    assert "TAG_SAVE_ERROR" in save
+    assert "GetTagsRemote(" in _method(text, "_tagEditor")
+    build = _method(text, "_buildClipboardIndicator")
+    captured = build.index("connect('captured-event'")
+    assert captured < build.index("Main.panel.addToStatusArea(")
+    assert "'open-state-changed'" in build
+    guard = _method(text, "_onClipMenuEvent")
+    assert "Clutter.KEY_Escape" in guard
+    assert "this._clipEditors.close();" in guard
+    assert "Clutter.EventType.ENTER" in guard
+    assert "return Clutter.EVENT_STOP;" in guard
+    load = _method(text, "_loadClipboard")
+    assert "this._clipEditors.requestRebuild();" in load
+    assert "activate: false" in editors
+    assert "can_focus: false" in editors
+    assert "GLib.source_remove(this._focusSource)" in editors
+    for source in (editors, inline):
+        for banned in ("OpenWindow", "Gio.DBus", "Soup", "fetch(", "Gio.Subprocess"):
+            assert banned not in source, banned
+    assert "import " not in inline

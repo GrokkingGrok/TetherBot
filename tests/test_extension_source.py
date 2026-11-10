@@ -526,6 +526,15 @@ def test_clip_menu_editors_never_open_the_window():
         for editor in ("edit", "tag", "context"):
             assert f"clip-{editor}" not in source
     assert "_openClipAction" not in text
+    root = EXTENSION.parent
+    banned = tuple("clip-" + name for name in ("tag", "edit", "context"))
+    for folder in ("extension", "bridge", "tests"):
+        for path in (root / folder).rglob("*"):
+            if path.suffix not in {".js", ".py", ".css", ".xml", ".json"}:
+                continue
+            body = path.read_text(encoding="utf-8")
+            for word in banned:
+                assert word not in body, f"{path}: {word}"
     assert "planQuickOpens" not in view
     assert "clipEditorFrame" not in view
     assert "isClipEditor" not in view
@@ -652,7 +661,8 @@ def test_menu_edit_is_inline_and_multi_line():
     assert "St.Clipboard.get_default().get_text(" in edit
     assert "this._text.set_selection(0, -1);" in edit
     assert "CONTROL_MASK" in edit
-    assert "max-height: 12em;" in css.split(".tetherbot-clip-edit-scroll {", 1)[1].split("}", 1)[0]
+    scroll = css.split(".tetherbot-inline-text-scroll {", 1)[1].split("}", 1)[0]
+    assert "max-height: 12em;" in scroll
     assert "-tetherbot-selection-color" in css
 
 

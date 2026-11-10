@@ -39,7 +39,7 @@ const EDIT_KEYS = new Map([
 function editorButton(label, onClick) {
     const button = new St.Button({
         label,
-        style_class: 'button tetherbot-clip-editor-button',
+        style_class: 'button tetherbot-inline-button',
         can_focus: true,
         reactive: true,
         track_hover: true,
@@ -58,25 +58,25 @@ class InlineEditor {
             activate: false,
             can_focus: false,
             hover: false,
-            style_class: `tetherbot-clip-editor ${styleClass}`,
+            style_class: `tetherbot-inline-editor ${styleClass}`,
         });
         this.box = new St.BoxLayout({
             orientation: Clutter.Orientation.VERTICAL,
-            style_class: 'tetherbot-clip-editor-box',
+            style_class: 'tetherbot-inline-box',
             x_expand: true,
         });
         this.item.add_child(this.box);
         this.box.add_child(new St.Label({
             text: heading,
-            style_class: 'tetherbot-clip-editor-heading',
+            style_class: 'tetherbot-inline-heading',
         }));
         this._error = new St.Label({
             text: '',
-            style_class: 'tetherbot-clip-editor-error',
+            style_class: 'tetherbot-inline-error',
             visible: false,
         });
         this._actions = new St.BoxLayout({
-            style_class: 'tetherbot-clip-editor-actions',
+            style_class: 'tetherbot-inline-actions',
             x_align: Clutter.ActorAlign.END,
             x_expand: true,
         });
@@ -170,7 +170,7 @@ class InlineEditor {
 
 export class TagEditor extends InlineEditor {
     constructor({chips, onSave, onCancel}) {
-        super('tetherbot-clip-tag-editor', 'Tags');
+        super('tetherbot-inline-tags', 'Tags');
         this._chips = chips;
         this._chipButtons = new Map();
         this._flow = new St.Widget({
@@ -190,7 +190,7 @@ export class TagEditor extends InlineEditor {
         flowBox.add_child(this._flow);
         this._empty = new St.Label({
             text: 'No tags yet',
-            style_class: 'tetherbot-clip-editor-hint',
+            style_class: 'tetherbot-inline-hint',
         });
         flowBox.add_child(this._empty);
         this.box.add_child(new St.ScrollView({
@@ -202,7 +202,7 @@ export class TagEditor extends InlineEditor {
         }));
         this._entry = new St.Entry({
             hint_text: 'New tag…',
-            style_class: 'tetherbot-clip-tag-entry',
+            style_class: 'tetherbot-inline-tag-entry',
             can_focus: true,
             x_expand: true,
         });
@@ -294,7 +294,7 @@ export class TagEditor extends InlineEditor {
 // SendClipboard the same way the window's context popover does.
 export class ContextEditor extends InlineEditor {
     constructor({bots, effort, onSend, onCancel}) {
-        super('tetherbot-clip-context-editor', 'Make a todo with context');
+        super('tetherbot-inline-context', 'Make a todo with context');
         const level = contextEffort(effort);
         const effortRow = new St.BoxLayout({style_class: 'tetherbot-clip-effort'});
         effortRow.add_child(new St.Label({text: 'Effort:'}));
@@ -365,7 +365,7 @@ export class ContextEditor extends InlineEditor {
 // has no clipboard, so copy, cut, paste, and select all are done here.
 export class EditEditor extends InlineEditor {
     constructor({text, onSave, onCancel}) {
-        super('tetherbot-clip-edit-editor', 'Edit');
+        super('tetherbot-inline-edit', 'Edit');
         this._text = new Clutter.Text({
             text,
             editable: true,
@@ -380,26 +380,26 @@ export class EditEditor extends InlineEditor {
         this._text.set_selection(-1, -1);
         this._area = new St.BoxLayout({
             orientation: Clutter.Orientation.VERTICAL,
-            style_class: 'tetherbot-clip-edit-area',
+            style_class: 'tetherbot-inline-text-area',
             reactive: true,
             x_expand: true,
         });
         this._area.add_child(this._text);
         this._scroll = new St.ScrollView({
-            style_class: 'tetherbot-clip-edit-scroll',
+            style_class: 'tetherbot-inline-text-scroll',
             hscrollbar_policy: St.PolicyType.NEVER,
             vscrollbar_policy: St.PolicyType.AUTOMATIC,
             x_expand: true,
             child: this._area,
         });
         this.box.add_child(new St.Bin({
-            style_class: 'tetherbot-clip-edit-frame',
+            style_class: 'tetherbot-inline-text-frame',
             x_expand: true,
             child: this._scroll,
         }));
         this.box.add_child(new St.Label({
             text: 'Enter adds a line. Ctrl+Enter saves. Escape cancels.',
-            style_class: 'tetherbot-clip-editor-hint',
+            style_class: 'tetherbot-inline-hint',
         }));
         this._area.connect('style-changed', () => this._syncStyle());
         this._area.connect('button-press-event', () => {

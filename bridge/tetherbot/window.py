@@ -3604,7 +3604,6 @@ class TodoWindow(Adw.ApplicationWindow):
         row.clip_text = text
         row.clip_masked = masked
         row.clip_entry = entry
-        row.clip_label = label
         row.clip_kind = "image" if is_image else "text"
         return row
 

@@ -109,6 +109,8 @@ TetherBot is pre-alpha. Check items off as they land. Design detail is in [SPEC.
 - [ ] Before 2026-11-04: write the clipboard unification plan. One process owns the clip UI (a single UI owner), so menu Tag/Edit popovers never cross D-Bus.
 - [ ] From 2026-11-04: start the unification plan.
 - Paused until unification: the N13c/N13d clipboard freeze follow-ups (M171–M177 and M180–M183 stay open), and the N14 clip features (URL clips M165, tab order M166, Edit-start separator M167, unpin-to-top M168). Notes moved out of N14 into N15.
+- Batch N16, clipboard unification option A: the shell owns menu editing, and the window owns editing on its Clipboard page. Menu Tag, Edit, and Make a todo with context never call `OpenWindow`.
+  - [x] M185. The menu no longer sends a clip editor key to `OpenWindow`. The bridge rejects those keys. The window has no pending clip request, ready-button wait, popdown retry, give-up line, or row highlight for the menu.
 
 ## v0.2 — early adopters
 

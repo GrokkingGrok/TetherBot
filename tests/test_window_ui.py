@@ -1456,7 +1456,7 @@ def test_clipboard_tag_filter_stops_after_one_rebuild():
     assert holder.get("ok") is True
 
 
-def test_a_stale_clipboard_load_keeps_an_image_and_routes_edit_and_tag():
+def test_a_stale_clipboard_load_keeps_an_image():
     gi = pytest.importorskip("gi")
     try:
         gi.require_version("Gtk", "4.0")
@@ -1555,167 +1555,10 @@ def test_a_stale_clipboard_load_keeps_an_image_and_routes_edit_and_tag():
                 "c-aaaaaaa2",
                 "c-aaaaaaa3",
             ]
-            opened: list[tuple[str, str]] = []
-            window._on_edit_clip = lambda _button, entry: opened.append(
-                ("clip-edit", entry.get("id"))
-            )
-            window._on_tag_clip = lambda _button, entry: opened.append(
-                ("clip-tag", entry.get("id"))
-            )
-            window.select_key("clip-edit:c-aaaaaaa2")
-            window.select_key("clip-tag:c-aaaaaaa1")
-            window.select_key("clip-edit:c-aaaaaaa1")
-            assert opened == [
-                ("clip-edit", "c-aaaaaaa2"),
-                ("clip-tag", "c-aaaaaaa1"),
-            ]
-            assert window.banner.get_title() != "That clip is gone."
             holder["ok"] = True
         except Exception as exc:
             holder["error"] = exc
         app.quit()
-        return False
-
-    try:
-        app.connect("activate", lambda _app: GLib.idle_add(finish))
-        GLib.timeout_add(8000, app.quit)
-        app.run(["tetherbot-window"])
-    finally:
-        reset_tetherbot_logger()
-    if "error" in holder:
-        raise holder["error"]
-    assert holder.get("ok") is True
-
-
-def test_menu_clip_actions_open_the_page_popover():
-    gi = pytest.importorskip("gi")
-    try:
-        gi.require_version("Gtk", "4.0")
-        gi.require_version("Adw", "1")
-        from gi.repository import GLib
-    except ValueError as exc:
-        pytest.skip(str(exc))
-    if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
-        pytest.skip("GTK window test needs a display")
-
-    class _Clip:
-        def set_listener(self, listener) -> None:
-            return None
-
-        def set_clipboard_listener(self, listener) -> None:
-            return None
-
-        def get_items(self, spec):
-            return []
-
-        def get_tags(self):
-            return []
-
-        def bots(self):
-            return [{"name": "primary", "display_name": "Primary"}]
-
-        def get_clipboard(self):
-            return [
-                {
-                    "id": "c-11111111",
-                    "text": "pinned line",
-                    "at": 2,
-                    "pinned": True,
-                    "tags": [],
-                },
-                {
-                    "id": "c-22222222",
-                    "text": "loose line",
-                    "at": 1,
-                    "pinned": False,
-                    "tags": [],
-                },
-            ]
-
-    app = _isolated_window(
-        "io.github.grokkinggrok.TetherBot.MenuClipTest",
-        _Clip(),
-    )
-    holder: dict = {}
-
-    def _open(window, key: str, ident: str) -> None:
-        window.select_key(key)
-        assert window.get_visible()
-        assert window._page == "clipboard"
-        deadline = time.monotonic() + 1
-        ctx = GLib.MainContext.default()
-        while time.monotonic() < deadline:
-            row = window._clip_row(ident)
-            popover = window._clip_popover
-            if (
-                row is not None
-                and "tether-clip-target" in row.get_css_classes()
-                and popover is not None
-                and popover.get_visible()
-            ):
-                return
-            ctx.iteration(False)
-        row = window._clip_row(ident)
-        assert row is not None
-        assert "tether-clip-target" in row.get_css_classes()
-        popover = window._clip_popover
-        assert popover is not None
-        assert popover.get_visible()
-
-    def _when_clear(window, step) -> None:
-        def _poll(left: int) -> bool:
-            if window._clip_busy() and left > 0:
-                GLib.timeout_add(30, _poll, left - 1)
-                return False
-            step()
-            return False
-
-        GLib.timeout_add(30, _poll, 20)
-
-    def finish() -> bool:
-        try:
-            window = app.window
-            assert window is not None
-            window._set_page("clipboard")
-            _open(window, "clip-tag:c-11111111", "c-11111111")
-            window._clip_popover.popdown()
-
-            def _edit() -> None:
-                try:
-                    _open(window, "clip-edit:c-22222222", "c-22222222")
-                    window._clip_popover.popdown()
-
-                    def _context() -> None:
-                        try:
-                            _open(window, "clip-context:c-22222222", "c-22222222")
-                            window._clip_popover.popdown()
-
-                            def _gone() -> None:
-                                try:
-                                    window.select_key("clip-tag:c-99999999")
-                                    assert window._page == "clipboard"
-                                    assert window.banner.get_title() == "That clip is gone."
-                                    assert window.banner.get_revealed()
-                                    assert window._clip_popover is None
-                                    _pump_quit(app, holder, GLib)
-                                except Exception as exc:
-                                    holder["error"] = exc
-                                    app.quit()
-
-                            _when_clear(window, _gone)
-                        except Exception as exc:
-                            holder["error"] = exc
-                            app.quit()
-
-                    _when_clear(window, _context)
-                except Exception as exc:
-                    holder["error"] = exc
-                    app.quit()
-
-            _when_clear(window, _edit)
-        except Exception as exc:
-            holder["error"] = exc
-            app.quit()
         return False
 
     try:
@@ -2015,171 +1858,6 @@ def _after_responsive(glib, action, done, failed, limit: float = 0.5) -> None:
     glib.timeout_add(20, poll)
 
 
-def test_clip_menu_actions_keep_the_main_loop_responsive():
-    gi = pytest.importorskip("gi")
-    try:
-        gi.require_version("Gtk", "4.0")
-        gi.require_version("Adw", "1")
-        from gi.repository import GLib
-    except ValueError as exc:
-        pytest.skip(str(exc))
-    if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
-        pytest.skip("GTK window test needs a display")
-
-    app = _isolated_window(
-        "io.github.grokkinggrok.TetherBot.ClipLoopTest",
-        _tag_clip_client(),
-    )
-    holder: dict = {}
-    keys = (
-        "clip-tag:c-11111111",
-        "clip-tag:c-11111111",
-        "clip-edit:c-11111111",
-    )
-
-    def finish() -> bool:
-        try:
-            window = app.window
-            assert window is not None
-            window._set_page("clipboard")
-
-            def failed(message: str) -> None:
-                holder["error"] = AssertionError(message)
-                app.quit()
-
-            def step(index: int) -> bool:
-                if index >= len(keys):
-                    window._close_clip_popover()
-
-                    def _clear(left: int) -> bool:
-                        if window._clip_busy() and left > 0:
-                            GLib.timeout_add(30, _clear, left - 1)
-                            return False
-                        _pump_quit(app, holder, GLib)
-                        return False
-
-                    GLib.timeout_add(30, _clear, 20)
-                    return False
-
-                def again() -> None:
-                    GLib.idle_add(step, index + 1)
-
-                _after_responsive(
-                    GLib,
-                    lambda: window.select_key(keys[index]),
-                    again,
-                    failed,
-                )
-                return False
-
-            GLib.idle_add(step, 0)
-        except Exception as exc:
-            holder["error"] = exc
-            app.quit()
-        return False
-
-    try:
-        app.connect("activate", lambda _app: GLib.idle_add(finish))
-        GLib.timeout_add(8000, app.quit)
-        app.run(["tetherbot-window"])
-    finally:
-        reset_tetherbot_logger()
-    if "error" in holder:
-        raise holder["error"]
-    assert holder.get("ok") is True
-
-
-def test_a_burst_of_clip_actions_leaves_the_edit_popover():
-    gi = pytest.importorskip("gi")
-    try:
-        gi.require_version("Gtk", "4.0")
-        gi.require_version("Adw", "1")
-        from gi.repository import GLib, Gtk
-    except ValueError as exc:
-        pytest.skip(str(exc))
-    if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
-        pytest.skip("GTK window test needs a display")
-
-    app = _isolated_window(
-        "io.github.grokkinggrok.TetherBot.ClipBurstTest",
-        _tag_clip_client(),
-    )
-    holder: dict = {}
-    keys = ("clip-tag:c-11111111",) * 5 + ("clip-edit:c-11111111",)
-
-    def finish() -> bool:
-        try:
-            window = app.window
-            assert window is not None
-            same = window
-            window._set_page("clipboard")
-
-            def failed(message: str) -> None:
-                holder["error"] = AssertionError(message)
-                app.quit()
-
-            def settle(spins: int) -> bool:
-                try:
-                    titles = [_popover_title(pop) for pop in _open_popovers(window, Gtk)]
-                    if titles == ["Edit"]:
-                        assert app.window is same
-
-                        def done() -> None:
-                            window._close_clip_popover()
-
-                            def _clear(left: int) -> bool:
-                                if window._clip_busy() and left > 0:
-                                    GLib.timeout_add(30, _clear, left - 1)
-                                    return False
-                                _pump_quit(app, holder, GLib)
-                                return False
-
-                            GLib.timeout_add(30, _clear, 20)
-
-                        _after_responsive(GLib, lambda: None, done, failed)
-                        return False
-                    if spins > 40:
-                        failed(f"popovers ended as {titles}")
-                        return False
-                    GLib.timeout_add(50, settle, spins + 1)
-                except Exception as exc:
-                    holder["error"] = exc
-                    app.quit()
-                return False
-
-            def send(index: int) -> bool:
-                if index >= len(keys):
-                    GLib.timeout_add(30, settle, 0)
-                    return False
-
-                def next_send() -> None:
-                    GLib.timeout_add(100, send, index + 1)
-
-                _after_responsive(
-                    GLib,
-                    lambda: window.select_key(keys[index]),
-                    next_send,
-                    failed,
-                )
-                return False
-
-            GLib.idle_add(send, 0)
-        except Exception as exc:
-            holder["error"] = exc
-            app.quit()
-        return False
-
-    try:
-        app.connect("activate", lambda _app: GLib.idle_add(finish))
-        GLib.timeout_add(15000, app.quit)
-        app.run(["tetherbot-window"])
-    finally:
-        reset_tetherbot_logger()
-    if "error" in holder:
-        raise holder["error"]
-    assert holder.get("ok") is True
-
-
 def _two_text_clips():
     class _Clip:
         def set_listener(self, listener) -> None:
@@ -2282,175 +1960,6 @@ def _poll(glib, pred, done, failed, left: int = 40) -> None:
     glib.timeout_add(30, tick, left)
 
 
-def test_an_unready_clip_button_retries_until_the_popover_opens():
-    gi = pytest.importorskip("gi")
-    try:
-        gi.require_version("Gtk", "4.0")
-        gi.require_version("Adw", "1")
-        from gi.repository import GLib
-    except ValueError as exc:
-        pytest.skip(str(exc))
-    if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
-        pytest.skip("GTK window test needs a display")
-
-    app = _isolated_window(
-        "io.github.grokkinggrok.TetherBot.ClipReadyRetry",
-        _two_text_clips(),
-    )
-    holder: dict = {}
-    lines = _capture_clip_log()
-
-    def finish() -> bool:
-        try:
-            window = app.window
-            assert window is not None
-            window._set_page("clipboard")
-
-            def failed(message) -> None:
-                if isinstance(message, Exception):
-                    holder["error"] = message
-                else:
-                    holder["error"] = AssertionError(str(message))
-                app.quit()
-
-            def opened() -> None:
-                assert any(line.startswith("clip popup gen=") for line in lines)
-                assert not any("clip popup skipped" in line for line in lines)
-                window._close_clip_popover()
-                _pump_quit(app, holder, GLib)
-
-            def start() -> None:
-                original = window._mount_clip_popover
-                state = {"n": 0, "button": None}
-
-                def wrapped(parent, child):
-                    state["n"] += 1
-                    if state["n"] == 1:
-                        state["button"] = parent
-                        parent.set_visible(False)
-                    return original(parent, child)
-
-                window._mount_clip_popover = wrapped
-                window.select_key("clip-edit:c-11111111")
-                assert window._clip_pending == ("clip-edit", "c-11111111")
-                assert any("clip popup wait" in line for line in lines)
-                assert not any("clip popup skipped" in line for line in lines)
-                assert state["button"] is not None
-                state["button"].set_visible(True)
-                _poll(
-                    GLib,
-                    lambda: (
-                        window._clip_popover is not None
-                        and window._clip_popover.get_visible()
-                        and window._clip_pending is None
-                    ),
-                    opened,
-                    failed,
-                    left=60,
-                )
-
-            _poll(
-                GLib,
-                lambda: window._clip_popup_block("clip-edit", "c-11111111")[0] == "",
-                start,
-                failed,
-            )
-        except Exception as exc:
-            holder["error"] = exc
-            app.quit()
-        return False
-
-    try:
-        app.connect("activate", lambda _app: GLib.idle_add(finish))
-        GLib.timeout_add(8000, app.quit)
-        app.run(["tetherbot-window"])
-    finally:
-        reset_tetherbot_logger()
-    if "error" in holder:
-        raise holder["error"]
-    assert holder.get("ok") is True
-
-
-def test_an_unready_clip_button_gives_up_after_the_deadline():
-    gi = pytest.importorskip("gi")
-    try:
-        gi.require_version("Gtk", "4.0")
-        gi.require_version("Adw", "1")
-        from gi.repository import GLib
-    except ValueError as exc:
-        pytest.skip(str(exc))
-    if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
-        pytest.skip("GTK window test needs a display")
-
-    from tetherbot.window import _CLIP_ACTION_WAIT_S
-
-    assert _CLIP_ACTION_WAIT_S == 2.0
-    app = _isolated_window(
-        "io.github.grokkinggrok.TetherBot.ClipReadyGiveUp",
-        _two_text_clips(),
-    )
-    holder: dict = {}
-    lines = _capture_clip_log()
-
-    def finish() -> bool:
-        try:
-            window = app.window
-            assert window is not None
-            window._set_page("clipboard")
-            found = {}
-
-            def failed(message) -> None:
-                if isinstance(message, Exception):
-                    holder["error"] = message
-                else:
-                    holder["error"] = AssertionError(str(message))
-                app.quit()
-
-            def ready() -> bool:
-                fail, button, _row = window._clip_popup_block("clip-edit", "c-11111111")
-                if fail == "" and button is not None:
-                    found["button"] = button
-                    return True
-                return False
-
-            def gave_up() -> None:
-                assert any("clip popup gave up" in line for line in lines)
-                assert any("clip popup wait" in line for line in lines)
-                assert not any("clip popup skipped" in line for line in lines)
-                _pump_quit(app, holder, GLib)
-
-            def hide_and_request() -> None:
-                found["button"].set_visible(False)
-                window.select_key("clip-edit:c-11111111")
-                window._clip_action_deadline = time.monotonic() - 1
-                _poll(
-                    GLib,
-                    lambda: (
-                        window._clip_pending is None
-                        and window.banner.get_revealed()
-                        and window.banner.get_title() == "Couldn't open that clip."
-                    ),
-                    gave_up,
-                    failed,
-                )
-
-            _poll(GLib, ready, hide_and_request, failed)
-        except Exception as exc:
-            holder["error"] = exc
-            app.quit()
-        return False
-
-    try:
-        app.connect("activate", lambda _app: GLib.idle_add(finish))
-        GLib.timeout_add(8000, app.quit)
-        app.run(["tetherbot-window"])
-    finally:
-        reset_tetherbot_logger()
-    if "error" in holder:
-        raise holder["error"]
-    assert holder.get("ok") is True
-
-
 def test_a_clipboard_rebuild_unparents_open_and_closing_popovers():
     gi = pytest.importorskip("gi")
     try:
@@ -2484,7 +1993,7 @@ def test_a_clipboard_rebuild_unparents_open_and_closing_popovers():
                 app.quit()
 
             def closing() -> None:
-                row = window._clip_row("c-11111111")
+                row = _visible_clip_row(window, "c-11111111")
                 _icon(row, "tetherbot-tag-symbolic").emit("clicked")
                 popover = window._clip_popover
                 assert popover is not None
@@ -2506,25 +2015,15 @@ def test_a_clipboard_rebuild_unparents_open_and_closing_popovers():
                 GLib.timeout_add(200, check)
 
             def opened() -> None:
-                row = window._clip_row("c-11111111")
+                row = _visible_clip_row(window, "c-11111111")
                 _icon(row, "tetherbot-tag-symbolic").emit("clicked")
                 assert window._clip_popover is not None
                 assert window._clip_popover.get_visible()
                 window._fill_clipboard_rows()
                 assert window._clip_popover is None
-                _poll(
-                    GLib,
-                    lambda: window._clip_popup_block("clip-tag", "c-11111111")[0] == "",
-                    closing,
-                    failed,
-                )
+                _poll(GLib, lambda: _clip_row_mapped(window, "c-11111111"), closing, failed)
 
-            _poll(
-                GLib,
-                lambda: window._clip_popup_block("clip-tag", "c-11111111")[0] == "",
-                opened,
-                failed,
-            )
+            _poll(GLib, lambda: _clip_row_mapped(window, "c-11111111"), opened, failed)
         except Exception as exc:
             holder["error"] = exc
             app.quit()
@@ -2542,7 +2041,18 @@ def test_a_clipboard_rebuild_unparents_open_and_closing_popovers():
     assert holder.get("ok") is True
 
 
-def test_edit_opens_while_a_tag_popover_is_open():
+def _clip_row_mapped(window, entry_id: str) -> bool:
+    for row in _clip_rows(window):
+        if getattr(row, "clip_id", "") == entry_id and row.get_visible():
+            return bool(row.get_mapped())
+    return False
+
+
+def _press_clip(window, entry_id: str, icon_name: str) -> None:
+    _icon(_visible_clip_row(window, entry_id), icon_name).emit("clicked")
+
+
+def test_page_edit_replaces_an_open_tag_popover():
     gi = pytest.importorskip("gi")
     try:
         gi.require_version("Gtk", "4.0")
@@ -2587,7 +2097,7 @@ def test_edit_opens_while_a_tag_popover_is_open():
                 def again() -> None:
                     _after_responsive(
                         GLib,
-                        lambda: window.select_key("clip-edit:c-11111111"),
+                        lambda: _press_clip(window, "c-11111111", "document-edit-symbolic"),
                         open_edit_same,
                         failed,
                     )
@@ -2599,7 +2109,7 @@ def test_edit_opens_while_a_tag_popover_is_open():
                     assert len(_open_popovers(window, Gtk)) == 1
                     _after_responsive(
                         GLib,
-                        lambda: window.select_key("clip-tag:c-11111111"),
+                        lambda: _press_clip(window, "c-11111111", "tetherbot-tag-symbolic"),
                         open_tag_same,
                         failed,
                     )
@@ -2610,17 +2120,22 @@ def test_edit_opens_while_a_tag_popover_is_open():
                 def again() -> None:
                     _after_responsive(
                         GLib,
-                        lambda: window.select_key("clip-edit:c-22222222"),
+                        lambda: _press_clip(window, "c-22222222", "document-edit-symbolic"),
                         open_edit_other,
                         failed,
                     )
 
                 _poll(GLib, lambda: _titles(window) == ["New tag"], again, failed, left=70)
 
-            _after_responsive(
+            _poll(
                 GLib,
-                lambda: window.select_key("clip-tag:c-11111111"),
-                open_tag,
+                lambda: _clip_row_mapped(window, "c-22222222"),
+                lambda: _after_responsive(
+                    GLib,
+                    lambda: _press_clip(window, "c-11111111", "tetherbot-tag-symbolic"),
+                    open_tag,
+                    failed,
+                ),
                 failed,
             )
         except Exception as exc:

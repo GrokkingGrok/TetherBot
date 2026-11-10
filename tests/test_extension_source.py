@@ -254,8 +254,6 @@ def test_clipboard_capture_filters_before_it_reads_text():
     filled = text.split("    _fillClipboardMenu() {", 1)[1].split("    _installIconTheme()", 1)[0]
     assert "Unpin" in filled
     assert "view-pin-symbolic" in filled
-    assert "document-edit-symbolic" in filled
-    assert "tetherbot-tag-symbolic" in filled
     assert "tetherbot-clip-actions" in filled
     assert "x_expand: false" in filled
     assert "edit-copy-symbolic" in filled
@@ -273,10 +271,8 @@ def test_clipboard_capture_filters_before_it_reads_text():
     assert "if (!enabled)" in filled
     assert "const canSend = !isImage && !masked" in filled
     assert "tetherbot-check-symbolic" in filled
-    assert "tetherbot-square-check-symbolic" in filled
     assert "tetherbot-circle-help-symbolic" in filled
     assert "clip-todo" in filled
-    assert "clip-context" in filled
     assert "clip-todo-context" not in filled
     assert "clip-ask" in filled
     send = text.split("    _sendClipboard(", 1)[1].split("\n    _", 1)[0]
@@ -318,7 +314,6 @@ def test_clipboard_capture_filters_before_it_reads_text():
     assert "SearchClipboardRemote" in text
     assert "launch_default_for_uri" not in text
     assert "'Pinned'" in filled
-    assert "clip-edit" in filled
 
 
 def test_window_icon_is_the_face_and_the_clipboard_icon_wears_it():
@@ -377,7 +372,6 @@ def test_the_panel_menu_loads_tetherbot_icons_from_the_extension():
     assert "background-image" not in text
     assert "pin-accent-" not in text
     filled = text.split("    _fillClipboardMenu() {", 1)[1].split("    _installIconTheme()", 1)[0]
-    assert "tetherbot-tag-symbolic" in filled
     assert "_clipIconButton(" in filled
     assert "view-pin-symbolic" in filled
     assert "'Pinned'" in filled
@@ -395,9 +389,6 @@ def test_the_panel_menu_loads_tetherbot_icons_from_the_extension():
     )[0]
     assert "Unpinned" not in built
     assert "button-press-event" in built
-    assert "clip-edit" in filled
-    assert "clip-tag" in filled
-    assert "clip-context" in filled
     assert "_searchClipboard(" in filled
     assert "MENU_LIMIT" in filled
     assert "opacity:" not in filled
@@ -423,13 +414,9 @@ def test_the_panel_menu_loads_tetherbot_icons_from_the_extension():
     assert "clipEditorFrame" not in text
     assert "_armClipEditorWatch" not in text
     assert "_watchClipEditor" not in text
-    assert "isClipEditor" in text
+    assert "isClipEditor" not in text
     assert "getWorkAreaForMonitor" in text
-    opened = text.split("    _openClipAction(", 1)[1].split("\n    _", 1)[0]
-    assert "_callOpenWindow" in opened
-    assert "clip-edit" in text
-    assert "clip-tag" in text
-    assert "clip-context" in text
+    assert "_openClipAction" not in text
     adjust = text.split("    _adjustStart(", 1)[1].split("\n    _", 1)[0]
     assert "_editingStart = false" not in adjust
     assert "_editingStart = true" in adjust
@@ -527,3 +514,29 @@ def test_priority_chip_sits_in_the_menu_chip_row():
     priority = sequence.index("if (row.priority)")
     tags = sequence.index("row.tags")
     assert bot < due < priority < tags
+
+
+def test_clip_menu_editors_never_open_the_window():
+    """M185: only Open clipboard reaches OpenWindow from the clipboard menu."""
+
+    text = (EXTENSION / "extension.js").read_text(encoding="utf-8")
+    view = (EXTENSION / "view.js").read_text(encoding="utf-8")
+    for source in (text, view):
+        for editor in ("edit", "tag", "context"):
+            assert f"clip-{editor}" not in source
+    assert "_openClipAction" not in text
+    assert "planQuickOpens" not in view
+    assert "clipEditorFrame" not in view
+    assert "isClipEditor" not in view
+    callers = [
+        chunk.split("(", 1)[0]
+        for chunk in text.split("\n    _")[1:]
+        if "_callOpenWindow(" in chunk.split("\n    }\n", 1)[0]
+    ]
+    assert sorted(callers) == ["openClipboardWindow", "openWindow"]
+    menu = text.split("    _appendClipboardRows(entries) {", 1)[1].split(
+        "\n    _installIconTheme()", 1
+    )[0]
+    assert "OpenWindow" not in menu
+    assert "_openWindow(" not in menu
+    assert "_openClipboardWindow(" not in menu

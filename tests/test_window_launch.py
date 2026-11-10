@@ -168,7 +168,7 @@ def test_a_dead_window_name_is_started_once_and_the_action_is_sent_again(monkeyp
     monkeypatch.setattr(window_launch, "_window_start_sent", False)
     bus = _Bus(False)
     monkeypatch.setattr(Gio, "bus_get_sync", lambda *_args, **_kwargs: bus)
-    assert launch_window("clip-tag:c-11111111") is True
+    assert launch_window("clipboard") is True
     assert bus.calls == [
         ("io.github.grokkinggrok.TetherBot", "ActivateAction"),
         ("org.freedesktop.DBus", "NameHasOwner"),
@@ -178,7 +178,7 @@ def test_a_dead_window_name_is_started_once_and_the_action_is_sent_again(monkeyp
     monkeypatch.setattr(window_launch, "_window_start_sent", False)
     owned = _Bus(True)
     monkeypatch.setattr(Gio, "bus_get_sync", lambda *_args, **_kwargs: owned)
-    assert launch_window("clip-tag:c-11111111") is True
+    assert launch_window("clipboard") is True
     assert owned.calls == [
         ("io.github.grokkinggrok.TetherBot", "ActivateAction"),
         ("org.freedesktop.DBus", "NameHasOwner"),

@@ -129,12 +129,13 @@ def test_window_sources_do_not_touch_the_network_or_secrets():
     assert '"Sent"' in window
     assert "_show_clip_popover" in window
     assert "set_autohide(True)" in window
-    assert '"That clip is gone."' in window
-    assert "tether-clip-target" in window
+    assert '"That clip is gone."' not in window
+    assert "tether-clip-target" not in window
     assert "Sending… will retry" in window
     assert "Couldn't send Done. Try again." in window
     assert "class ClipEditorWindow" not in window
-    assert "clip-context" in window
+    assert "def select_key" in window
+    assert "_clip_pending" not in window
     tag_editor = window.split("def _build_tag_editor", 1)[1].split(
         "\ndef _build_context_editor", 1
     )[0]

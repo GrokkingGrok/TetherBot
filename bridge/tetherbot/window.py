@@ -12,7 +12,6 @@ import faulthandler
 import json
 import logging
 import os
-import re
 import sys
 import time
 import weakref
@@ -84,19 +83,6 @@ BUS_NAME = "io.github.grokkinggrok.TetherBot1"
 OBJECT_PATH = "/io/github/grokkinggrok/TetherBot1"
 INTERFACE = "io.github.grokkinggrok.TetherBot1"
 LINGER_MS = 60_000
-_CLIP_WINDOW = re.compile(
-    r"^(clip-edit|clip-tag|clip-context):(c-[0-9a-f]{8})$"
-)
-_CLIP_ACTION_ICONS = {
-    "clip-edit": "document-edit-symbolic",
-    "clip-tag": "tetherbot-tag-symbolic",
-    "clip-context": "tetherbot-square-check-symbolic",
-}
-_CLIP_GONE = "That clip is gone."
-_CLIP_NOT_OPENED = "Couldn't open that clip."
-_CLIP_ACTION_WAIT_S = 2.0
-_CLIP_POPDOWN_MS = 300
-_CLIP_FRAME_MS = 32
 _NOTE_DRAFT_MS = 500
 _LOG = logging.getLogger("tetherbot")
 _DONE_RETRY_LINE = "Sending… will retry"
@@ -120,17 +106,6 @@ def _action_result_args(params: Any) -> tuple[str, str, str]:
     while len(parts) < 3:
         parts.append("")
     return parts[0], parts[1], parts[2]
-
-
-def _clip_window_action(key: str) -> tuple[str, str] | None:
-    """``clip-edit``, ``clip-tag``, or ``clip-context`` plus one clipboard id."""
-
-    if not isinstance(key, str):
-        return None
-    match = _CLIP_WINDOW.fullmatch(key)
-    if match is None:
-        return None
-    return match.group(1), match.group(2)
 
 
 def _pad_box(box: Gtk.Widget) -> None:
@@ -531,13 +506,6 @@ separator.tether-clip-sep {
 row.tether-clip-row {
   background-color: transparent;
   box-shadow: inset 0 0 0 transparent;
-}
-row.tether-clip-target {
-  background-color: alpha(@accent_bg_color, 0.24);
-  box-shadow: inset 2px 0 0 @accent_bg_color;
-}
-row.tether-clip-fade {
-  transition: background-color 1500ms ease-out, box-shadow 1500ms ease-out;
 }
 .tether-source { opacity: 0.75; }
 .tether-dot { font-size: 0.85em; }
@@ -1132,20 +1100,7 @@ class TodoWindow(Adw.ApplicationWindow):
         self._clip_search_template: str | None = None
         self._clip_entries: list[dict[str, Any]] = []
         self._clip_gen = 0
-        self._clip_pending: tuple[str, str] | None = None
-        self._clip_action_gen = 0
-        self._clip_action_source = 0
-        self._clip_action_deadline = 0.0
-        self._clip_popdown_token = 0
-        self._clip_popdown_source = 0
-        self._clip_tick_id = 0
-        self._clip_frame_source = 0
         self._clip_detaching = False
-        self._clip_load_inflight = False
-        self._clip_highlight_id = ""
-        self._clip_highlight_hold = False
-        self._clip_highlight_gen = 0
-        self._clip_highlight_source = 0
         self._done_actions: set[str] = set()
         self._clip_dialog: Adw.AlertDialog | None = None
         self._clip_popover: Gtk.Popover | None = None
@@ -1578,27 +1533,9 @@ class TodoWindow(Adw.ApplicationWindow):
         self._fit_to_list()
 
     def select_key(self, key: str) -> None:
-        """Raise the window. An empty key shows todos. ``bots`` opens the bot list.
+        """Raise the window. An empty key shows todos. ``bots`` opens the bot list."""
 
-        A clipboard action key opens the Clipboard page and that row's popover.
-        """
-
-        clip = _clip_window_action(key)
-        if clip is not None:
-            self.present()
-            self._clip_action_gen += 1
-            self._cancel_clip_action_source()
-            self._cancel_popdown_timer()
-            self._clip_popdown_token = 0
-            self._clip_pending = clip
-            self._clip_action_deadline = time.monotonic() + _CLIP_ACTION_WAIT_S
-            _LOG.info("clip request gen=%s key=%s", self._clip_action_gen, key)
-            self._begin_clip_action(self._clip_action_gen)
-            return
         self.present()
-        self._clip_action_gen += 1
-        self._cancel_clip_action_source()
-        self._clip_pending = None
         if key == "bots":
             self._set_page("bots")
             return
@@ -1701,7 +1638,6 @@ class TodoWindow(Adw.ApplicationWindow):
         clear_missing: bool,
     ) -> None:
         self._cancel_clip_flashes()
-        self._cancel_highlight_source()
         self._park_list_focus()
         hot = bool(
             self._list_hovered or self._guard_rows or self._doomed or self._any_pointer_row()
@@ -1722,8 +1658,6 @@ class TodoWindow(Adw.ApplicationWindow):
                 self._show_item(None)
         if self._doomed:
             self._schedule_drop()
-        if self._clip_highlight_hold and self._clip_highlight_id:
-            self._paint_clip_highlight()
 
     def _retire_current(self, *, force: bool) -> None:
         existing: list[Gtk.ListBoxRow] = []
@@ -2939,21 +2873,8 @@ class TodoWindow(Adw.ApplicationWindow):
         """Remove idles and timeouts before widgets are destroyed."""
 
         self._clip_flash_gen += 1
-        self._clip_highlight_gen += 1
-        self._clip_highlight_id = ""
-        self._clip_highlight_hold = False
-        self._clip_highlight_source = 0
         self._commit_current_note_draft()
         self._cancel_note_draft_timer()
-        self._clip_action_gen += 1
-        self._clip_pending = None
-        self._clip_action_source = 0
-        self._clip_popdown_token = 0
-        self._clip_popdown_source = 0
-        self._cancel_clip_tick()
-        frame = self._clip_frame_source
-        self._clip_frame_source = 0
-        self._forget_source(frame)
         self._detach_all_clip_popovers()
         self._clip_rebuild_deferred = False
         pending = list(self._glib_sources)
@@ -3395,8 +3316,6 @@ class TodoWindow(Adw.ApplicationWindow):
         self._clip_rebuild_deferred = False
         if deferred:
             self._reload_clip_now()
-            return
-        self._apply_clip_pending(loaded=True)
 
     def _on_clipboard_changed(self) -> None:
         if self._page != "clipboard":
@@ -3416,7 +3335,6 @@ class TodoWindow(Adw.ApplicationWindow):
         self._clip_gen += 1
         token = self._clip_gen
         if hasattr(self.client, "load_clipboard"):
-            self._clip_load_inflight = True
             self.client.load_clipboard(
                 lambda entries, error, token=token: self._on_clipboard_loaded(
                     entries, error, token
@@ -3431,7 +3349,6 @@ class TodoWindow(Adw.ApplicationWindow):
                 self.banner.set_revealed(True)
                 self._clip_entries = []
         self._fill_clipboard_rows()
-        self._apply_clip_pending(loaded=True)
 
     def _on_clipboard_loaded(
         self,
@@ -3441,7 +3358,6 @@ class TodoWindow(Adw.ApplicationWindow):
     ) -> None:
         if token is not None and token != self._clip_gen:
             return
-        self._clip_load_inflight = False
         if self._page != "clipboard":
             return
         if error is not None:
@@ -3454,7 +3370,6 @@ class TodoWindow(Adw.ApplicationWindow):
         if self._defer_clip_rebuild():
             return
         self._fill_clipboard_rows()
-        self._apply_clip_pending(loaded=error is None)
 
     def _clip_heading_row(self, title: str) -> Gtk.ListBoxRow:
         label = Gtk.Label(label=title, xalign=0)
@@ -3782,30 +3697,14 @@ class TodoWindow(Adw.ApplicationWindow):
         return ["primary", *rest]
 
     def _show_clip_popover(self, parent: object, child: Gtk.Widget) -> Gtk.Popover | None:
-        """Pop up on parent after that widget is checked again.
+        """Pop up on the pressed button. A popover that is already open is closed first."""
 
-        Waiting for a menu request stays on ``_clip_pending``. This does not
-        schedule a second idle, and a popover that is already open is closed
-        instead of dropping the new one.
-        """
-
-        if not isinstance(parent, Gtk.Widget):
+        if not isinstance(parent, Gtk.Widget) or not _widget_usable(parent):
             return None
         if self._popover_visible() or self._closed_popover is not None:
             self._detach_all_clip_popovers()
-        if not self._parent_can_popup(parent):
+        if not parent.get_mapped():
             return None
-        return self._mount_clip_popover(parent, child)
-
-    def _mount_clip_popover(self, parent: Gtk.Widget, child: Gtk.Widget) -> Gtk.Popover | None:
-        if not self._parent_can_popup(parent):
-            return None
-        pending = self._clip_pending
-        if pending is not None:
-            kind, ident = pending
-            _fail, button, _row = self._clip_popup_block(kind, ident)
-            if button is not parent:
-                return None
         self._popover_reload = False
         popover = Gtk.Popover()
         popover.set_autohide(True)
@@ -3814,19 +3713,8 @@ class TodoWindow(Adw.ApplicationWindow):
         popover.connect("closed", self._on_clip_popover_closed)
         self._clip_popover = popover
         self._clip_close_queued = False
-        _LOG.info("clip popup gen=%s", self._clip_action_gen)
         popover.popup()
         return popover
-
-    def _popdown_live_popover(self) -> None:
-        popover = self._clip_popover
-        if popover is None or not _widget_usable(popover):
-            return
-        try:
-            if popover.get_visible():
-                popover.popdown()
-        except Exception:
-            return
 
     def _popdown_row_popover(self, row: Gtk.ListBoxRow) -> None:
         """Drop a grab before this row is hidden or destroyed."""
@@ -3844,7 +3732,6 @@ class TodoWindow(Adw.ApplicationWindow):
                 targets.append(popover)
         if not targets:
             return
-        _LOG.info("clip popdown gen=%s", self._clip_action_gen)
         self._clip_detaching = True
         try:
             for popover in targets:
@@ -3879,13 +3766,6 @@ class TodoWindow(Adw.ApplicationWindow):
         self._popover_reload = False
         if self._clip_popover is popover:
             self._clip_popover = None
-            self._fade_clip_highlight()
-        waiting = self._clip_popdown_token
-        if waiting and waiting == self._clip_action_gen:
-            self._clip_popdown_token = 0
-            self._cancel_popdown_timer()
-            _LOG.info("clip popdown closed gen=%s", waiting)
-            self._arm_clip_after_frame(waiting)
         if self._clip_context_dialog is popover:
             self._clip_context_dialog = None
         if _widget_usable(popover):
@@ -4214,7 +4094,6 @@ class TodoWindow(Adw.ApplicationWindow):
             return
         self._detach_all_clip_popovers()
         self._clip_gen += 1
-        self._clip_load_inflight = False
         if hasattr(self.client, "get_clipboard"):
             try:
                 self._clip_entries = self.client.get_clipboard()
@@ -4222,7 +4101,6 @@ class TodoWindow(Adw.ApplicationWindow):
                 self._toast(friendly_bridge_message(exc))
                 return
         self._fill_clipboard_rows()
-        self._apply_clip_pending(loaded=True)
 
     def _popover_visible(self) -> bool:
         popover = self._clip_popover
@@ -4232,324 +4110,6 @@ class TodoWindow(Adw.ApplicationWindow):
             return bool(popover.get_visible())
         except Exception:
             return True
-
-    def _await_clip_popdown(self, token: int) -> None:
-        """Close the live popover and continue after closed, or after 300 ms."""
-
-        if token != self._clip_action_gen:
-            return
-        if not self._popover_visible():
-            self._clip_popdown_token = 0
-            self._cancel_popdown_timer()
-            self._defer_clip_action(token)
-            return
-        if self._clip_popdown_token == token and self._clip_popdown_source:
-            return
-        self._clip_popdown_token = token
-        _LOG.info("clip popdown gen=%s", token)
-        self._close_clip_popover()
-        if self._clip_popdown_token != token:
-            return
-        self._cancel_popdown_timer()
-        self._clip_popdown_source = self._remember_source(
-            GLib.timeout_add(_CLIP_POPDOWN_MS, self._on_popdown_timeout, token)
-        )
-
-    def _on_popdown_timeout(self, token: int) -> bool:
-        source = self._clip_popdown_source
-        self._clip_popdown_source = 0
-        self._glib_sources.discard(source)
-        if token != self._clip_action_gen or self._clip_popdown_token != token:
-            return False
-        _LOG.info("clip popdown timeout gen=%s", token)
-        self._clip_popdown_token = 0
-        self._release_stuck_popover()
-        self._arm_clip_after_frame(token)
-        return False
-
-    def _cancel_popdown_timer(self) -> None:
-        source = self._clip_popdown_source
-        self._clip_popdown_source = 0
-        self._forget_source(source)
-
-    def _begin_clip_action(self, token: int) -> None:
-        """Present the clip popover once the page, the row, and the last popover are idle."""
-
-        if token != self._clip_action_gen or self._clip_pending is None:
-            return
-        if self._page != "clipboard":
-            self._set_page("clipboard")
-            if token != self._clip_action_gen or self._clip_pending is None:
-                return
-        if self._popover_visible() or self._clip_popdown_token:
-            self._await_clip_popdown(token)
-            return
-        if self._clip_busy():
-            self._detach_all_clip_popovers()
-        if self._clip_rebuild_deferred:
-            self._clip_rebuild_deferred = False
-            if token != self._clip_action_gen or self._clip_pending is None:
-                return
-            self._reload_clip_now()
-            return
-        if self._clip_load_inflight:
-            self._defer_clip_action(token)
-            return
-        self._apply_clip_pending(loaded=True)
-
-    def _defer_clip_action(self, token: int) -> None:
-        if token != self._clip_action_gen or self._clip_pending is None:
-            return
-        if self._clip_action_deadline and time.monotonic() >= self._clip_action_deadline:
-            self._expire_clip_action(token)
-            return
-        self._arm_clip_action(token)
-
-    def _arm_clip_action(self, token: int) -> None:
-        if token != self._clip_action_gen or self._clip_pending is None:
-            return
-        self._cancel_clip_action_source()
-
-        def _later() -> bool:
-            source = self._clip_action_source
-            self._clip_action_source = 0
-            self._glib_sources.discard(source)
-            if token != self._clip_action_gen or self._clip_pending is None:
-                return False
-            self._begin_clip_action(token)
-            return False
-
-        self._clip_action_source = self._remember_source(GLib.idle_add(_later))
-
-    def _cancel_clip_action_source(self) -> None:
-        source = self._clip_action_source
-        self._clip_action_source = 0
-        self._forget_source(source)
-        frame = self._clip_frame_source
-        self._clip_frame_source = 0
-        self._forget_source(frame)
-        self._cancel_clip_tick()
-
-    def _cancel_clip_tick(self) -> None:
-        tick = self._clip_tick_id
-        self._clip_tick_id = 0
-        if not tick:
-            return
-        try:
-            self.remove_tick_callback(tick)
-        except Exception:
-            return
-
-    def _arm_clip_after_frame(self, token: int) -> None:
-        """Wait one frame after popdown, then retry the same request."""
-
-        if token != self._clip_action_gen or self._clip_pending is None:
-            return
-        self._cancel_clip_action_source()
-        state = {"ran": False}
-
-        def _go(*, from_backup: bool) -> None:
-            if state["ran"]:
-                return
-            state["ran"] = True
-            tick = self._clip_tick_id
-            self._clip_tick_id = 0
-            if tick:
-                try:
-                    self.remove_tick_callback(tick)
-                except Exception:
-                    pass
-            backup = self._clip_frame_source
-            self._clip_frame_source = 0
-            if from_backup:
-                self._glib_sources.discard(backup)
-            else:
-                self._forget_source(backup)
-            self._arm_clip_action(token)
-
-        def _tick(_widget: Gtk.Widget, _clock: object) -> bool:
-            self._clip_tick_id = 0
-            _go(from_backup=False)
-            return False
-
-        def _backup() -> bool:
-            _go(from_backup=True)
-            return False
-
-        if self.get_mapped():
-            try:
-                self._clip_tick_id = int(self.add_tick_callback(_tick))
-            except Exception:
-                self._clip_tick_id = 0
-        self._clip_frame_source = self._remember_source(
-            GLib.timeout_add(_CLIP_FRAME_MS, _backup)
-        )
-
-    def _expire_clip_action(self, token: int) -> None:
-        if token != self._clip_action_gen or self._clip_pending is None:
-            return
-        kind, ident = self._clip_pending
-        row = self._clip_row(ident)
-        self._release_stuck_popover()
-        if row is None:
-            self._give_up_clip_action(missing=True)
-            return
-        fail, button, _ready_row = self._clip_popup_block(kind, ident)
-        if fail or button is None:
-            self._give_up_clip_action(missing=False)
-            return
-        self._apply_clip_pending(loaded=True, final=True)
-
-    def _release_stuck_popover(self) -> None:
-        self._detach_all_clip_popovers()
-
-    def _give_up_clip_action(self, *, missing: bool) -> None:
-        pending = self._clip_pending
-        ident = pending[1] if pending is not None else ""
-        self._clip_pending = None
-        self._cancel_clip_action_source()
-        _LOG.info("clip popup gave up gen=%s id=%s", self._clip_action_gen, ident)
-        if missing:
-            self._show_clip_gone()
-            return
-        self.banner.set_title(_CLIP_NOT_OPENED)
-        self.banner.set_revealed(True)
-
-    def _finish_or_defer(self, final: bool, *, missing: bool) -> None:
-        if final:
-            self._give_up_clip_action(missing=missing)
-            return
-        self._defer_clip_action(self._clip_action_gen)
-
-    def _apply_clip_pending(self, *, loaded: bool, final: bool = False) -> None:
-        pending = self._clip_pending
-        if pending is None or not loaded or self._clip_popdown_token:
-            return
-        if (
-            self._clip_busy()
-            or self._clip_rebuild_deferred
-            or self._clip_load_inflight
-            or self._popover_visible()
-        ):
-            self._finish_or_defer(final, missing=False)
-            return
-        kind, ident = pending
-        if self._clip_query or self._clip_tag:
-            self._clip_query = ""
-            self._clip_tag = ""
-            self.clip_search.set_text("")
-            self._sync_clip_tags()
-            self._fill_clipboard_rows()
-            if (
-                self._clip_busy()
-                or self._clip_rebuild_deferred
-                or self._clip_pending is None
-            ):
-                self._finish_or_defer(final, missing=False)
-                return
-        row = self._clip_row(ident)
-        if row is None:
-            if self._clip_load_inflight or self._page != "clipboard":
-                self._finish_or_defer(final, missing=True)
-                return
-            self._give_up_clip_action(missing=True)
-            return
-        entry = getattr(row, "clip_entry", None)
-        preview = getattr(row, "clip_label", None)
-        button = self._clip_button(row, kind)
-        if not isinstance(entry, dict) or not isinstance(button, Gtk.Widget):
-            self._give_up_clip_action(missing=True)
-            return
-        if not button.get_sensitive():
-            self._clip_pending = None
-            self._cancel_clip_action_source()
-            self.banner.set_revealed(False)
-            tip = button.get_tooltip_text() or ""
-            if tip:
-                self._toast(tip)
-            return
-        mapped, realized = _row_flags(row)
-        _LOG.info(
-            "clip row gen=%s id=%s mapped=%s realized=%s",
-            self._clip_action_gen,
-            ident,
-            int(mapped),
-            int(realized),
-        )
-        fail, ready, ready_row = self._clip_popup_block(kind, ident)
-        if fail or ready is None or ready_row is None:
-            self._log_clip_wait(ident, fail or "button")
-            self._finish_or_defer(final, missing=False)
-            return
-        self._scroll_clip_row(ready_row)
-        fail, ready, ready_row = self._clip_popup_block(kind, ident)
-        if fail or ready is None or ready_row is None:
-            self._log_clip_wait(ident, fail or "button")
-            self._finish_or_defer(final, missing=False)
-            return
-        self.banner.set_revealed(False)
-        if kind == "clip-edit":
-            self._on_edit_clip(ready, entry)
-        elif kind == "clip-tag":
-            self._on_tag_clip(ready, entry)
-        elif kind == "clip-context" and isinstance(preview, Gtk.Label):
-            self._on_context_clip(ready, entry, preview)
-        else:
-            self._give_up_clip_action(missing=False)
-            return
-        if self._popover_visible():
-            self._clip_pending = None
-            self._cancel_clip_action_source()
-            self._arm_clip_highlight(ident)
-            return
-        self._log_clip_wait(ident, "button")
-        self._finish_or_defer(final, missing=False)
-
-    def _show_clip_gone(self) -> None:
-        _LOG.info("clip gone gen=%s", self._clip_action_gen)
-        self.banner.set_title(_CLIP_GONE)
-        self.banner.set_revealed(True)
-
-    def _log_clip_wait(self, ident: str, fail: str) -> None:
-        _LOG.info(
-            "clip popup wait gen=%s id=%s fail=%s",
-            self._clip_action_gen,
-            ident,
-            fail,
-        )
-
-    def _clip_popup_block(
-        self,
-        kind: str,
-        ident: str,
-    ) -> tuple[str, Gtk.Widget | None, Gtk.ListBoxRow | None]:
-        """Return a fail token unless this clip's button can take a popover.
-
-        The button, its row, and every ancestor up to the window must be
-        mapped and realized. The button must be the one still in the list.
-        """
-
-        row = self._clip_row(ident)
-        if not isinstance(row, Gtk.ListBoxRow) or not _mapped_realized(row):
-            return "row", None, row if isinstance(row, Gtk.ListBoxRow) else None
-        button = self._clip_button(row, kind)
-        if not isinstance(button, Gtk.Widget) or not _mapped_realized(button):
-            return "button", None, row
-        if not _widget_inside(button, self.list):
-            return "button", None, row
-        fail = _ancestor_block(button, self)
-        if fail:
-            return fail, None, row
-        return "", button, row
-
-    def _parent_can_popup(self, parent: Gtk.Widget) -> bool:
-        if not _mapped_realized(parent):
-            return False
-        if parent is not self and not _widget_inside(parent, self):
-            return False
-        if self.list is not None and not _widget_inside(parent, self.list):
-            return False
-        return _ancestor_block(parent, self) == ""
 
     def _detach_all_clip_popovers(self) -> None:
         """Pop down and unparent every clip popover before a row is destroyed."""
@@ -4606,109 +4166,6 @@ class TodoWindow(Adw.ApplicationWindow):
         self._clip_drop_source = 0
         self._forget_source(close)
         self._forget_source(drop)
-
-    def _clip_row(self, ident: str) -> Gtk.ListBoxRow | None:
-        index = 0
-        while True:
-            row = self.list.get_row_at_index(index)
-            if row is None:
-                return None
-            if getattr(row, "clip_id", "") == ident:
-                return row
-            index += 1
-
-    def _clip_button(self, row: Gtk.ListBoxRow, kind: str) -> Gtk.Widget | None:
-        icon_name = _CLIP_ACTION_ICONS.get(kind, "")
-        if not icon_name:
-            return None
-        found: list[Gtk.Widget] = []
-
-        def walk(widget: Gtk.Widget | None) -> None:
-            if widget is None or found:
-                return
-            if isinstance(widget, Gtk.Button) and widget.get_icon_name() == icon_name:
-                found.append(widget)
-                return
-            child = widget.get_first_child() if hasattr(widget, "get_first_child") else None
-            while child is not None:
-                walk(child)
-                child = child.get_next_sibling()
-
-        walk(row)
-        return found[0] if found else None
-
-    def _scroll_clip_row(self, row: Gtk.ListBoxRow) -> None:
-        scrolled = getattr(self, "_list_scroll", None)
-        viewport = scrolled.get_child() if isinstance(scrolled, Gtk.ScrolledWindow) else None
-        scroll_to = getattr(viewport, "scroll_to", None)
-        if callable(scroll_to):
-            try:
-                scroll_to(row, None)
-                return
-            except Exception:
-                pass
-        try:
-            row.grab_focus()
-        except Exception:
-            return
-
-    def _arm_clip_highlight(self, ident: str) -> None:
-        self._clip_highlight_gen += 1
-        self._cancel_highlight_source()
-        self._clip_highlight_id = ident
-        self._clip_highlight_hold = True
-        self._paint_clip_highlight()
-
-    def _paint_clip_highlight(self) -> None:
-        ident = self._clip_highlight_id
-        if not ident:
-            return
-        index = 0
-        while True:
-            row = self.list.get_row_at_index(index)
-            if row is None:
-                return
-            if getattr(row, "clip_id", "") == ident:
-                row.remove_css_class("tether-clip-fade")
-                row.add_css_class("tether-clip-target")
-            else:
-                row.remove_css_class("tether-clip-target")
-            index += 1
-
-    def _fade_clip_highlight(self) -> None:
-        if not self._clip_highlight_hold or not self._clip_highlight_id:
-            return
-        self._clip_highlight_hold = False
-        token = self._clip_highlight_gen
-        ident = self._clip_highlight_id
-        row = self._clip_row(ident)
-        if row is not None and _widget_usable(row):
-            row.add_css_class("tether-clip-fade")
-
-        def _drop() -> bool:
-            source = self._clip_highlight_source
-            self._clip_highlight_source = 0
-            self._glib_sources.discard(source)
-            if token != self._clip_highlight_gen:
-                return False
-            current = self._clip_row(ident)
-            if current is not None and _widget_usable(current):
-                try:
-                    if current.get_parent() is None:
-                        return False
-                    current.remove_css_class("tether-clip-target")
-                except Exception:
-                    return False
-            if self._clip_highlight_id == ident:
-                self._clip_highlight_id = ""
-            return False
-
-        self._clip_highlight_source = self._remember_source(GLib.idle_add(_drop))
-
-    def _cancel_highlight_source(self) -> None:
-        source = self._clip_highlight_source
-        self._clip_highlight_source = 0
-        self._forget_source(source)
 
     def _search_template(self) -> str | None:
         if self._clip_search_ready:
@@ -4917,7 +4374,6 @@ class TodoWindow(Adw.ApplicationWindow):
             child = child.get_next_sibling()
 
 
-
 class WindowApp(Adw.Application):
     """Single instance. ``select-item`` opens or raises the window."""
 
@@ -4927,7 +4383,6 @@ class WindowApp(Adw.Application):
         self._drafts_path = drafts_path
         self.window: TodoWindow | None = None
         self._linger = 0
-        self._editor_sources: set[int] = set()
 
     def do_startup(self) -> None:
         Adw.Application.do_startup(self)
@@ -4940,40 +4395,11 @@ class WindowApp(Adw.Application):
         self.add_action(ping)
 
     def do_shutdown(self) -> None:
-        self._cancel_editor_sources()
         self._release_linger()
         window = self.window
         if window is not None and hasattr(window, "_cancel_tracked_sources"):
             window._cancel_tracked_sources()
         Adw.Application.do_shutdown(self)
-
-    def _editor_source_ids(self) -> set[int]:
-        sources = getattr(self, "_editor_sources", None)
-        if not isinstance(sources, set):
-            sources = set()
-            self._editor_sources = sources
-        return sources
-
-    def _track_editor_idle(self, callback: Callable[[], bool]) -> None:
-        holder: dict[str, int] = {"source": 0}
-        sources = self._editor_source_ids()
-
-        def _run() -> bool:
-            sources.discard(holder["source"])
-            return bool(callback())
-
-        holder["source"] = GLib.idle_add(_run)
-        if holder["source"]:
-            sources.add(int(holder["source"]))
-
-    def _cancel_editor_sources(self) -> None:
-        pending = list(self._editor_source_ids())
-        self._editor_sources.clear()
-        for source in pending:
-            try:
-                GLib.source_remove(source)
-            except Exception:
-                continue
 
     def _on_ping(self, _action: Gio.SimpleAction, _parameter: GLib.Variant | None) -> None:
         """Answer from the main loop so a wedged window can be told from a live one."""
@@ -5026,7 +4452,6 @@ class WindowApp(Adw.Application):
             self.activate()
         if self.window is not None:
             self.window.select_key(key)
-
 
 
 def apply_runs(
@@ -5677,53 +5102,6 @@ def _mark_disposed(widget: Gtk.Widget) -> None:
         return
 
 
-def _row_flags(widget: Gtk.Widget | None) -> tuple[bool, bool]:
-    if not _widget_usable(widget):
-        return False, False
-    try:
-        return bool(widget.get_mapped()), bool(widget.get_realized())
-    except Exception:
-        return False, False
-
-
-def _row_ready(widget: Gtk.Widget | None) -> bool:
-    """True when a popover can open on a mapped, realized widget that is still in the list."""
-
-    mapped, realized = _row_flags(widget)
-    if not mapped or not realized or widget is None:
-        return False
-    try:
-        return widget.get_parent() is not None
-    except Exception:
-        return False
-
-
-def _mapped_realized(widget: Gtk.Widget | None) -> bool:
-    mapped, realized = _row_flags(widget)
-    return mapped and realized
-
-
-def _ancestor_block(widget: Gtk.Widget, window: Gtk.Widget) -> str:
-    """Empty when widget and every ancestor through window are mapped and realized."""
-
-    if not _mapped_realized(widget):
-        return "button"
-    current: Gtk.Widget | None = widget
-    while current is not None and current is not window:
-        try:
-            parent = current.get_parent()
-        except Exception:
-            return f"ancestor:{type(current).__name__}"
-        if parent is None:
-            return "button"
-        if not _mapped_realized(parent):
-            return f"ancestor:{type(parent).__name__}"
-        current = parent
-    if current is not window or not _mapped_realized(window):
-        return f"ancestor:{type(window).__name__}"
-    return ""
-
-
 def _popover_on_row(popover: Gtk.Popover, row: Gtk.ListBoxRow) -> bool:
     if not _widget_usable(popover):
         return False
@@ -5772,13 +5150,6 @@ def _unparent_popover(popover: Gtk.Popover) -> None:
             popover.unparent()
     except Exception:
         pass
-
-
-def _row_mapped(widget: Gtk.Widget | None) -> bool:
-    """True when a popover can open on this widget without leaving a grab behind."""
-
-    mapped, _realized = _row_flags(widget)
-    return mapped
 
 
 def _widget_usable(widget: Gtk.Widget | None) -> bool:

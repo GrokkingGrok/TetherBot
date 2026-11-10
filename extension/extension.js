@@ -70,7 +70,6 @@ import {
     snoozeIso,
     todoFilter,
     isMainWindow,
-    isClipEditor,
     topRightFrame,
     actionResultNotice,
     panelSnapIndexes,
@@ -447,14 +446,8 @@ export default class TetherBotExtension extends Extension {
             if (!this._enabled)
                 return;
             const identity = _windowIdentity(metaWindow);
-            if (isClipEditor(identity)) {
-                drop();
-                return;
-            }
             if (!isMainWindow(identity))
                 return;
-            // The editor shares this application id. Wait until its title
-            // is set so this placer does not grab it.
             if (!identity.title)
                 return;
             drop();
@@ -2941,14 +2934,8 @@ export default class TetherBotExtension extends Extension {
                     this._recopyClipboard(entry.text);
             };
             const columns = [
-                ['document-edit-symbolic', 'Edit', !masked && !isImage, () => {
-                    this._openClipAction('clip-edit', entry.id);
-                }],
                 ['view-pin-symbolic', pinned ? 'Unpin' : 'Pin', true, () => {
                     this._pinClipboard(entry.id, !pinned);
-                }],
-                ['tetherbot-tag-symbolic', 'Tag', !masked, () => {
-                    this._openClipAction('clip-tag', entry.id);
                 }],
                 ['edit-copy-symbolic', 'Copy', true, copyBack],
                 ['system-search-symbolic', 'Search the web', !masked && !isImage, () => {
@@ -2956,9 +2943,6 @@ export default class TetherBotExtension extends Extension {
                 }],
                 ['tetherbot-check-symbolic', 'Make a todo', canSend, () => {
                     this._sendClipboard(entry.id, 'clip-todo', label);
-                }],
-                ['tetherbot-square-check-symbolic', 'Make a todo with context', canSend, () => {
-                    this._openClipAction('clip-context', entry.id);
                 }],
                 ['tetherbot-circle-help-symbolic', 'Tell me more', canSend, () => {
                     this._sendClipboard(entry.id, 'clip-ask', label);
@@ -3296,12 +3280,6 @@ export default class TetherBotExtension extends Extension {
 
     _openClipboardWindow() {
         this._callOpenWindow('clipboard', 'clips');
-    }
-
-    _openClipAction(action, entryId) {
-        if (!entryId)
-            return;
-        this._callOpenWindow(`${action}:${entryId}`, 'clips');
     }
 
     _searchClipboard(entryId) {

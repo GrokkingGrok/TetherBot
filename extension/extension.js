@@ -88,12 +88,14 @@ import {
 import {
     ClipEditorSlot,
     TAG_SAVE_ERROR,
+    contextBots,
+    contextSend,
     historyTags,
     tagChips,
     tagTone,
     tagsPayload,
 } from './clip_inline.js';
-import {TagEditor} from './clip_editors.js';
+import {ContextEditor, TagEditor} from './clip_editors.js';
 
 function _windowIdentity(metaWindow) {
     let gtkId;
@@ -2642,12 +2644,15 @@ export default class TetherBotExtension extends Extension {
     }
 
     _mountClipEditor(kind, entry, token) {
-        const rowItem = this._clipRowItems?.get(entry.id);
-        if (!rowItem || !this._clipSection)
+        const row = this._clipRowItems?.get(entry.id);
+        if (!row || !this._clipSection)
             return null;
+        const rowItem = row.item;
         let editor = null;
         if (kind === 'tag')
             editor = this._tagEditor(entry, token);
+        else if (kind === 'context')
+            editor = this._contextEditor(entry, token, row.label);
         if (!editor)
             return null;
         const index = this._clipSection._getMenuItems().indexOf(rowItem);
@@ -2713,6 +2718,25 @@ export default class TetherBotExtension extends Extension {
                 return;
             }
             this._clipEditors.close(token);
+        });
+    }
+
+    _contextEditor(entry, token, label) {
+        let effort;
+        try {
+            effort = this._settings.get_string('context-effort');
+        } catch {
+            effort = 'low';
+        }
+        return new ContextEditor({
+            bots: contextBots(this._bots, this._items),
+            effort,
+            onSend: bot => {
+                const [entryId, action, target] = contextSend(entry.id, bot);
+                this._clipEditors?.close(token);
+                this._sendClipboard(entryId, action, label, target);
+            },
+            onCancel: () => this._clipEditors?.close(token),
         });
     }
 
@@ -3101,6 +3125,9 @@ export default class TetherBotExtension extends Extension {
                 ['tetherbot-check-symbolic', 'Make a todo', canSend, () => {
                     this._sendClipboard(entry.id, 'clip-todo', label);
                 }],
+                ['tetherbot-square-check-symbolic', 'Make a todo with context', canSend, () => {
+                    this._openClipEditor('context', entry);
+                }, true],
                 ['tetherbot-circle-help-symbolic', 'Tell me more', canSend, () => {
                     this._sendClipboard(entry.id, 'clip-ask', label);
                 }],
@@ -3158,7 +3185,7 @@ export default class TetherBotExtension extends Extension {
                 copyBack();
             });
             this._clipSection.addMenuItem(item);
-            this._clipRowItems.set(entry.id, item);
+            this._clipRowItems.set(entry.id, {item, label});
             this._fitClipboardRow(textBox, actions);
         }
     }
@@ -3281,12 +3308,12 @@ export default class TetherBotExtension extends Extension {
         return cleaned;
     }
 
-    _sendClipboard(entryId, action, label) {
+    _sendClipboard(entryId, action, label, targetBot = 'primary') {
         if (!entryId || !this._proxy || !this._proxy.SendClipboardRemote) {
             this._showClipResult(label, 'Not sent: Bridge not running');
             return;
         }
-        this._proxy.SendClipboardRemote(entryId, action, 'primary', (result, error) => {
+        this._proxy.SendClipboardRemote(entryId, action, targetBot, (result, error) => {
             if (!this._enabled)
                 return;
             if (error) {

@@ -278,7 +278,8 @@ def test_clipboard_capture_filters_before_it_reads_text():
     send = text.split("    _sendClipboard(", 1)[1].split("\n    _", 1)[0]
     assert "SendClipboardRemote" in send
     assert "entry.text" not in send
-    assert "entryId, action, 'primary'" in send
+    assert "label, targetBot = 'primary')" in send
+    assert "SendClipboardRemote(entryId, action, targetBot," in send
     view = (EXTENSION / "view.js").read_text(encoding="utf-8")
     assert "SendClipboardRemote" in view
     assert "tetherbot-clip-thumb" in text
@@ -555,6 +556,7 @@ _MENU_EDITOR_METHODS = (
     "_tagEditor",
     "_saveClipTags",
     "_openClipEditor",
+    "_contextEditor",
 )
 
 
@@ -599,3 +601,24 @@ def test_menu_tag_editor_is_inline():
         for banned in ("OpenWindow", "Gio.DBus", "Soup", "fetch(", "Gio.Subprocess"):
             assert banned not in source, banned
     assert "import " not in inline
+
+
+def test_menu_context_picker_is_inline():
+    """M186b: Make a todo with context picks a bot inside the menu."""
+
+    text = (EXTENSION / "extension.js").read_text(encoding="utf-8")
+    inline = (EXTENSION / "clip_inline.js").read_text(encoding="utf-8")
+    menu = text.split("    _appendClipboardRows(entries) {", 1)[1].split(
+        "\n    _installIconTheme()", 1
+    )[0]
+    assert (
+        "['tetherbot-square-check-symbolic', 'Make a todo with context', canSend, () => {"
+        in menu
+    )
+    assert "this._openClipEditor('context', entry);" in menu
+    picker = _method(text, "_contextEditor")
+    assert "contextBots(this._bots, this._items)" in picker
+    assert "contextSend(entry.id, bot)" in picker
+    assert "this._sendClipboard(entryId, action, label, target);" in picker
+    assert "get_string('context-effort')" in picker
+    assert "export const CONTEXT_ACTION = 'clip-todo-context';" in inline

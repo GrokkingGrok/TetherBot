@@ -243,3 +243,43 @@ export class ClipEditorSlot {
         this._rebuild();
     }
 }
+
+// Make a todo with context. The labels match the window: bot ids, primary
+// first. The bridge picks the effort from Settings, so this only shows it.
+export const CONTEXT_ACTION = 'clip-todo-context';
+export const PRIMARY_BOT = 'primary';
+const BOT_ID = /^[a-z0-9-]{1,64}$/;
+const EFFORT_TITLES = {low: 'Low', medium: 'Medium', high: 'High'};
+
+export function contextBots(bots, items) {
+    const names = new Set();
+    const add = name => {
+        if (typeof name === 'string' && BOT_ID.test(name))
+            names.add(name);
+    };
+    for (const bot of Array.isArray(bots) ? bots : [])
+        add(bot && bot.name);
+    for (const item of Array.isArray(items) ? items : []) {
+        if (!item)
+            continue;
+        add(item.source && item.source.bot);
+        if (typeof item.key === 'string' && item.key.includes('/'))
+            add(item.key.split('/', 1)[0]);
+    }
+    names.delete(PRIMARY_BOT);
+    return [PRIMARY_BOT, ...[...names].sort()];
+}
+
+export function contextEffort(value) {
+    return Object.hasOwn(EFFORT_TITLES, value) ? value : 'low';
+}
+
+export function effortTitle(value) {
+    return EFFORT_TITLES[contextEffort(value)];
+}
+
+// The SendClipboard arguments, the same as the window's context popover.
+export function contextSend(entryId, bot) {
+    const target = typeof bot === 'string' && BOT_ID.test(bot) ? bot : PRIMARY_BOT;
+    return [entryId, CONTEXT_ACTION, target];
+}

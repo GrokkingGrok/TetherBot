@@ -3,10 +3,15 @@
 
 import {
     CLIP_TAG_MAX,
+    CONTEXT_ACTION,
     ClipEditorSlot,
     TAG_LIMIT_LINE,
     TAG_NAME_LINE,
     addTagChip,
+    contextBots,
+    contextEffort,
+    contextSend,
+    effortTitle,
     historyTags,
     mergeKnownTags,
     normalizeTagName,
@@ -188,6 +193,37 @@ function fakeMenu() {
 {
     const slot = new ClipEditorSlot({mount: () => null, unmount: () => {}, rebuild: () => {}});
     assert(slot.press('tag', {id: 'c-gone'}) === 'failed' && !slot.isOpen, 'a missing row opens nothing');
+}
+
+// Make a todo with context.
+same(contextBots([], []), ['primary'], 'primary is always offered');
+same(
+    contextBots(
+        [{name: 'zed', display_name: 'Zed'}, {name: 'primary'}, {name: 'Bad Name'}, null],
+        [{key: 'alpha/1', source: {bot: 'beta'}}, {key: 'no-slash'}, {source: {bot: 'zed'}}]
+    ),
+    ['primary', 'alpha', 'beta', 'zed'],
+    'bot ids are sorted after primary, like the window'
+);
+assert(CONTEXT_ACTION === 'clip-todo-context', 'the window action name');
+same(contextSend('c-1', 'beta'), ['c-1', 'clip-todo-context', 'beta'], 'Send names the bot');
+same(contextSend('c-1', undefined), ['c-1', 'clip-todo-context', 'primary'], 'the default is primary');
+same(contextSend('c-1', '../etc'), ['c-1', 'clip-todo-context', 'primary'], 'a bad id is primary');
+assert(contextEffort('medium') === 'medium' && contextEffort('Medium') === 'low', 'effort is clamped');
+assert(effortTitle('high') === 'High' && effortTitle('') === 'Low', 'effort titles');
+
+{
+    const sends = [];
+    const {slot, log} = fakeMenu();
+    slot.press('context', {id: 'c-1'});
+    const send = bot => {
+        if (slot.isCurrent(log.mounted[0].token))
+            sends.push(contextSend('c-1', bot));
+    };
+    slot.close();
+    send('primary');
+    same(sends, [], 'Escape on the bot picker sends nothing');
+    assert(log.live.size === 0, 'Escape removes the bot picker');
 }
 
 if (failed) {

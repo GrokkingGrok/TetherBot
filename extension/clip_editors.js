@@ -11,7 +11,10 @@ import St from 'gi://St';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
 import {
+    PRIMARY_BOT,
     addTagChip,
+    contextEffort,
+    effortTitle,
     mergeKnownTags,
     tagTone,
     toggleTagChip,
@@ -268,5 +271,75 @@ export class TagEditor extends InlineEditor {
         button.accessible_name = chip.name;
         button.connect('clicked', () => this._toggle(chip.name));
         return button;
+    }
+}
+
+// One bot is chosen. Send hands the choice to the extension, which calls
+// SendClipboard the same way the window's context popover does.
+export class ContextEditor extends InlineEditor {
+    constructor({bots, effort, onSend, onCancel}) {
+        super('tetherbot-clip-context-editor', 'Make a todo with context');
+        const level = contextEffort(effort);
+        const effortRow = new St.BoxLayout({style_class: 'tetherbot-clip-effort'});
+        effortRow.add_child(new St.Label({text: 'Effort:'}));
+        effortRow.add_child(new St.Label({
+            text: effortTitle(level),
+            style_class: `tetherbot-effort-${level}`,
+        }));
+        this.box.add_child(effortRow);
+        this._bot = bots.includes(PRIMARY_BOT) ? PRIMARY_BOT : bots[0] || PRIMARY_BOT;
+        this._botButtons = new Map();
+        const flow = new St.Widget({
+            layout_manager: new Clutter.FlowLayout({
+                orientation: Clutter.Orientation.HORIZONTAL,
+                column_spacing: 6,
+                row_spacing: 6,
+                snap_to_grid: false,
+            }),
+            style_class: 'tetherbot-clip-chips',
+            x_expand: true,
+        });
+        for (const bot of bots) {
+            const button = new St.Button({
+                label: bot,
+                style_class: 'tetherbot-tag-chip tetherbot-bot-chip',
+                can_focus: true,
+                reactive: true,
+                track_hover: true,
+                toggle_mode: false,
+            });
+            button.accessible_name = bot;
+            button.connect('clicked', () => this._pick(bot));
+            this._botButtons.set(bot, button);
+            flow.add_child(button);
+        }
+        const flowBox = new St.BoxLayout({
+            orientation: Clutter.Orientation.VERTICAL,
+            x_expand: true,
+        });
+        flowBox.add_child(flow);
+        this.box.add_child(new St.ScrollView({
+            style_class: 'tetherbot-clip-chips-scroll',
+            hscrollbar_policy: St.PolicyType.NEVER,
+            vscrollbar_policy: St.PolicyType.AUTOMATIC,
+            x_expand: true,
+            child: flowBox,
+        }));
+        const send = editorButton('Send', () => onSend(this._bot));
+        this._focusTarget = send;
+        this._finish([editorButton('Cancel', onCancel), send]);
+        this._pick(this._bot);
+    }
+
+    get bot() {
+        return this._bot;
+    }
+
+    _pick(bot) {
+        if (this._destroyed || !this._botButtons.has(bot))
+            return;
+        this._bot = bot;
+        for (const [name, button] of this._botButtons)
+            button.checked = name === bot;
     }
 }

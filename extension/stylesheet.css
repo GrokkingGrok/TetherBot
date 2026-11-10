@@ -327,3 +327,15 @@
 .tetherbot-clip-tag-entry {
     min-width: 12em;
 }
+
+.tetherbot-clip-effort {
+    spacing: 6px;
+}
+
+.tetherbot-effort-low { color: #8ff0a4; }
+.tetherbot-effort-medium { color: #f8d06a; }
+.tetherbot-effort-high { color: #ff8b8b; }
+
+.tetherbot-bot-chip {
+    padding: 2px 10px;
+}

@@ -2571,6 +2571,38 @@ The roadmap does not add a Paste button. [CLIPBOARD.md](CLIPBOARD.md) says a Pas
 
 **Reset.** None.
 
+## M189. Menu clip editors stay in the menu
+
+**Preconditions.** Log out and back in after this version is installed, so the extension loads. `tetherbot.service` is active. Have two text clips, one with a tag, and one image clip. In a terminal, watch for window calls during these steps:
+
+```bash
+dbus-monitor --session "type='method_call',interface='io.github.grokkinggrok.TetherBot1',member='OpenWindow'"
+```
+
+**Look for.**
+
+1. Open the clipboard menu and press Tag on a clip. Chips appear inline under the row, and the TetherBot window does NOT open. `dbus-monitor` prints no `OpenWindow` call. `journalctl --user -b --since "-5 min" | grep -iE "openwindow|window service|window start|window restarted"` shows nothing new.
+2. Toggle a chip and press Save. The menu stays open, the editor closes, and the row's tag dots update. Open the window Clipboard page: the clip has the same tags.
+3. Press Tag, type a new tag name in New tag…, press Enter, then Save. The new tag is on the clip, and the window Clipboard page lists it in its tag filter. `GetTags` lists todo tags only, so a tag used only on clips is not in it.
+4. Press Tag five times fast on one clip. Nothing freezes, and one editor is open.
+5. Press Edit, change the text, add a second line with Enter, and press Save, or Ctrl+Enter. The menu stays open, and the text is updated in the menu and in the window.
+6. Press Edit, change the text, and press Escape. Nothing is saved, the row is unchanged, and the menu stays open.
+7. Press Edit, type a little, then copy something in another app. Nothing freezes, and the editor keeps its text. The new clip shows in the menu after the editor closes.
+8. Stop the window with `pkill -f tetherbot.window`. Tag and Edit in the menu still work. `systemctl --user list-units 'tetherbot-window*'` shows no window started, and `dbus-monitor` prints no `OpenWindow` call.
+9. Open clipboard still opens the window on the Clipboard page.
+10. Tag and Edit on the window's Clipboard page work exactly as before.
+
+Also check:
+
+- Make a todo with context opens a bot picker inside the menu with primary chosen and the Settings effort shown. Send makes the row say Sent, the same as Make a todo. Escape sends nothing. Image and hidden-password rows do not show the button.
+- Type in the inline Tag or Edit box while the pointer grazes other panel items, such as the TetherBot icon or the clock. The menu does not close or switch (the Emoji Copy #84 case).
+- Escape in an inline editor cancels it, and the menu stays open. A second Escape closes the menu.
+- In the Edit box, Ctrl+C, Ctrl+V, Ctrl+X, and Ctrl+A work. Up, Down, Home, and End move the caret, and the box scrolls to keep the caret visible.
+- With an input method on Wayland, such as Japanese or the emoji picker, candidates show for the Tag and Edit boxes.
+- Opening Tag on one clip and then Edit on another leaves only the Edit editor open, with nothing saved from the Tag editor.
+
+**Reset.** Open TetherBot again when you want the window back.
+
 ## M178. A note stays with its todo
 
 **Preconditions.** The window is open on the todo list. Have two open todos.

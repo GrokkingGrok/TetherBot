@@ -108,7 +108,7 @@ TetherBot is pre-alpha. Check items off as they land. Design detail is in [SPEC.
 - [x] Near term, batch N15 (not tied to the clipboard): M178 saves todo note drafts when the field loses focus, so they survive todo switches, offline/reconnect, list rebuilds, and restarts. M179 adds tests for it. M184 adds a setting, Keep leftmost in panel, that snaps the TetherBot indicator to the start of its panel section when it loads and when the setting is turned on.
 - [x] Before 2026-11-04: write the clipboard unification plan. One process owns the clip UI (a single UI owner), so menu Tag/Edit popovers never cross D-Bus.
 - [x] From 2026-11-04: start the unification plan. That is batch N16 below.
-- Paused until unification, now closed by N16: the N13c/N13d clipboard freeze follow-ups M171–M177 and M180–M183 are obsolete or rewritten above. The N14 clip features (URL clips M165, tab order M166, Edit-start separator M167, unpin-to-top M168) stay paused until M191. Notes moved out of N14 into N15.
+- Paused until unification, now closed by N16: the N13c/N13d clipboard freeze follow-ups M171–M177 and M180–M183 are obsolete or rewritten above. The N14 clip features (URL clips M165, tab order M166, Edit-start separator M167, unpin-to-top M168) are unpaused by M191. Notes moved out of N14 into N15.
 - Batch N16, clipboard unification option A: the shell owns menu editing, and the window owns editing on its Clipboard page. Menu Tag, Edit, and Make a todo with context never call `OpenWindow`.
   - [x] M185. The menu no longer sends a clip editor key to `OpenWindow`. The bridge rejects those keys. The window has no pending clip request, ready-button wait, popdown retry, give-up line, or row highlight for the menu.
   - [x] M186. Tag opens an editor under the clip row inside the menu. Chips come from `GetTags`, the other clips, and the clip's own tags, which start selected. New tag… adds a tag on Enter, trimmed and deduped without case. Save calls `SetClipboardTags`. Cancel and Escape close the editor and keep the menu open. One editor is open at a time, and a copy during an edit waits until it closes.
@@ -118,6 +118,7 @@ TetherBot is pre-alpha. Check items off as they land. Design detail is in [SPEC.
   - [x] M189. Freeze regression checks: five fast Tag presses leave one editor, a copy during an edit is held until the editor closes, and no menu editor path reaches `OpenWindow`. The desktop steps are manual check M189.
   - [ ] Manual check M189: menu Tag, Edit, and Make a todo with context stay inside the menu, never call `OpenWindow`, and do not freeze on fast presses or a copy during an edit. Escape cancels and keeps the menu open. The window's Clipboard page editors are unchanged. The steps are in [MANUAL-CHECKS.md](MANUAL-CHECKS.md). It has not been run on the desktop yet. It needs a log out.
   - [x] M190. M171–M177 and M180–M183 are marked obsolete, superseded by N16 option A, or rewritten as checks on Open TetherBot, Open clipboard, and the Clipboard page. The MANUAL-CHECKS entries for the old hand-off are replaced.
+  - [x] M191. N14 (M165–M168) is unpaused. Its feature work is not in this batch.
 
 ## v0.2 — early adopters
 

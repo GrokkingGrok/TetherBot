@@ -87,15 +87,17 @@ import {
 } from './clipboard.js';
 import {
     ClipEditorSlot,
+    EDIT_SAVE_ERROR,
     TAG_SAVE_ERROR,
     contextBots,
     contextSend,
+    editPlan,
     historyTags,
     tagChips,
     tagTone,
     tagsPayload,
 } from './clip_inline.js';
-import {ContextEditor, TagEditor} from './clip_editors.js';
+import {ContextEditor, EditEditor, TagEditor} from './clip_editors.js';
 
 function _windowIdentity(metaWindow) {
     let gtkId;
@@ -2653,6 +2655,8 @@ export default class TetherBotExtension extends Extension {
             editor = this._tagEditor(entry, token);
         else if (kind === 'context')
             editor = this._contextEditor(entry, token, row.label);
+        else if (kind === 'edit')
+            editor = this._editEditor(entry, token);
         if (!editor)
             return null;
         const index = this._clipSection._getMenuItems().indexOf(rowItem);
@@ -2715,6 +2719,51 @@ export default class TetherBotExtension extends Extension {
             const value = Array.isArray(result) ? result[0] : result;
             if (value !== true) {
                 editor.setError(TAG_SAVE_ERROR);
+                return;
+            }
+            this._clipEditors.close(token);
+        });
+    }
+
+    _editEditor(entry, token) {
+        if (entry.masked === true || entry.kind === 'image' || typeof entry.text !== 'string')
+            return null;
+        const original = entry.text;
+        const editor = new EditEditor({
+            text: original,
+            onSave: text => this._saveClipEdit(entry.id, original, text, token, editor),
+            onCancel: () => this._clipEditors?.close(token),
+        });
+        return editor;
+    }
+
+    _saveClipEdit(entryId, original, text, token, editor) {
+        const plan = editPlan(original, text);
+        if (plan.error) {
+            editor.setError(plan.error);
+            return;
+        }
+        if (!plan.call) {
+            this._clipEditors?.close(token);
+            return;
+        }
+        if (!this._proxy || !this._proxy.EditClipboardRemote) {
+            editor.setError(`${EDIT_SAVE_ERROR}: Bridge not running`);
+            return;
+        }
+        editor.setError('');
+        editor.setBusy(true);
+        this._proxy.EditClipboardRemote(entryId, text, (result, error) => {
+            if (!this._enabled || !this._clipEditors?.isCurrent(token))
+                return;
+            editor.setBusy(false);
+            if (error) {
+                editor.setError(this._friendlyBridgeMessage(error.message, EDIT_SAVE_ERROR));
+                return;
+            }
+            const value = Array.isArray(result) ? result[0] : result;
+            if (value !== true) {
+                editor.setError(EDIT_SAVE_ERROR);
                 return;
             }
             this._clipEditors.close(token);
@@ -3112,6 +3161,9 @@ export default class TetherBotExtension extends Extension {
                     this._recopyClipboard(entry.text);
             };
             const columns = [
+                ['document-edit-symbolic', 'Edit', !masked && !isImage, () => {
+                    this._openClipEditor('edit', entry);
+                }, true],
                 ['view-pin-symbolic', pinned ? 'Unpin' : 'Pin', true, () => {
                     this._pinClipboard(entry.id, !pinned);
                 }],

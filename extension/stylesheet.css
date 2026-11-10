@@ -339,3 +339,22 @@
 .tetherbot-bot-chip {
     padding: 2px 10px;
 }
+
+.tetherbot-clip-edit-frame {
+    border-radius: 6px;
+    border: 1px solid rgba(53, 132, 228, 0.7);
+    background-color: rgba(0, 0, 0, 0.25);
+}
+
+.tetherbot-clip-edit-scroll {
+    min-height: 4.5em;
+    max-height: 12em;
+    min-width: 20em;
+}
+
+.tetherbot-clip-edit-area {
+    padding: 6px 8px;
+    color: #ffffff;
+    -tetherbot-selection-color: rgba(53, 132, 228, 0.6);
+    -tetherbot-selected-text-color: #ffffff;
+}

@@ -3,14 +3,20 @@
 
 import {
     CLIP_TAG_MAX,
+    CLIP_TEXT_MAX_BYTES,
     CONTEXT_ACTION,
     ClipEditorSlot,
+    EDIT_EMPTY_LINE,
+    EDIT_LONG_LINE,
+    EDIT_SAVE_ERROR,
     TAG_LIMIT_LINE,
     TAG_NAME_LINE,
     addTagChip,
     contextBots,
     contextEffort,
     contextSend,
+    editPlan,
+    editShortcut,
     effortTitle,
     historyTags,
     mergeKnownTags,
@@ -21,6 +27,7 @@ import {
     tagTone,
     tagsPayload,
     toggleTagChip,
+    utf8Length,
 } from './clip_inline.js';
 
 let failed = 0;
@@ -224,6 +231,45 @@ assert(effortTitle('high') === 'High' && effortTitle('') === 'Low', 'effort titl
     send('primary');
     same(sends, [], 'Escape on the bot picker sends nothing');
     assert(log.live.size === 0, 'Escape removes the bot picker');
+}
+
+// Edit.
+same(editPlan('a', 'a\nb'), {call: true, error: ''}, 'a new line is saved');
+same(editPlan('same', 'same'), {call: false, error: ''}, 'an unchanged text makes no call');
+same(editPlan('a', ' \n\t'), {call: false, error: EDIT_EMPTY_LINE}, 'blank text is refused');
+same(editPlan('a', 'nul\0'), {call: false, error: EDIT_SAVE_ERROR}, 'NUL is refused');
+same(editPlan('a', 'é'.repeat(CLIP_TEXT_MAX_BYTES / 2)), {call: true, error: ''},
+    'exactly the byte limit is saved');
+same(editPlan('a', `${'é'.repeat(CLIP_TEXT_MAX_BYTES / 2)}x`), {call: false, error: EDIT_LONG_LINE},
+    'one byte over the limit is refused');
+same(editPlan('a', null), {call: false, error: EDIT_EMPTY_LINE}, 'no text is refused');
+assert(utf8Length('aé€😀') === 10, 'UTF-8 length counts bytes');
+assert(editShortcut('enter', true) === 'save', 'Ctrl+Enter saves');
+assert(editShortcut('enter', false) === '', 'Enter is left to the text for a newline');
+same(['c', 'x', 'v', 'a'].map(key => editShortcut(key, true)),
+    ['copy', 'cut', 'paste', 'select-all'], 'Ctrl+C, X, V, and A');
+assert(editShortcut('c', false) === '' && editShortcut('q', true) === '', 'other keys are left alone');
+
+{
+    const calls = [];
+    const {slot, log} = fakeMenu();
+    slot.press('edit', {id: 'c-1'});
+    const draft = 'typed\nlines';
+    assert(slot.requestRebuild() === 'deferred', 'a copy during an edit waits');
+    assert(log.live.size === 1 && log.unmounted.length === 0, 'a copy keeps the edit open');
+    slot.close();
+    if (editPlan('typed', draft).call && slot.isOpen)
+        calls.push(['EditClipboard', 'c-1', draft]);
+    same(calls, [], 'Escape on Edit makes no call');
+    assert(log.rebuilds === 1, 'the deferred rebuild runs after Escape');
+}
+
+{
+    const {slot, log} = fakeMenu();
+    slot.press('tag', {id: 'c-1'});
+    slot.press('edit', {id: 'c-1'});
+    slot.press('context', {id: 'c-2'});
+    assert(log.live.size === 1 && slot.current.kind === 'context', 'only the last editor stays');
 }
 
 if (failed) {

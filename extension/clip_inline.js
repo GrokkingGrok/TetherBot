@@ -283,3 +283,61 @@ export function contextSend(entryId, bot) {
     const target = typeof bot === 'string' && BOT_ID.test(bot) ? bot : PRIMARY_BOT;
     return [entryId, CONTEXT_ACTION, target];
 }
+
+// Edit. The bridge refuses empty text, NUL, and more than 1,000,000 bytes.
+export const EDIT_SAVE_ERROR = 'That line could not be edited';
+export const EDIT_EMPTY_LINE = 'An empty clip cannot be saved.';
+export const EDIT_LONG_LINE = 'That clip is too long to save.';
+export const CLIP_TEXT_MAX_BYTES = 1000000;
+
+export function utf8Length(text) {
+    let bytes = 0;
+    for (const char of text) {
+        const code = char.codePointAt(0);
+        if (code < 0x80)
+            bytes += 1;
+        else if (code < 0x800)
+            bytes += 2;
+        else if (code < 0x10000)
+            bytes += 3;
+        else
+            bytes += 4;
+    }
+    return bytes;
+}
+
+// {call: true} saves with EditClipboard. An unchanged text closes with no
+// call. An error keeps the editor open.
+export function editPlan(original, text) {
+    const value = typeof text === 'string' ? text : '';
+    if (value === original)
+        return {call: false, error: ''};
+    if (!value.trim())
+        return {call: false, error: EDIT_EMPTY_LINE};
+    if (value.includes('\0'))
+        return {call: false, error: EDIT_SAVE_ERROR};
+    if (utf8Length(value) > CLIP_TEXT_MAX_BYTES)
+        return {call: false, error: EDIT_LONG_LINE};
+    return {call: true, error: ''};
+}
+
+// Keys the raw Clutter.Text in Edit needs by hand. Plain Enter is not here:
+// the text inserts a newline because it is not activatable.
+export function editShortcut(key, ctrl) {
+    if (!ctrl)
+        return '';
+    switch (key) {
+    case 'enter':
+        return 'save';
+    case 'c':
+        return 'copy';
+    case 'x':
+        return 'cut';
+    case 'v':
+        return 'paste';
+    case 'a':
+        return 'select-all';
+    default:
+        return '';
+    }
+}

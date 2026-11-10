@@ -113,6 +113,7 @@ TetherBot is pre-alpha. Check items off as they land. Design detail is in [SPEC.
   - [x] M185. The menu no longer sends a clip editor key to `OpenWindow`. The bridge rejects those keys. The window has no pending clip request, ready-button wait, popdown retry, give-up line, or row highlight for the menu.
   - [x] M186. Tag opens an editor under the clip row inside the menu. Chips come from `GetTags`, the other clips, and the clip's own tags, which start selected. New tag… adds a tag on Enter, trimmed and deduped without case. Save calls `SetClipboardTags`. Cancel and Escape close the editor and keep the menu open. One editor is open at a time, and a copy during an edit waits until it closes.
   - [x] M186b. Make a todo with context opens a bot picker inside the menu: primary, then the other bot ids, one chosen, with the Settings effort shown. Send calls `SendClipboard(id, "clip-todo-context", bot)` like the window and shows Sent or the error on the row. Escape and Cancel send nothing. Images and hidden passwords do not offer it.
+  - [x] M187. Edit opens a multi-line editor inside the menu: a raw `Clutter.Text` (editable, not activatable, wrapped) in a scroll view with a fixed maximum height. Enter adds a line. Save or Ctrl+Enter calls `EditClipboard`. Ctrl+C, X, V, and A work. Escape and Cancel close it with no call. A copy during an edit waits until the editor closes, so the text is kept.
 
 ## v0.2 — early adopters
 

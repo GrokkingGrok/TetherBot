@@ -6,6 +6,7 @@
 
 import Clutter from 'gi://Clutter';
 import GLib from 'gi://GLib';
+import Pango from 'gi://Pango';
 import St from 'gi://St';
 
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
@@ -14,11 +15,26 @@ import {
     PRIMARY_BOT,
     addTagChip,
     contextEffort,
+    editShortcut,
     effortTitle,
     mergeKnownTags,
     tagTone,
     toggleTagChip,
 } from './clip_inline.js';
+
+const EDIT_KEYS = new Map([
+    [Clutter.KEY_Return, 'enter'],
+    [Clutter.KEY_KP_Enter, 'enter'],
+    [Clutter.KEY_ISO_Enter, 'enter'],
+    [Clutter.KEY_a, 'a'],
+    [Clutter.KEY_A, 'a'],
+    [Clutter.KEY_c, 'c'],
+    [Clutter.KEY_C, 'c'],
+    [Clutter.KEY_v, 'v'],
+    [Clutter.KEY_V, 'v'],
+    [Clutter.KEY_x, 'x'],
+    [Clutter.KEY_X, 'x'],
+]);
 
 function editorButton(label, onClick) {
     const button = new St.Button({
@@ -341,5 +357,143 @@ export class ContextEditor extends InlineEditor {
         this._bot = bot;
         for (const [name, button] of this._botButtons)
             button.checked = name === bot;
+    }
+}
+
+// Multi-line Edit on a raw Clutter.Text, as QuickNotes does. St.Entry is one
+// line only. activatable: false makes Enter insert a newline. Clutter.Text
+// has no clipboard, so copy, cut, paste, and select all are done here.
+export class EditEditor extends InlineEditor {
+    constructor({text, onSave, onCancel}) {
+        super('tetherbot-clip-edit-editor', 'Edit');
+        this._text = new Clutter.Text({
+            text,
+            editable: true,
+            selectable: true,
+            activatable: false,
+            reactive: true,
+            single_line_mode: false,
+            line_wrap: true,
+            line_wrap_mode: Pango.WrapMode.WORD_CHAR,
+            x_expand: true,
+        });
+        this._text.set_selection(-1, -1);
+        this._area = new St.BoxLayout({
+            orientation: Clutter.Orientation.VERTICAL,
+            style_class: 'tetherbot-clip-edit-area',
+            reactive: true,
+            x_expand: true,
+        });
+        this._area.add_child(this._text);
+        this._scroll = new St.ScrollView({
+            style_class: 'tetherbot-clip-edit-scroll',
+            hscrollbar_policy: St.PolicyType.NEVER,
+            vscrollbar_policy: St.PolicyType.AUTOMATIC,
+            x_expand: true,
+            child: this._area,
+        });
+        this.box.add_child(new St.Bin({
+            style_class: 'tetherbot-clip-edit-frame',
+            x_expand: true,
+            child: this._scroll,
+        }));
+        this.box.add_child(new St.Label({
+            text: 'Enter adds a line. Ctrl+Enter saves. Escape cancels.',
+            style_class: 'tetherbot-clip-editor-hint',
+        }));
+        this._area.connect('style-changed', () => this._syncStyle());
+        this._area.connect('button-press-event', () => {
+            this._text.grab_key_focus();
+            return Clutter.EVENT_PROPAGATE;
+        });
+        this._text.connect('key-press-event', (_actor, event) => this._onKey(event));
+        this._text.connect('cursor-changed', () => this._keepCursorVisible());
+        this._focusTarget = this._text;
+        this._onSave = onSave;
+        this._finish([
+            editorButton('Cancel', onCancel),
+            editorButton('Save', () => this._save()),
+        ]);
+    }
+
+    get text() {
+        return this._text.get_text();
+    }
+
+    _save() {
+        this._onSave(this._text.get_text());
+    }
+
+    _onKey(event) {
+        const ctrl = (event.get_state() & Clutter.ModifierType.CONTROL_MASK) !== 0;
+        const action = editShortcut(EDIT_KEYS.get(event.get_key_symbol()) || '', ctrl);
+        if (!action)
+            return Clutter.EVENT_PROPAGATE;
+        if (action === 'save')
+            this._save();
+        else if (action === 'copy')
+            this._copySelection();
+        else if (action === 'cut' && this._copySelection())
+            this._text.delete_selection();
+        else if (action === 'paste')
+            this._paste();
+        else if (action === 'select-all')
+            this._text.set_selection(0, -1);
+        return Clutter.EVENT_STOP;
+    }
+
+    _copySelection() {
+        const selected = this._text.get_selection();
+        if (!selected)
+            return false;
+        St.Clipboard.get_default().set_text(St.ClipboardType.CLIPBOARD, selected);
+        return true;
+    }
+
+    _paste() {
+        St.Clipboard.get_default().get_text(St.ClipboardType.CLIPBOARD, (_clipboard, pasted) => {
+            if (this._destroyed || typeof pasted !== 'string' || !pasted)
+                return;
+            this._text.delete_selection();
+            let position = this._text.get_cursor_position();
+            if (position < 0)
+                position = [...this._text.get_text()].length;
+            this._text.insert_text(pasted, position);
+            const end = position + [...pasted].length;
+            this._text.set_selection(end, end);
+        });
+    }
+
+    _keepCursorVisible() {
+        if (this._destroyed)
+            return;
+        const adjustment = this._scroll.vadjustment;
+        if (!adjustment)
+            return;
+        try {
+            const rect = this._text.get_cursor_rect();
+            const top = this._text.y + rect.origin.y;
+            adjustment.clamp_page(top, top + rect.size.height);
+        } catch {
+            // The text is not laid out yet.
+        }
+    }
+
+    // Clutter.Text is not styled by St. Take the font and colors from the
+    // area around it so the text follows the shell theme.
+    _syncStyle() {
+        if (this._destroyed)
+            return;
+        const node = this._area.get_theme_node();
+        this._text.set_font_description(node.get_font());
+        const color = node.get_foreground_color();
+        this._text.set_color(color);
+        this._text.set_cursor_color(color);
+        const [hasSelection, selection] = node.lookup_color('-tetherbot-selection-color', false);
+        if (hasSelection)
+            this._text.set_selection_color(selection);
+        const [hasSelected, selected] = node.lookup_color('-tetherbot-selected-text-color', false);
+        if (hasSelected)
+            this._text.set_selected_text_color(selected);
     }
 }

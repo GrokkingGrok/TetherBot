@@ -557,6 +557,8 @@ _MENU_EDITOR_METHODS = (
     "_saveClipTags",
     "_openClipEditor",
     "_contextEditor",
+    "_editEditor",
+    "_saveClipEdit",
 )
 
 
@@ -622,3 +624,50 @@ def test_menu_context_picker_is_inline():
     assert "this._sendClipboard(entryId, action, label, target);" in picker
     assert "get_string('context-effort')" in picker
     assert "export const CONTEXT_ACTION = 'clip-todo-context';" in inline
+
+
+def test_menu_edit_is_inline_and_multi_line():
+    """M187: Edit is a multi-line Clutter.Text inside the menu."""
+
+    text = (EXTENSION / "extension.js").read_text(encoding="utf-8")
+    editors = (EXTENSION / "clip_editors.js").read_text(encoding="utf-8")
+    css = (EXTENSION / "stylesheet.css").read_text(encoding="utf-8")
+    menu = text.split("    _appendClipboardRows(entries) {", 1)[1].split(
+        "\n    _installIconTheme()", 1
+    )[0]
+    assert "['document-edit-symbolic', 'Edit', !masked && !isImage, () => {" in menu
+    assert "this._openClipEditor('edit', entry);" in menu
+    save = _method(text, "_saveClipEdit")
+    assert "editPlan(original, text)" in save
+    assert "EditClipboardRemote(entryId, text," in save
+    assert "EDIT_SAVE_ERROR" in save
+    edit = editors.split("export class EditEditor", 1)[1]
+    assert "new Clutter.Text({" in edit
+    assert "St.Entry" not in edit
+    props = ("editable: true", "activatable: false", "line_wrap: true", "single_line_mode: false")
+    for prop in props:
+        assert prop in edit, prop
+    assert "new St.ScrollView({" in edit
+    assert "St.Clipboard.get_default().set_text(" in edit
+    assert "St.Clipboard.get_default().get_text(" in edit
+    assert "this._text.set_selection(0, -1);" in edit
+    assert "CONTROL_MASK" in edit
+    assert "max-height: 12em;" in css.split(".tetherbot-clip-edit-scroll {", 1)[1].split("}", 1)[0]
+    assert "-tetherbot-selection-color" in css
+
+
+def test_rapid_editor_presses_reach_one_slot():
+    """M188: every editor button goes through the one editor slot."""
+
+    text = (EXTENSION / "extension.js").read_text(encoding="utf-8")
+    menu = text.split("    _appendClipboardRows(entries) {", 1)[1].split(
+        "\n    _installIconTheme()", 1
+    )[0]
+    assert menu.count("this._openClipEditor(") == 3
+    assert menu.count("}, true],") == 3
+    opener = _method(text, "_openClipEditor")
+    assert opener.split("{", 1)[1].strip() == "this._clipEditors?.press(kind, entry);"
+    assert text.count("new ClipEditorSlot(") == 1
+    assert text.count("new TagEditor(") == 1
+    assert text.count("new EditEditor(") == 1
+    assert text.count("new ContextEditor(") == 1

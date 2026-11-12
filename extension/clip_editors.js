@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 //
 // St widgets for the inline clip editors in the panel clipboard menu,
-// GNOME Shell 50. The extension passes the bridge calls in as callbacks.
+// GNOME Shell 50 and 51. The extension passes the bridge calls in as callbacks.
 // Nothing here opens or messages the TetherBot window.
 
 import Clutter from 'gi://Clutter';
@@ -406,7 +406,7 @@ export class EditEditor extends InlineEditor {
             this._text.grab_key_focus();
             return Clutter.EVENT_PROPAGATE;
         });
-        this._text.connect('key-press-event', (_actor, event) => this._onKey(event));
+        this._bindEditKeys();
         this._text.connect('cursor-changed', () => this._keepCursorVisible());
         this._focusTarget = this._text;
         this._onSave = onSave;
@@ -424,9 +424,38 @@ export class EditEditor extends InlineEditor {
         this._onSave(this._text.get_text());
     }
 
-    _onKey(event) {
-        const ctrl = (event.get_state() & Clutter.ModifierType.CONTROL_MASK) !== 0;
-        const action = editShortcut(EDIT_KEYS.get(event.get_key_symbol()) || '', ctrl);
+    // Shell 51 delivers keys to Clutter.Text through its own key controller,
+    // in the bubble phase. A capture controller on the text runs first, so
+    // Ctrl+Enter and the clipboard keys are handled here. key-press-event
+    // stays for Shell 50, and for a Shell where the controller is absent.
+    // A capture handler that stops the event keeps the signal from running
+    // it a second time.
+    _bindEditKeys() {
+        if (typeof Clutter.KeyController === 'function' &&
+            Clutter.EventPhase &&
+            typeof this._text.add_action_full === 'function') {
+            const keys = new Clutter.KeyController();
+            keys.connect('key-press', controller => {
+                const [handling, symbol] = controller.get_key();
+                if (!handling)
+                    return Clutter.EVENT_PROPAGATE;
+                const [, pressed, latched] = controller.get_state();
+                const state = (pressed || 0) | (latched || 0);
+                return this._onEditShortcut(symbol, state);
+            });
+            this._text.add_action_full(
+                'tetherbot-inline-edit-keys',
+                Clutter.EventPhase.CAPTURE,
+                keys);
+        }
+        this._text.connect('key-press-event', (_actor, event) => {
+            return this._onEditShortcut(event.get_key_symbol(), event.get_state());
+        });
+    }
+
+    _onEditShortcut(symbol, state) {
+        const ctrl = (state & Clutter.ModifierType.CONTROL_MASK) !== 0;
+        const action = editShortcut(EDIT_KEYS.get(symbol) || '', ctrl);
         if (!action)
             return Clutter.EVENT_PROPAGATE;
         if (action === 'save')

@@ -34,7 +34,7 @@ The feed repo is optional only if you are fine with the limited set. The full ex
 
 The shortest path that gives you the full tool is the one with a private feed repo.
 
-1. You need GNOME Shell 50 on Wayland (Fedora 44 is the reference) and Python 3.13+.
+1. You need GNOME Shell 50 or 51 on Wayland (Fedora with Shell 51 is the current reference; Fedora 44 with Shell 50 still works) and Python 3.13+.
 2. Clone this repo and run `scripts/install.sh`.
 3. Follow [docs/SETUP.md](docs/SETUP.md).  
    - For the limited (webhook-only) set: stop after the webhook secret is stored and the adapter is enabled.  

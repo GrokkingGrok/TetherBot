@@ -137,7 +137,7 @@ TetherBot is pre-alpha. Check items off as they land. Design detail is in [SPEC.
 ## v1.0 — extensions.gnome.org
 
 - [ ] No network and no secrets in the extension; clean `disable()`; shell does not spawn processes
-- [ ] `shell-version: ["50"]` on the published listing (UUID `tetherbot@grokkinggrok.github.io` is decided)
+- [ ] `shell-version: ["50", "51"]` on the published listing (UUID `tetherbot@grokkinggrok.github.io` is decided)
 - [ ] gettext translations
 - [ ] Keyboard and screen-reader access
 - [ ] Quick Settings tile

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 //
-// GNOME Shell 50, ESM. This file may talk to the bridge only through the
+// GNOME Shell 50 and 51, ESM. This file may talk to the bridge only through the
 // session bus. Do not import Soup, open a socket, spawn a network process,
 // or store a secret here.
 
@@ -2589,22 +2589,84 @@ export default class TetherBotExtension extends Extension {
         this._clipIndicator.menu.addMenuItem(openItem);
         this._clipRowItems = new Map();
         this._clipRebuildSource = 0;
+        this._clipMenuMotion = null;
         this._clipEditors = new ClipEditorSlot({
             mount: (kind, entry, token) => this._mountClipEditor(kind, entry, token),
-            unmount: editor => editor.destroy(),
+            unmount: editor => {
+                this._releaseClipMenuMotion();
+                editor.destroy();
+            },
             rebuild: () => this._queueClipRebuild(),
         });
-        // Connected before addToStatusArea, so this runs before the menu
-        // manager's handler and can stop it.
-        this._clipIndicator.menu.actor.connect('captured-event', (_actor, event) => {
-            return this._onClipMenuEvent(event);
-        });
+        this._installClipMenuGuard(this._clipIndicator.menu.actor);
         this._clipIndicator.menu.connect('open-state-changed', (_menu, open) => {
             if (!open)
                 this._clipEditors?.close();
         });
         this._fillClipboardMenu();
         Main.panel.addToStatusArea(`${this.uuid}-clipboard`, this._clipIndicator, 1);
+    }
+
+    // Escape and pointer crossing while an editor is open.
+    //
+    // Shell 50: the menu manager connects captured-event when the button is
+    // added to the panel. This guard is connected first, so EVENT_STOP keeps
+    // the manager from closing the menu or switching to another one.
+    //
+    // Shell 51: the manager adds a capture-phase key controller when the menu
+    // opens, and that runs before captured-event. The key controller here is
+    // added first, so it runs before the manager's and can stop Escape. The
+    // manager's motion controller switches menus and always propagates, so
+    // stopping its signal does nothing. It is turned off while an editor is
+    // open. captured-event still runs for an enter the motion controller
+    // propagated, which keeps a hovered row from taking key focus.
+    _installClipMenuGuard(actor) {
+        if (typeof Clutter.KeyController === 'function' &&
+            Clutter.EventPhase &&
+            typeof actor.add_action_full === 'function') {
+            const keys = new Clutter.KeyController();
+            keys.connect('key-press', controller => this._onClipMenuKey(controller));
+            actor.add_action_full(
+                'tetherbot-inline-menu-keys',
+                Clutter.EventPhase.CAPTURE,
+                keys);
+        }
+        actor.connect('captured-event', (_menuActor, event) => {
+            return this._onClipMenuEvent(event);
+        });
+    }
+
+    _onClipMenuKey(controller) {
+        if (!this._clipEditors?.isOpen)
+            return Clutter.EVENT_PROPAGATE;
+        const [handling, symbol] = controller.get_key();
+        if (!handling || symbol !== Clutter.KEY_Escape)
+            return Clutter.EVENT_PROPAGATE;
+        this._clipEditors.close();
+        return Clutter.EVENT_STOP;
+    }
+
+    _holdClipMenuMotion() {
+        const actor = this._clipIndicator?.menu?.actor;
+        if (!actor || typeof actor.get_action !== 'function')
+            return;
+        const motion = actor.get_action('popup-manager-motion-controller');
+        if (!motion)
+            return;
+        motion.enabled = false;
+        this._clipMenuMotion = motion;
+    }
+
+    _releaseClipMenuMotion() {
+        const motion = this._clipMenuMotion;
+        this._clipMenuMotion = null;
+        if (!motion)
+            return;
+        try {
+            motion.enabled = true;
+        } catch {
+            // The menu already removed the controller.
+        }
     }
 
     // With an inline editor open, Escape closes the editor and not the menu.
@@ -2667,6 +2729,7 @@ export default class TetherBotExtension extends Extension {
         this._clipSection.addMenuItem(editor.item, index + 1);
         editor.returnFocusTo(rowItem);
         editor.focusSoon();
+        this._holdClipMenuMotion();
         return editor;
     }
 

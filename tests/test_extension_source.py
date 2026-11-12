@@ -22,6 +22,14 @@ def _code(text: str) -> str:
     return "\n".join(line.split("//", 1)[0] for line in text.splitlines())
 
 
+def test_extension_targets_shell_50_and_51():
+    meta = (EXTENSION / "metadata.json").read_text(encoding="utf-8")
+    assert '"shell-version": ["50", "51"]' in meta
+    install = (ROOT / "scripts" / "install.sh").read_text(encoding="utf-8")
+    assert "GNOME Shell 50 and 51" in install
+    assert r"GNOME\ Shell\ (50|51)" in install
+
+
 def test_open_tetherbot_calls_openwindow_with_the_main_window_key():
     text = (EXTENSION / "extension.js").read_text(encoding="utf-8")
     view = (EXTENSION / "view.js").read_text(encoding="utf-8")
@@ -559,6 +567,10 @@ def _method(text: str, name: str) -> str:
 
 
 _MENU_EDITOR_METHODS = (
+    "_installClipMenuGuard",
+    "_onClipMenuKey",
+    "_holdClipMenuMotion",
+    "_releaseClipMenuMotion",
     "_onClipMenuEvent",
     "_queueClipRebuild",
     "_mountClipEditor",
@@ -595,9 +607,17 @@ def test_menu_tag_editor_is_inline():
     assert "TAG_SAVE_ERROR" in save
     assert "GetTagsRemote(" in _method(text, "_tagEditor")
     build = _method(text, "_buildClipboardIndicator")
-    captured = build.index("connect('captured-event'")
-    assert captured < build.index("Main.panel.addToStatusArea(")
+    assert build.index("_installClipMenuGuard(") < build.index("Main.panel.addToStatusArea(")
+    installed = _method(text, "_installClipMenuGuard")
+    assert "connect('captured-event'" in installed
+    assert "add_action_full(" in installed
+    assert "Clutter.EventPhase.CAPTURE" in installed
+    assert "tetherbot-inline-menu-keys" in installed
     assert "'open-state-changed'" in build
+    keys = _method(text, "_onClipMenuKey")
+    assert "Clutter.KEY_Escape" in keys
+    assert "this._clipEditors.close();" in keys
+    assert "popup-manager-motion-controller" in _method(text, "_holdClipMenuMotion")
     guard = _method(text, "_onClipMenuEvent")
     assert "Clutter.KEY_Escape" in guard
     assert "this._clipEditors.close();" in guard
@@ -661,6 +681,9 @@ def test_menu_edit_is_inline_and_multi_line():
     assert "St.Clipboard.get_default().get_text(" in edit
     assert "this._text.set_selection(0, -1);" in edit
     assert "CONTROL_MASK" in edit
+    assert "tetherbot-inline-edit-keys" in edit
+    assert "key-press-event" in edit
+    assert "Clutter.EventPhase.CAPTURE" in edit
     scroll = css.split(".tetherbot-inline-text-scroll {", 1)[1].split("}", 1)[0]
     assert "max-height: 12em;" in scroll
     assert "-tetherbot-selection-color" in css

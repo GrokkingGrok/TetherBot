@@ -1,6 +1,6 @@
 # Manual checks (v0.1)
 
-Run these on one Fedora 44 desktop with GNOME Shell 50 on Wayland, after you can log in as a normal user. The project is unofficial and not affiliated with xAI.
+Run these on one Fedora desktop with GNOME Shell 50 or 51 on Wayland, after you can log in as a normal user. Shell 51 is the current desktop. The project is unofficial and not affiliated with xAI.
 
 **Out of scope here:** M9 (webhook-only popup copy), M15 and M16 (a legacy todo sink outside this repository), and M17 (the full uninstall acceptance check). Uninstall is still documented in [SETUP.md](SETUP.md) and is the reset for M1. M18–M24 are the rich-todo checks later in this file. M25 checks that a new login starts the bridge. M26 checks that a todo click opens the window quickly. M27–M42 check the stopwatch. M43–M47 check more than one bot, display names, the compact Bots section, and the popup order. M48–M54 check an optional webhook slot, Sync now, the timer chip, toolbar colors, summary contrast, the bot-row dot and summary, and local dates. M55–M57 check the timer chip on the left, the top-bar width, and a window that updates while it stays open. M47 and M55–M68 passed on the desktop. M58 and M62 are the panel icon size and `primary` staying first. M59–M61 are replaced by M65–M68: a face in the shell's status-icon color, eyes that stay visible, Done sending when the shared bar ends, and one batch per menu. M74 passed on the desktop: reset to defaults restores the feed check and the undo timer. M75 passed on the desktop: the corner badge is in place, and blue for asks was confirmed. M76 passed on the desktop: one new item raises one notification, including after a bridge restart. M77 passed on the desktop: popup Done sends when the undo bar ends, and closing the menu early does not send it. M63 and M64 are a shared webhook slot and a missing secret on one bot. M69–M73 check the settings screen. M78 passed on the desktop: editing a todo's tracked total and deleting a time record. M79 passed on the desktop: the bots summary is amber for needs attention and red for an error or a bridge failure. M80 passed on the desktop: Stop timer on the open todo. M81 passed on the desktop: the title copy icon, the body copy icon, and Copy Todo. M82 passed on the desktop: completed todos stay in Show done for the history window, and Reset to defaults leaves that setting alone. M83–M119 are still open. M96 is even detail-button spacing. M97–M104 are clipboard history phase 1. M105–M108 check a Chrome password copy, the password-like rule, hiding one for 30 seconds, and the local debug command. M109–M113 check pin, tags, edit, preview, and Search the web. M114–M116 check the tag filter, Chrome's search engine, and tags on a hidden password. M117 checks that Settings opens and the search fallback hint is visible. M118 and M119 check the single-line clipboard icon row on the page and in the menu. M142–M147 check a long id in a link, the window icon, the clipboard toolbar icon, record that there is no lowercase-password switch and no Paste button, and check the Clipboard page sections. M148 checks a secret-looking Done with note. M149 checks that the panel menu leaves out buttons that do not apply. M150 checks that the menu icons and thumbnails are about a fifth larger. M151 checks that priority reads as a word in the chip row. M152 checks that clip editors open at the button. The menu half needs a log out. The window half reopens the window. M155 checks the tag editor layout. M156 checks that moving the pointer off that editor leaves it open. M158 checks the -1m timer button. M159 checks that Open TetherBot is the last menu item. Those menu halves need a log out. The window halves reopen the window. M160 checks that a pinned clip edit closes without crashing the window and that `tetherbotctl window-faults` shows nothing new. M162 is that same edit closed ten times with Save, Cancel, and Escape. M163 checks that Tag from the panel menu still opens after the window process is gone, and does not say the bridge is down while the bridge service is active. M160 and M162 reopen the window. M163 needs a log out. Do not treat M9, M15, M16, or M17 as part of the v0.1 runbook.
 
@@ -547,7 +547,7 @@ The script reads the token and the webhook secret from libsecret. It searches:
 
 ## M14. Extension install, dim, restore, no leftovers
 
-**Preconditions.** M1. A graphical GNOME Shell 50 session on Wayland.
+**Preconditions.** M1. A graphical GNOME Shell 50 or 51 session on Wayland.
 
 **Commands.**
 
@@ -2148,7 +2148,7 @@ journalctl --user -b /usr/bin/gnome-shell --no-pager | tail -n 80
 - Cancel closes the popover and the row does not say Sent.
 - Send closes the popover and the row says Sent.
 - Make a todo and Tell me more still send on one click and do not open the popover.
-- In the panel menu, Make a todo with context opens the window on the Clipboard page and the same popover. That check is M164.
+- In the panel menu, Make a todo with context opens a bot picker inside the menu. That check is M189.
 
 **Reset.** Set Context effort back to Low if you changed it.
 
@@ -2307,8 +2307,8 @@ The roadmap does not add a Paste button. [CLIPBOARD.md](CLIPBOARD.md) says a Pas
 - On the Clipboard page, Edit, Tag, Preview, and Make a todo with context open as popovers pointing at the button you pressed. Preview opens from the row.
 - Clicking away or Escape closes that popover and does not save.
 - Save on Edit and Tag saves. Send on Make a todo with context sends, and the row says Sent. Cancel does not.
-- In the panel menu, Edit, Tag, and Make a todo with context open the window on the Clipboard page and the same popover. That check is M164.
-- Escape closes the popover. Moving the pointer off it leaves it open. Save and Send still do that action.
+- On the Clipboard page, Escape closes the popover. Moving the pointer off it leaves it open. Save and Send still do that action.
+- In the panel menu, Edit, Tag, and Make a todo with context open an editor inside the menu. That check is M189.
 - Make a todo and Tell me more still send on one click.
 
 **Reset.** None.
@@ -2322,7 +2322,7 @@ The roadmap does not add a Paste button. [CLIPBOARD.md](CLIPBOARD.md) says a Pas
 - On the Clipboard page, Tag opens a popover. The top label is New tag. The value field is under that label, and Add is beside the field. The caret is in the field.
 - Applied tags is under that row. With no tags, the muted line says None yet. After a tag is added, the chip sits under Applied tags and None yet is gone.
 - Save and Cancel are at the bottom. Cancel closes without storing. Enter and Add both add the tag. Typing a tag and clicking Save, without Add, stores that tag and closes the popover.
-- Tag from the panel menu opens the window on the Clipboard page with the same popover. Save stores the tag and closes the popover. The window stays open.
+- Tag from the panel menu opens its own editor inside the menu. That check is M189.
 
 **Reset.** None.
 
@@ -2334,7 +2334,7 @@ The roadmap does not add a Paste button. [CLIPBOARD.md](CLIPBOARD.md) says a Pas
 
 - Open Tag on the Clipboard page. Move the pointer onto the field, off the popover, and back. The popover stays open. Save then stores the tag and the window stays open.
 - A click outside the popover, Escape, Save, and Cancel each close it once.
-- From the panel menu, Tag opens the window popover. Move the pointer off that popover and back. It stays open. Escape closes it.
+- From the panel menu, Tag opens an editor inside the menu. Move the pointer off it and back. It stays open. Escape closes the editor, and the menu stays open.
 
 **Reset.** None.
 
@@ -2383,29 +2383,11 @@ The roadmap does not add a Paste button. [CLIPBOARD.md](CLIPBOARD.md) says a Pas
 
 ## M163. Tag from the menu survives a window crash
 
-**Preconditions.** Log out and back in after this version is installed, so the menu loads. `tetherbot.service` is active. The window process can be stopped with `pkill -f tetherbot.window` for this check. Leave the bridge running.
-
-**Look for.**
-
-- After that window process is gone, Tag on a clipboard row in the panel menu opens the window on the Clipboard page with that row highlighted and the tag popover open.
-- The editor does not say the bridge is not running.
-- Tag from an open TetherBot window still saves.
-
-**Reset.** Open TetherBot again when you want the window back.
+Obsolete, superseded by N16 option A. The panel menu edits a clip inside the menu and does not open the window for it. See M189.
 
 ## M164. Edit and Tag from the menu open in the window
 
-**Preconditions.** Log out and back in after this version is installed, so the menu loads. Quit the TetherBot window and open it again. Have a pinned text entry and an unpinned text entry in the clipboard history.
-
-**Look for.**
-
-- Take a screenshot of the window with the highlighted row and the popover, for a design check, before the other steps.
-- From the panel menu, Edit, Tag, and Make a todo with context each close the menu, open the TetherBot window on the Clipboard page, scroll that row into view, and open that action's popover on the row's button.
-- The row has an accent background and a 2px accent bar on its left edge while the popover is open. The text stays readable. After the popover closes, the highlight fades over about 1.5 seconds.
-- This works for a pinned entry and an unpinned entry.
-- If the clip is already gone, the Clipboard page opens and the line says That clip is gone.
-
-**Reset.** None.
+Obsolete, superseded by N16 option A. The panel menu edits a clip inside the menu and does not open the window for it. See M189.
 
 ## M161. Timer shifts add up with the menu open
 
@@ -2446,26 +2428,11 @@ The roadmap does not add a Paste button. [CLIPBOARD.md](CLIPBOARD.md) says a Pas
 
 ## M171. A later Edit from the menu still opens
 
-**Preconditions.** Same login as M170. The window can be closed.
-
-**Look for.**
-
-- Edit on a clipboard row in the panel menu opens the window on the Clipboard page, highlights that row, and opens Edit.
-- Edit again, twice more. Each press does that again.
-- The menu shows Couldn't open TetherBot only when the window cannot be opened.
-
-**Reset.** None.
+Obsolete, superseded by N16 option A. The panel menu edits a clip inside the menu and does not open the window for it. See M189.
 
 ## M172. Tag on an open window stays responsive
 
-**Preconditions.** Same login as M170. Leave the TetherBot window open.
-
-**Look for.**
-
-- From the panel menu, Tag, then Edit, then Make a todo with context, each twice.
-- Each press highlights that row and opens that popover. The window does not freeze. You can still click in it.
-
-**Reset.** None.
+Obsolete, superseded by N16 option A. The panel menu edits a clip inside the menu and does not open the window for it. See M189.
 
 ## M173. Repeated menu opens stay on one window
 
@@ -2473,33 +2440,26 @@ The roadmap does not add a Paste button. [CLIPBOARD.md](CLIPBOARD.md) says a Pas
 
 **Look for.**
 
-- Close the TetherBot window. Edit from the panel menu three times in a row.
-- Each press opens the window, highlights the row, and opens Edit. The window does not freeze.
+- Close the TetherBot window. Press Open clipboard in the clipboard menu three times in a row.
+- Each press opens or raises the window on the Clipboard page. The window does not freeze.
 - One TetherBot window is open afterward.
 
 **Reset.** None.
 
 ## M174. One menu open at a time
 
-**Preconditions.** Reinstall so `tetherbot-window.service` is on disk, then log out and back in. Have two text clips.
+**Preconditions.** Reinstall so `tetherbot-window.service` is on disk, then log out and back in.
 
 **Look for.**
 
-- With the window closed, press Tag, then Edit, from the menu three times quickly each. The window opens once. The popover matches the last press. The window does not freeze.
-- With the window open, repeat that. The row highlights. One popover is open. You can type and switch tabs.
+- With the window closed, press Open TetherBot, then Open clipboard, three times quickly each. The window opens once and ends on the Clipboard page. The window does not freeze.
+- With the window open, repeat that. You can type and switch tabs afterward.
 
 **Reset.** None.
 
 ## M175. The next popover waits for the row
 
-**Preconditions.** Same login as M174. Leave the window open.
-
-**Look for.**
-
-- Tag a clip, then immediately Edit a different clip. The first popover closes. The second opens. The window stays responsive.
-- Edit a clip that is already gone. Within 2 seconds the page says That clip is gone. No popover is left open.
-
-**Reset.** None.
+Obsolete, superseded by N16 option A. The panel menu edits a clip inside the menu and does not open the window for it. See M189.
 
 ## M176. One window service, and a way to replace it
 
@@ -2509,7 +2469,7 @@ The roadmap does not add a Paste button. [CLIPBOARD.md](CLIPBOARD.md) says a Pas
 
 - `systemctl --user list-units 'TetherBot*' 'app-*TetherBot*'` shows one window service.
 - The journal has no second `@1` activation for this open.
-- Stop the window unit during a menu press, or `kill -STOP` its PID. Within a few seconds the menu says TetherBot window restarted. or Couldn't open TetherBot.
+- Stop the window unit during an Open TetherBot press, or `kill -STOP` its PID. Within a few seconds the menu says TetherBot window restarted. or Couldn't open TetherBot.
 - Restart window in the menu recovers it. `make restart-window` does the same from a terminal.
 - If you used `kill -STOP`, run `kill -CONT` on that PID if it is still there, or stop the unit.
 
@@ -2517,59 +2477,62 @@ The roadmap does not add a Paste button. [CLIPBOARD.md](CLIPBOARD.md) says a Pas
 
 ## M177. Menu opens are in the journal
 
-**Preconditions.** Same login as M174.
-
-**Look for.**
-
-- `journalctl --user --user-unit tetherbot-window.service` shows a clip request line, whether the row was mapped, and popup or popdown.
-- The Shell journal shows an OpenWindow line with the key, the plan, the owner pid, the attempt, the result, and the duration.
-
-**Reset.** None.
+Obsolete, superseded by N16 option A. The panel menu edits a clip inside the menu and does not open the window for it. See M189.
 
 ## M180. The first menu press opens the popover
 
-**Preconditions.** Same login as M174. The window can be closed. Have one text clip.
-
-**Look for.**
-
-- With the window closed, press Tag from the menu. The window opens, the row highlights, and the tag popover opens on that press.
-- Close the popover and the window. Press Edit from the menu. The window opens and the edit popover opens on that press.
-
-**Reset.** Leave the window open on Clipboard.
+Obsolete, superseded by N16 option A. The panel menu edits a clip inside the menu and does not open the window for it. See M189.
 
 ## M181. Menu Tag and Edit keep working
 
-**Preconditions.** Same login as M180. Leave the window open on Clipboard.
-
-**Look for.**
-
-- Press Tag, close the popover, and press Edit. Do that several times. The matching popover opens every time.
-- After each open, type in the editor, scroll the list, and switch tabs. The window stays responsive.
-
-**Reset.** Leave the window open on Clipboard.
+Obsolete, superseded by N16 option A. The panel menu edits a clip inside the menu and does not open the window for it. See M189.
 
 ## M182. One popover, then a switch, then a copy
 
-**Preconditions.** Same login as M180. Leave the window open on Clipboard. Have two text clips.
+Obsolete, superseded by N16 option A. The panel menu edits a clip inside the menu and does not open the window for it. See M189.
+
+## M183. Page popovers leave no finalize warning
+
+**Preconditions.** Quit the TetherBot window and open it again, so the Clipboard page loads this version. Have two text clips.
 
 **Look for.**
 
-- Press Tag five times quickly on one clip. One popover is open. The window does not freeze.
-- With that Tag popover open, press Edit on a different clip. Tag closes. Edit opens.
-- With a popover open, copy something new. The window does not freeze.
-
-**Reset.** Leave the window open.
-
-## M183. The journal shows the popup or the give-up
-
-**Preconditions.** Same login as M180. Re-run M171, M172, and M173 on this build.
-
-**Look for.**
-
+- On the Clipboard page, open Tag, then Edit on the other clip, then copy something new while Edit is open. Close it.
 - `journalctl --user -u tetherbot-window.service --since "-10 min"` has no `Finalizing GtkButton` line that mentions `GtkPopover`.
-- That journal has no `clip popup skipped` line unless a later line for the same open says `clip popup` or `gave up`.
 
 **Reset.** None.
+
+## M189. Menu clip editors stay in the menu
+
+**Preconditions.** Log out and back in after this version is installed, so the extension loads. `tetherbot.service` is active. Have two text clips, one with a tag, and one image clip. In a terminal, watch for window calls during these steps:
+
+```bash
+dbus-monitor --session "type='method_call',interface='io.github.grokkinggrok.TetherBot1',member='OpenWindow'"
+```
+
+**Look for.**
+
+1. Open the clipboard menu and press Tag on a clip. Chips appear inline under the row, and the TetherBot window does NOT open. `dbus-monitor` prints no `OpenWindow` call. `journalctl --user -b --since "-5 min" | grep -iE "openwindow|window service|window start|window restarted"` shows nothing new.
+2. Toggle a chip and press Save. The menu stays open, the editor closes, and the row's tag dots update. Open the window Clipboard page: the clip has the same tags.
+3. Press Tag, type a new tag name in New tag…, press Enter, then Save. The new tag is on the clip, and the window Clipboard page lists it in its tag filter. `GetTags` lists todo tags only, so a tag used only on clips is not in it.
+4. Press Tag five times fast on one clip. Nothing freezes, and one editor is open.
+5. Press Edit, change the text, add a second line with Enter, and press Save, or Ctrl+Enter. The menu stays open, and the text is updated in the menu and in the window.
+6. Press Edit, change the text, and press Escape. Nothing is saved, the row is unchanged, and the menu stays open.
+7. Press Edit, type a little, then copy something in another app. Nothing freezes, and the editor keeps its text. The new clip shows in the menu after the editor closes.
+8. Stop the window with `pkill -f tetherbot.window`. Tag and Edit in the menu still work. `systemctl --user list-units 'tetherbot-window*'` shows no window started, and `dbus-monitor` prints no `OpenWindow` call.
+9. Open clipboard still opens the window on the Clipboard page.
+10. Tag and Edit on the window's Clipboard page work exactly as before.
+
+Also check:
+
+- Make a todo with context opens a bot picker inside the menu with primary chosen and the Settings effort shown. Send makes the row say Sent, the same as Make a todo. Escape sends nothing. Image and hidden-password rows do not show the button.
+- Type in the inline Tag or Edit box while the pointer grazes other panel items, such as the TetherBot icon or the clock. The menu does not close or switch (the Emoji Copy #84 case). On Shell 51 this is the motion controller the menu manager adds when the menu opens.
+- Escape in an inline editor cancels it, and the menu stays open. A second Escape closes the menu. On Shell 51, Escape is handled by the menu manager's key controller, so this confirms the editor's controller runs first.
+- In the Edit box, Ctrl+C, Ctrl+V, Ctrl+X, and Ctrl+A work. Up, Down, Home, and End move the caret, and the box scrolls to keep the caret visible.
+- With an input method on Wayland, such as Japanese or the emoji picker, candidates show for the Tag and Edit boxes.
+- Opening Tag on one clip and then Edit on another leaves only the Edit editor open, with nothing saved from the Tag editor.
+
+**Reset.** Open TetherBot again when you want the window back.
 
 ## M178. A note stays with its todo
 

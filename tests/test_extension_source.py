@@ -22,6 +22,14 @@ def _code(text: str) -> str:
     return "\n".join(line.split("//", 1)[0] for line in text.splitlines())
 
 
+def test_extension_targets_shell_50_and_51():
+    meta = (EXTENSION / "metadata.json").read_text(encoding="utf-8")
+    assert '"shell-version": ["50", "51"]' in meta
+    install = (ROOT / "scripts" / "install.sh").read_text(encoding="utf-8")
+    assert "GNOME Shell 50 and 51" in install
+    assert r"GNOME\ Shell\ (50|51)" in install
+
+
 def test_open_tetherbot_calls_openwindow_with_the_main_window_key():
     text = (EXTENSION / "extension.js").read_text(encoding="utf-8")
     view = (EXTENSION / "view.js").read_text(encoding="utf-8")
@@ -254,8 +262,6 @@ def test_clipboard_capture_filters_before_it_reads_text():
     filled = text.split("    _fillClipboardMenu() {", 1)[1].split("    _installIconTheme()", 1)[0]
     assert "Unpin" in filled
     assert "view-pin-symbolic" in filled
-    assert "document-edit-symbolic" in filled
-    assert "tetherbot-tag-symbolic" in filled
     assert "tetherbot-clip-actions" in filled
     assert "x_expand: false" in filled
     assert "edit-copy-symbolic" in filled
@@ -273,16 +279,15 @@ def test_clipboard_capture_filters_before_it_reads_text():
     assert "if (!enabled)" in filled
     assert "const canSend = !isImage && !masked" in filled
     assert "tetherbot-check-symbolic" in filled
-    assert "tetherbot-square-check-symbolic" in filled
     assert "tetherbot-circle-help-symbolic" in filled
     assert "clip-todo" in filled
-    assert "clip-context" in filled
     assert "clip-todo-context" not in filled
     assert "clip-ask" in filled
     send = text.split("    _sendClipboard(", 1)[1].split("\n    _", 1)[0]
     assert "SendClipboardRemote" in send
     assert "entry.text" not in send
-    assert "entryId, action, 'primary'" in send
+    assert "label, targetBot = 'primary')" in send
+    assert "SendClipboardRemote(entryId, action, targetBot," in send
     view = (EXTENSION / "view.js").read_text(encoding="utf-8")
     assert "SendClipboardRemote" in view
     assert "tetherbot-clip-thumb" in text
@@ -318,7 +323,6 @@ def test_clipboard_capture_filters_before_it_reads_text():
     assert "SearchClipboardRemote" in text
     assert "launch_default_for_uri" not in text
     assert "'Pinned'" in filled
-    assert "clip-edit" in filled
 
 
 def test_window_icon_is_the_face_and_the_clipboard_icon_wears_it():
@@ -377,7 +381,6 @@ def test_the_panel_menu_loads_tetherbot_icons_from_the_extension():
     assert "background-image" not in text
     assert "pin-accent-" not in text
     filled = text.split("    _fillClipboardMenu() {", 1)[1].split("    _installIconTheme()", 1)[0]
-    assert "tetherbot-tag-symbolic" in filled
     assert "_clipIconButton(" in filled
     assert "view-pin-symbolic" in filled
     assert "'Pinned'" in filled
@@ -395,9 +398,6 @@ def test_the_panel_menu_loads_tetherbot_icons_from_the_extension():
     )[0]
     assert "Unpinned" not in built
     assert "button-press-event" in built
-    assert "clip-edit" in filled
-    assert "clip-tag" in filled
-    assert "clip-context" in filled
     assert "_searchClipboard(" in filled
     assert "MENU_LIMIT" in filled
     assert "opacity:" not in filled
@@ -423,13 +423,9 @@ def test_the_panel_menu_loads_tetherbot_icons_from_the_extension():
     assert "clipEditorFrame" not in text
     assert "_armClipEditorWatch" not in text
     assert "_watchClipEditor" not in text
-    assert "isClipEditor" in text
+    assert "isClipEditor" not in text
     assert "getWorkAreaForMonitor" in text
-    opened = text.split("    _openClipAction(", 1)[1].split("\n    _", 1)[0]
-    assert "_callOpenWindow" in opened
-    assert "clip-edit" in text
-    assert "clip-tag" in text
-    assert "clip-context" in text
+    assert "_openClipAction" not in text
     adjust = text.split("    _adjustStart(", 1)[1].split("\n    _", 1)[0]
     assert "_editingStart = false" not in adjust
     assert "_editingStart = true" in adjust
@@ -527,3 +523,184 @@ def test_priority_chip_sits_in_the_menu_chip_row():
     priority = sequence.index("if (row.priority)")
     tags = sequence.index("row.tags")
     assert bot < due < priority < tags
+
+
+def test_clip_menu_editors_never_open_the_window():
+    """M185: only Open clipboard reaches OpenWindow from the clipboard menu."""
+
+    text = (EXTENSION / "extension.js").read_text(encoding="utf-8")
+    view = (EXTENSION / "view.js").read_text(encoding="utf-8")
+    for source in (text, view):
+        for editor in ("edit", "tag", "context"):
+            assert f"clip-{editor}" not in source
+    assert "_openClipAction" not in text
+    root = EXTENSION.parent
+    banned = tuple("clip-" + name for name in ("tag", "edit", "context"))
+    for folder in ("extension", "bridge", "tests"):
+        for path in (root / folder).rglob("*"):
+            if path.suffix not in {".js", ".py", ".css", ".xml", ".json"}:
+                continue
+            body = path.read_text(encoding="utf-8")
+            for word in banned:
+                assert word not in body, f"{path}: {word}"
+    assert "planQuickOpens" not in view
+    assert "clipEditorFrame" not in view
+    assert "isClipEditor" not in view
+    callers = [
+        chunk.split("(", 1)[0]
+        for chunk in text.split("\n    _")[1:]
+        if "_callOpenWindow(" in chunk.split("\n    }\n", 1)[0]
+    ]
+    assert sorted(callers) == ["openClipboardWindow", "openWindow"]
+    menu = text.split("    _appendClipboardRows(entries) {", 1)[1].split(
+        "\n    _installIconTheme()", 1
+    )[0]
+    assert "OpenWindow" not in menu
+    assert "_openWindow(" not in menu
+    assert "_openClipboardWindow(" not in menu
+
+
+def _method(text: str, name: str) -> str:
+    head = f"\n    {name}("
+    assert head in text, name
+    return text.split(head, 1)[1].split("\n    }\n", 1)[0]
+
+
+_MENU_EDITOR_METHODS = (
+    "_installClipMenuGuard",
+    "_onClipMenuKey",
+    "_holdClipMenuMotion",
+    "_releaseClipMenuMotion",
+    "_onClipMenuEvent",
+    "_queueClipRebuild",
+    "_mountClipEditor",
+    "_tagEditor",
+    "_saveClipTags",
+    "_openClipEditor",
+    "_contextEditor",
+    "_editEditor",
+    "_saveClipEdit",
+)
+
+
+def test_menu_tag_editor_is_inline():
+    """M186: Tag opens an editor inside the menu and saves with SetClipboardTags."""
+
+    text = (EXTENSION / "extension.js").read_text(encoding="utf-8")
+    view = (EXTENSION / "view.js").read_text(encoding="utf-8")
+    editors = (EXTENSION / "clip_editors.js").read_text(encoding="utf-8")
+    inline = (EXTENSION / "clip_inline.js").read_text(encoding="utf-8")
+    assert "'GetTagsRemote'" in view
+    menu = text.split("    _appendClipboardRows(entries) {", 1)[1].split(
+        "\n    _installIconTheme()", 1
+    )[0]
+    assert "['tetherbot-tag-symbolic', 'Tag', !masked, () => {" in menu
+    assert "this._openClipEditor('tag', entry);" in menu
+    assert "this._clipEditors?.close();" in menu
+    for name in _MENU_EDITOR_METHODS:
+        body = _method(text, name)
+        assert "OpenWindow" not in body, name
+        assert "_openWindow(" not in body, name
+        assert "_openClipboardWindow(" not in body, name
+    save = _method(text, "_saveClipTags")
+    assert "SetClipboardTagsRemote(entryId, tagsPayload(chips)," in save
+    assert "TAG_SAVE_ERROR" in save
+    assert "GetTagsRemote(" in _method(text, "_tagEditor")
+    build = _method(text, "_buildClipboardIndicator")
+    assert build.index("_installClipMenuGuard(") < build.index("Main.panel.addToStatusArea(")
+    installed = _method(text, "_installClipMenuGuard")
+    assert "connect('captured-event'" in installed
+    assert "add_action_full(" in installed
+    assert "Clutter.EventPhase.CAPTURE" in installed
+    assert "tetherbot-inline-menu-keys" in installed
+    assert "'open-state-changed'" in build
+    keys = _method(text, "_onClipMenuKey")
+    assert "Clutter.KEY_Escape" in keys
+    assert "this._clipEditors.close();" in keys
+    assert "popup-manager-motion-controller" in _method(text, "_holdClipMenuMotion")
+    guard = _method(text, "_onClipMenuEvent")
+    assert "Clutter.KEY_Escape" in guard
+    assert "this._clipEditors.close();" in guard
+    assert "Clutter.EventType.ENTER" in guard
+    assert "return Clutter.EVENT_STOP;" in guard
+    load = _method(text, "_loadClipboard")
+    assert "this._clipEditors.requestRebuild();" in load
+    assert "activate: false" in editors
+    assert "can_focus: false" in editors
+    assert "GLib.source_remove(this._focusSource)" in editors
+    for source in (editors, inline):
+        for banned in ("OpenWindow", "Gio.DBus", "Soup", "fetch(", "Gio.Subprocess"):
+            assert banned not in source, banned
+    assert "import " not in inline
+
+
+def test_menu_context_picker_is_inline():
+    """M186b: Make a todo with context picks a bot inside the menu."""
+
+    text = (EXTENSION / "extension.js").read_text(encoding="utf-8")
+    inline = (EXTENSION / "clip_inline.js").read_text(encoding="utf-8")
+    menu = text.split("    _appendClipboardRows(entries) {", 1)[1].split(
+        "\n    _installIconTheme()", 1
+    )[0]
+    assert (
+        "['tetherbot-square-check-symbolic', 'Make a todo with context', canSend, () => {"
+        in menu
+    )
+    assert "this._openClipEditor('context', entry);" in menu
+    picker = _method(text, "_contextEditor")
+    assert "contextBots(this._bots, this._items)" in picker
+    assert "contextSend(entry.id, bot)" in picker
+    assert "this._sendClipboard(entryId, action, label, target);" in picker
+    assert "get_string('context-effort')" in picker
+    assert "export const CONTEXT_ACTION = 'clip-todo-context';" in inline
+
+
+def test_menu_edit_is_inline_and_multi_line():
+    """M187: Edit is a multi-line Clutter.Text inside the menu."""
+
+    text = (EXTENSION / "extension.js").read_text(encoding="utf-8")
+    editors = (EXTENSION / "clip_editors.js").read_text(encoding="utf-8")
+    css = (EXTENSION / "stylesheet.css").read_text(encoding="utf-8")
+    menu = text.split("    _appendClipboardRows(entries) {", 1)[1].split(
+        "\n    _installIconTheme()", 1
+    )[0]
+    assert "['document-edit-symbolic', 'Edit', !masked && !isImage, () => {" in menu
+    assert "this._openClipEditor('edit', entry);" in menu
+    save = _method(text, "_saveClipEdit")
+    assert "editPlan(original, text)" in save
+    assert "EditClipboardRemote(entryId, text," in save
+    assert "EDIT_SAVE_ERROR" in save
+    edit = editors.split("export class EditEditor", 1)[1]
+    assert "new Clutter.Text({" in edit
+    assert "St.Entry" not in edit
+    props = ("editable: true", "activatable: false", "line_wrap: true", "single_line_mode: false")
+    for prop in props:
+        assert prop in edit, prop
+    assert "new St.ScrollView({" in edit
+    assert "St.Clipboard.get_default().set_text(" in edit
+    assert "St.Clipboard.get_default().get_text(" in edit
+    assert "this._text.set_selection(0, -1);" in edit
+    assert "CONTROL_MASK" in edit
+    assert "tetherbot-inline-edit-keys" in edit
+    assert "key-press-event" in edit
+    assert "Clutter.EventPhase.CAPTURE" in edit
+    scroll = css.split(".tetherbot-inline-text-scroll {", 1)[1].split("}", 1)[0]
+    assert "max-height: 12em;" in scroll
+    assert "-tetherbot-selection-color" in css
+
+
+def test_rapid_editor_presses_reach_one_slot():
+    """M188: every editor button goes through the one editor slot."""
+
+    text = (EXTENSION / "extension.js").read_text(encoding="utf-8")
+    menu = text.split("    _appendClipboardRows(entries) {", 1)[1].split(
+        "\n    _installIconTheme()", 1
+    )[0]
+    assert menu.count("this._openClipEditor(") == 3
+    assert menu.count("}, true],") == 3
+    opener = _method(text, "_openClipEditor")
+    assert opener.split("{", 1)[1].strip() == "this._clipEditors?.press(kind, entry);"
+    assert text.count("new ClipEditorSlot(") == 1
+    assert text.count("new TagEditor(") == 1
+    assert text.count("new EditEditor(") == 1
+    assert text.count("new ContextEditor(") == 1

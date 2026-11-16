@@ -159,7 +159,13 @@ def test_window_sources_do_not_touch_the_network_or_secrets():
     assert window.count('notify::is-active') == 1
     active = window.split("def _on_window_active", 1)[1].split("\n    def ", 1)[0]
     assert "_commit_current_note_draft" in active
+    assert "_autosave_open_clip_editor()" in active
     assert "close(" not in active
+    assert "def _discard_clip_popover" in window
+    assert "def _autosave_clip_edit" in window
+    assert "def _autosave_clip_tags" in window
+    assert "clip_kind = \"edit\"" in window
+    assert "clip_kind = \"tag\"" in window
     assert "_close_if_inactive" not in window
     shifts = window.split("self.edit_start_box = Gtk.Box", 1)[1].split(
         "self.start_entry", 1

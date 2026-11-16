@@ -321,9 +321,12 @@ export function editPlan(original, text) {
     return {call: true, error: ''};
 }
 
-// Keys the raw Clutter.Text in Edit needs by hand. Plain Enter is not here:
-// the text inserts a newline because it is not activatable.
+// Keys the raw Clutter.Text in Edit needs by hand. Shell 51's text actor
+// treats Return as a control character and does not insert it, so plain
+// Enter is a newline this editor inserts itself. Ctrl+Enter saves.
 export function editShortcut(key, ctrl) {
+    if (key === 'enter' && !ctrl)
+        return 'newline';
     if (!ctrl)
         return '';
     switch (key) {

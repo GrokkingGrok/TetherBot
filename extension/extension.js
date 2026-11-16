@@ -2599,9 +2599,12 @@ export default class TetherBotExtension extends Extension {
             rebuild: () => this._queueClipRebuild(),
         });
         this._installClipMenuGuard(this._clipIndicator.menu.actor);
+        this._clipEditDrafts = new Map();
+        this._tagSaveBusy = false;
+        this._tagSavePending = null;
         this._clipIndicator.menu.connect('open-state-changed', (_menu, open) => {
             if (!open)
-                this._clipEditors?.close();
+                this._dismissClipEditor();
         });
         this._fillClipboardMenu();
         Main.panel.addToStatusArea(`${this.uuid}-clipboard`, this._clipIndicator, 1);
@@ -2642,7 +2645,7 @@ export default class TetherBotExtension extends Extension {
         const [handling, symbol] = controller.get_key();
         if (!handling || symbol !== Clutter.KEY_Escape)
             return Clutter.EVENT_PROPAGATE;
-        this._clipEditors.close();
+        this._cancelClipEditor();
         return Clutter.EVENT_STOP;
     }
 
@@ -2679,7 +2682,7 @@ export default class TetherBotExtension extends Extension {
         const type = event.type();
         if (type === Clutter.EventType.KEY_PRESS &&
             event.get_key_symbol() === Clutter.KEY_Escape) {
-            this._clipEditors.close();
+            this._cancelClipEditor();
             return Clutter.EVENT_STOP;
         }
         if (type === Clutter.EventType.ENTER) {
@@ -2739,8 +2742,9 @@ export default class TetherBotExtension extends Extension {
                 clipTags: entry.tags,
                 otherTags: historyTags(this._clipEntries),
             }),
-            onSave: chips => this._saveClipTags(entry.id, chips, token, editor),
-            onCancel: () => this._clipEditors?.close(token),
+            onApply: chips => this._saveClipTags(entry.id, chips, token, editor, false),
+            onSave: chips => this._saveClipTags(entry.id, chips, token, editor, true),
+            onCancel: () => this._cancelClipEditor(token),
         });
         if (this._proxy && this._proxy.GetTagsRemote) {
             try {
@@ -2764,38 +2768,137 @@ export default class TetherBotExtension extends Extension {
         return editor;
     }
 
-    _saveClipTags(entryId, chips, token, editor) {
-        if (!this._proxy || !this._proxy.SetClipboardTagsRemote) {
-            editor.setError(`${TAG_SAVE_ERROR}: Bridge not running`);
+    // Enter saves and leaves the editor open. Save closes it after the same
+    // call. A second Enter while the first call is out replaces the payload,
+    // so an older reply cannot write over the newer tags.
+    _saveClipTags(entryId, chips, token, editor, closeOnSuccess) {
+        this._tagSavePending = {
+            entryId,
+            chips,
+            token,
+            editor,
+            closeOnSuccess: closeOnSuccess === true,
+        };
+        if (this._tagSaveBusy)
+            return;
+        this._tagSaveBusy = true;
+        const send = () => {
+            const job = this._tagSavePending;
+            this._tagSavePending = null;
+            if (!job || !this._proxy || !this._proxy.SetClipboardTagsRemote) {
+                this._tagSaveBusy = false;
+                if (job && this._clipEditors?.isCurrent(job.token) && job.editor && !job.editor._destroyed)
+                    job.editor.setError(`${TAG_SAVE_ERROR}: Bridge not running`);
+                return;
+            }
+            const showing = this._clipEditors?.isCurrent(job.token) &&
+                job.editor && !job.editor._destroyed;
+            if (showing) {
+                job.editor.setError('');
+                if (job.closeOnSuccess)
+                    job.editor.setBusy(true);
+            }
+            this._proxy.SetClipboardTagsRemote(
+                job.entryId,
+                tagsPayload(job.chips),
+                (result, error) => {
+                    if (this._tagSavePending) {
+                        send();
+                        return;
+                    }
+                    this._tagSaveBusy = false;
+                    if (!this._enabled || !this._clipEditors?.isCurrent(job.token))
+                        return;
+                    if (!job.editor || job.editor._destroyed)
+                        return;
+                    job.editor.setBusy(false);
+                    if (error) {
+                        job.editor.setError(this._friendlyBridgeMessage(error.message, TAG_SAVE_ERROR));
+                        return;
+                    }
+                    const value = Array.isArray(result) ? result[0] : result;
+                    if (value !== true) {
+                        job.editor.setError(TAG_SAVE_ERROR);
+                        return;
+                    }
+                    if (job.closeOnSuccess)
+                        this._clipEditors.close(job.token);
+                    else
+                        job.editor.focus();
+                });
+        };
+        send();
+    }
+
+    _cancelClipEditor(token) {
+        const current = this._clipEditors?.current;
+        if (!current || (token !== undefined && current.token !== token))
+            return;
+        if (current.kind === 'edit')
+            this._clipEditDrafts.delete(current.id);
+        this._clipEditors?.close(token);
+    }
+
+    // The menu closed, or a non-editor button was pressed. An open Edit is
+    // saved. Escape uses _cancelClipEditor and keeps what was not entered.
+    _dismissClipEditor() {
+        this._autosaveOpenEdit();
+        this._clipEditors?.close();
+    }
+
+    _autosaveOpenEdit() {
+        const current = this._clipEditors?.current;
+        const editor = current?.handle;
+        if (!current || current.kind !== 'edit' || !editor?.alive)
+            return;
+        this._autosaveClipEdit(current.id, editor.original, editor.text);
+    }
+
+    _autosaveClipEdit(entryId, original, text) {
+        const plan = editPlan(original, text);
+        if (!plan.call) {
+            if (plan.error)
+                this._clipEditDrafts.set(entryId, text);
+            else
+                this._clipEditDrafts.delete(entryId);
             return;
         }
-        editor.setError('');
-        editor.setBusy(true);
-        this._proxy.SetClipboardTagsRemote(entryId, tagsPayload(chips), (result, error) => {
-            if (!this._enabled || !this._clipEditors?.isCurrent(token))
+        this._clipEditDrafts.set(entryId, text);
+        if (!this._proxy || !this._proxy.EditClipboardRemote)
+            return;
+        this._proxy.EditClipboardRemote(entryId, text, (result, error) => {
+            if (!this._enabled || error)
                 return;
-            editor.setBusy(false);
-            if (error) {
-                editor.setError(this._friendlyBridgeMessage(error.message, TAG_SAVE_ERROR));
-                return;
-            }
             const value = Array.isArray(result) ? result[0] : result;
-            if (value !== true) {
-                editor.setError(TAG_SAVE_ERROR);
-                return;
-            }
-            this._clipEditors.close(token);
+            if (value === true)
+                this._settleClipDrafts();
         });
+    }
+
+    // A saved draft stays until the clipboard list is carrying that text, so
+    // reopening the menu before the refresh still shows what was typed.
+    _settleClipDrafts() {
+        if (!this._clipEditDrafts?.size)
+            return;
+        const entries = Array.isArray(this._clipEntries) ? this._clipEntries : [];
+        for (const [entryId, draft] of this._clipEditDrafts) {
+            const entry = entries.find(item => item && item.id === entryId);
+            if (entry && entry.text === draft)
+                this._clipEditDrafts.delete(entryId);
+        }
     }
 
     _editEditor(entry, token) {
         if (entry.masked === true || entry.kind === 'image' || typeof entry.text !== 'string')
             return null;
         const original = entry.text;
+        const draft = this._clipEditDrafts.get(entry.id);
+        const shown = typeof draft === 'string' ? draft : original;
         const editor = new EditEditor({
-            text: original,
+            text: shown,
+            original,
             onSave: text => this._saveClipEdit(entry.id, original, text, token, editor),
-            onCancel: () => this._clipEditors?.close(token),
+            onCancel: () => this._cancelClipEditor(token),
         });
         return editor;
     }
@@ -2807,6 +2910,7 @@ export default class TetherBotExtension extends Extension {
             return;
         }
         if (!plan.call) {
+            this._clipEditDrafts.delete(entryId);
             this._clipEditors?.close(token);
             return;
         }
@@ -2816,6 +2920,7 @@ export default class TetherBotExtension extends Extension {
         }
         editor.setError('');
         editor.setBusy(true);
+        this._clipEditDrafts.set(entryId, text);
         this._proxy.EditClipboardRemote(entryId, text, (result, error) => {
             if (!this._enabled || !this._clipEditors?.isCurrent(token))
                 return;
@@ -2829,6 +2934,8 @@ export default class TetherBotExtension extends Extension {
                 editor.setError(EDIT_SAVE_ERROR);
                 return;
             }
+            this._clipEditDrafts.set(entryId, text);
+            this._settleClipDrafts();
             this._clipEditors.close(token);
         });
     }
@@ -3141,6 +3248,7 @@ export default class TetherBotExtension extends Extension {
                 parsed = [];
             }
             this._clipEntries = Array.isArray(parsed) ? parsed : [];
+            this._settleClipDrafts();
             if (this._clipEditors)
                 this._clipEditors.requestRebuild();
             else
@@ -3284,7 +3392,7 @@ export default class TetherBotExtension extends Extension {
                 button.connect('button-press-event', () => {
                     holdClipClick();
                     if (!opensEditor)
-                        this._clipEditors?.close();
+                        this._dismissClipEditor();
                     onPress();
                     return Clutter.EVENT_STOP;
                 });

@@ -49,6 +49,45 @@ function editorButton(label, onClick) {
     return button;
 }
 
+// Shell 51's FlowLayout reports a row height of 0 when its width is still
+// unknown, and a scroll view with an automatic bar can shrink to that. The
+// chips are a vertical list of real buttons instead, each sized from its
+// label the same way Cancel and Save are.
+function chipScroller() {
+    const box = new St.BoxLayout({
+        orientation: Clutter.Orientation.VERTICAL,
+        style_class: 'tetherbot-clip-chips',
+        x_expand: true,
+        y_align: Clutter.ActorAlign.START,
+    });
+    const scroll = new St.ScrollView({
+        style_class: 'tetherbot-clip-chips-scroll',
+        hscrollbar_policy: St.PolicyType.NEVER,
+        vscrollbar_policy: St.PolicyType.AUTOMATIC,
+        x_expand: true,
+        y_align: Clutter.ActorAlign.START,
+        child: box,
+    });
+    return {box, scroll};
+}
+
+function chipButton(label, styleClass, onClick) {
+    const button = new St.Button({
+        label,
+        style_class: styleClass,
+        can_focus: true,
+        reactive: true,
+        track_hover: true,
+        toggle_mode: false,
+        x_align: Clutter.ActorAlign.START,
+        x_expand: false,
+        y_align: Clutter.ActorAlign.START,
+    });
+    button.accessible_name = label;
+    button.connect('clicked', () => onClick());
+    return button;
+}
+
 // One menu item that holds an editor. activate: false keeps Enter and
 // clicks from activating the item, which would close the menu.
 class InlineEditor {
@@ -169,46 +208,33 @@ class InlineEditor {
 }
 
 export class TagEditor extends InlineEditor {
-    constructor({chips, onSave, onCancel}) {
+    constructor({chips, onApply, onSave, onCancel}) {
         super('tetherbot-inline-tags', 'Tags');
         this._chips = chips;
         this._chipButtons = new Map();
-        this._flow = new St.Widget({
-            layout_manager: new Clutter.FlowLayout({
-                orientation: Clutter.Orientation.HORIZONTAL,
-                column_spacing: 6,
-                row_spacing: 6,
-                snap_to_grid: false,
-            }),
-            style_class: 'tetherbot-clip-chips',
-            x_expand: true,
-        });
-        const flowBox = new St.BoxLayout({
-            orientation: Clutter.Orientation.VERTICAL,
-            x_expand: true,
-        });
-        flowBox.add_child(this._flow);
+        const chipsRow = chipScroller();
+        this._flow = chipsRow.box;
+        this._chipScroll = chipsRow.scroll;
         this._empty = new St.Label({
             text: 'No tags yet',
             style_class: 'tetherbot-inline-hint',
         });
-        flowBox.add_child(this._empty);
-        this.box.add_child(new St.ScrollView({
-            style_class: 'tetherbot-clip-chips-scroll',
-            hscrollbar_policy: St.PolicyType.NEVER,
-            vscrollbar_policy: St.PolicyType.AUTOMATIC,
-            x_expand: true,
-            child: flowBox,
-        }));
+        this.box.add_child(this._chipScroll);
+        this.box.add_child(this._empty);
         this._entry = new St.Entry({
             hint_text: 'New tag…',
             style_class: 'tetherbot-inline-tag-entry',
             can_focus: true,
             x_expand: true,
         });
-        this._entry.clutter_text.connect('activate', () => this._addTyped());
+        this._entry.clutter_text.connect('activate', () => this._addTyped(true));
         this.box.add_child(this._entry);
+        this.box.add_child(new St.Label({
+            text: 'Enter saves this tag. Escape closes.',
+            style_class: 'tetherbot-inline-hint',
+        }));
         this._focusTarget = this._entry;
+        this._onApply = onApply;
         this._onSave = onSave;
         this._finish([
             editorButton('Cancel', onCancel),
@@ -235,18 +261,24 @@ export class TagEditor extends InlineEditor {
         this._render();
     }
 
-    _addTyped() {
+    // commit saves the chips and leaves the field ready for another tag.
+    // Save adds a leftover name without that extra save, then closes.
+    _addTyped(commit) {
         const result = addTagChip(this._chips, this._entry.get_text());
         this._chips = result.chips;
         this.setError(result.error);
         if (result.added)
             this._entry.set_text('');
         this._render();
+        if (result.added && commit && this._onApply)
+            this._onApply(this._chips);
+        if (result.added)
+            this.focus();
         return result.error === '';
     }
 
     _save() {
-        if (this._entry.get_text().trim() && !this._addTyped())
+        if (this._entry.get_text().trim() && !this._addTyped(false))
             return;
         this._onSave(this._chips);
     }
@@ -263,29 +295,16 @@ export class TagEditor extends InlineEditor {
             }
             button.checked = chip.selected === true;
         }
-        this._empty.visible = this._chips.length === 0;
+        const any = this._chips.length > 0;
+        this._empty.visible = !any;
+        this._chipScroll.visible = any;
     }
 
     _chipButton(chip) {
-        const content = new St.BoxLayout({y_align: Clutter.ActorAlign.CENTER});
-        content.add_child(new St.Widget({
-            style_class: `tetherbot-clip-dot tetherbot-clip-dot-${tagTone(chip.color)}`,
-            y_align: Clutter.ActorAlign.CENTER,
-        }));
-        content.add_child(new St.Label({
-            text: chip.name,
-            y_align: Clutter.ActorAlign.CENTER,
-        }));
-        const button = new St.Button({
-            child: content,
-            style_class: 'tetherbot-tag-chip',
-            can_focus: true,
-            reactive: true,
-            track_hover: true,
-            toggle_mode: false,
-        });
-        button.accessible_name = chip.name;
-        button.connect('clicked', () => this._toggle(chip.name));
+        const button = chipButton(
+            chip.name,
+            `button tetherbot-tag-chip tetherbot-tag-tone-${tagTone(chip.color)}`,
+            () => this._toggle(chip.name));
         return button;
     }
 }
@@ -305,42 +324,16 @@ export class ContextEditor extends InlineEditor {
         this.box.add_child(effortRow);
         this._bot = bots.includes(PRIMARY_BOT) ? PRIMARY_BOT : bots[0] || PRIMARY_BOT;
         this._botButtons = new Map();
-        const flow = new St.Widget({
-            layout_manager: new Clutter.FlowLayout({
-                orientation: Clutter.Orientation.HORIZONTAL,
-                column_spacing: 6,
-                row_spacing: 6,
-                snap_to_grid: false,
-            }),
-            style_class: 'tetherbot-clip-chips',
-            x_expand: true,
-        });
+        const botsRow = chipScroller();
         for (const bot of bots) {
-            const button = new St.Button({
-                label: bot,
-                style_class: 'tetherbot-tag-chip tetherbot-bot-chip',
-                can_focus: true,
-                reactive: true,
-                track_hover: true,
-                toggle_mode: false,
-            });
-            button.accessible_name = bot;
-            button.connect('clicked', () => this._pick(bot));
+            const button = chipButton(
+                bot,
+                'button tetherbot-tag-chip tetherbot-bot-chip',
+                () => this._pick(bot));
             this._botButtons.set(bot, button);
-            flow.add_child(button);
+            botsRow.box.add_child(button);
         }
-        const flowBox = new St.BoxLayout({
-            orientation: Clutter.Orientation.VERTICAL,
-            x_expand: true,
-        });
-        flowBox.add_child(flow);
-        this.box.add_child(new St.ScrollView({
-            style_class: 'tetherbot-clip-chips-scroll',
-            hscrollbar_policy: St.PolicyType.NEVER,
-            vscrollbar_policy: St.PolicyType.AUTOMATIC,
-            x_expand: true,
-            child: flowBox,
-        }));
+        this.box.add_child(botsRow.scroll);
         const send = editorButton('Send', () => onSend(this._bot));
         this._focusTarget = send;
         this._finish([editorButton('Cancel', onCancel), send]);
@@ -361,10 +354,11 @@ export class ContextEditor extends InlineEditor {
 }
 
 // Multi-line Edit on a raw Clutter.Text, as QuickNotes does. St.Entry is one
-// line only. activatable: false makes Enter insert a newline. Clutter.Text
-// has no clipboard, so copy, cut, paste, and select all are done here.
+// line only. Shell 51 does not insert a newline for Return, so this editor
+// does. Clutter.Text has no clipboard, so copy, cut, paste, and select all
+// are done here.
 export class EditEditor extends InlineEditor {
-    constructor({text, onSave, onCancel}) {
+    constructor({text, original, onSave, onCancel}) {
         super('tetherbot-inline-edit', 'Edit');
         this._text = new Clutter.Text({
             text,
@@ -377,6 +371,7 @@ export class EditEditor extends InlineEditor {
             line_wrap_mode: Pango.WrapMode.WORD_CHAR,
             x_expand: true,
         });
+        this._original = typeof original === 'string' ? original : text;
         this._text.set_selection(-1, -1);
         this._area = new St.BoxLayout({
             orientation: Clutter.Orientation.VERTICAL,
@@ -417,7 +412,15 @@ export class EditEditor extends InlineEditor {
     }
 
     get text() {
-        return this._text.get_text();
+        return this._destroyed ? '' : this._text.get_text();
+    }
+
+    get original() {
+        return this._original;
+    }
+
+    get alive() {
+        return !this._destroyed;
     }
 
     _save() {
@@ -458,7 +461,11 @@ export class EditEditor extends InlineEditor {
         const action = editShortcut(EDIT_KEYS.get(symbol) || '', ctrl);
         if (!action)
             return Clutter.EVENT_PROPAGATE;
-        if (action === 'save')
+        if (action === 'newline') {
+            if (typeof this._text.has_preedit === 'function' && this._text.has_preedit())
+                return Clutter.EVENT_PROPAGATE;
+            this._insertNewline();
+        } else if (action === 'save')
             this._save();
         else if (action === 'copy')
             this._copySelection();
@@ -469,6 +476,16 @@ export class EditEditor extends InlineEditor {
         else if (action === 'select-all')
             this._text.set_selection(0, -1);
         return Clutter.EVENT_STOP;
+    }
+
+    _insertNewline() {
+        this._text.delete_selection();
+        let position = this._text.get_cursor_position();
+        if (position < 0)
+            position = [...this._text.get_text()].length;
+        this._text.insert_text('\n', position);
+        const end = position + 1;
+        this._text.set_selection(end, end);
     }
 
     _copySelection() {

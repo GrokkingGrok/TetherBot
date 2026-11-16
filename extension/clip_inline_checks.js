@@ -245,7 +245,7 @@ same(editPlan('a', `${'é'.repeat(CLIP_TEXT_MAX_BYTES / 2)}x`), {call: false, er
 same(editPlan('a', null), {call: false, error: EDIT_EMPTY_LINE}, 'no text is refused');
 assert(utf8Length('aé€😀') === 10, 'UTF-8 length counts bytes');
 assert(editShortcut('enter', true) === 'save', 'Ctrl+Enter saves');
-assert(editShortcut('enter', false) === '', 'Enter is left to the text for a newline');
+assert(editShortcut('enter', false) === 'newline', 'Enter inserts a newline');
 same(['c', 'x', 'v', 'a'].map(key => editShortcut(key, true)),
     ['copy', 'cut', 'paste', 'select-all'], 'Ctrl+C, X, V, and A');
 assert(editShortcut('c', false) === '' && editShortcut('q', true) === '', 'other keys are left alone');

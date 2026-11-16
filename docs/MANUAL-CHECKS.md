@@ -2305,7 +2305,7 @@ The roadmap does not add a Paste button. [CLIPBOARD.md](CLIPBOARD.md) says a Pas
 **Look for.**
 
 - On the Clipboard page, Edit, Tag, Preview, and Make a todo with context open as popovers pointing at the button you pressed. Preview opens from the row.
-- Clicking away or Escape closes that popover and does not save.
+- Clicking away or Escape closes that popover and does not save. Switching to another app closes it too, and then an Edit with changed text is saved, and tags already added are saved. Text still sitting in the tag field is not.
 - Save on Edit and Tag saves. Send on Make a todo with context sends, and the row says Sent. Cancel does not.
 - On the Clipboard page, Escape closes the popover. Moving the pointer off it leaves it open. Save and Send still do that action.
 - In the panel menu, Edit, Tag, and Make a todo with context open an editor inside the menu. That check is M189.
@@ -2467,7 +2467,7 @@ Obsolete, superseded by N16 option A. The panel menu edits a clip inside the men
 
 **Look for.**
 
-- `systemctl --user list-units 'TetherBot*' 'app-*TetherBot*'` shows one window service.
+- `systemctl --user list-units 'tetherbot*'` lists `tetherbot-window.service` once. The bridge unit `tetherbot.service` may be listed too. There is not a second window unit.
 - The journal has no second `@1` activation for this open.
 - Stop the window unit during an Open TetherBot press, or `kill -STOP` its PID. Within a few seconds the menu says TetherBot window restarted. or Couldn't open TetherBot.
 - Restart window in the menu recovers it. `make restart-window` does the same from a terminal.
@@ -2497,7 +2497,8 @@ Obsolete, superseded by N16 option A. The panel menu edits a clip inside the men
 
 **Look for.**
 
-- On the Clipboard page, open Tag, then Edit on the other clip, then copy something new while Edit is open. Close it.
+- On the Clipboard page, open Tag and close it with Escape. Open Edit on the other clip, type a word, and switch to another app. The popover closes. Copy something new, then switch back.
+- The word you typed is still on that clip.
 - `journalctl --user -u tetherbot-window.service --since "-10 min"` has no `Finalizing GtkButton` line that mentions `GtkPopover`.
 
 **Reset.** None.
@@ -2513,15 +2514,18 @@ dbus-monitor --session "type='method_call',interface='io.github.grokkinggrok.Tet
 **Look for.**
 
 1. Open the clipboard menu and press Tag on a clip. Chips appear inline under the row, and the TetherBot window does NOT open. `dbus-monitor` prints no `OpenWindow` call. `journalctl --user -b --since "-5 min" | grep -iE "openwindow|window service|window start|window restarted"` shows nothing new.
-2. Toggle a chip and press Save. The menu stays open, the editor closes, and the row's tag dots update. Open the window Clipboard page: the clip has the same tags.
-3. Press Tag, type a new tag name in New tag…, press Enter, then Save. The new tag is on the clip, and the window Clipboard page lists it in its tag filter. `GetTags` lists todo tags only, so a tag used only on clips is not in it.
+2. The existing tags are pills you can read and click. Each pill shows its tag name, with a colored edge, and is tall enough to hit comfortably. Toggle one and press Save. The menu stays open, the editor closes, and the row's tag dots update. Open the window Clipboard page: the clip has the same tags.
+3. Press Tag, type a new tag name in New tag…, and press Enter. The tag is saved then, the field clears, and the editor stays open with the caret still in the field. Type a second tag and press Enter again. Both tags are on the clip. The window Clipboard page lists them in its tag filter. `GetTags` lists todo tags only, so a tag used only on clips is not in it. Press Escape with more text still in the field: that text is dropped, the editor closes, the menu stays open, and the tags already entered stay on the clip.
 4. Press Tag five times fast on one clip. Nothing freezes, and one editor is open.
-5. Press Edit, change the text, add a second line with Enter, and press Save, or Ctrl+Enter. The menu stays open, and the text is updated in the menu and in the window.
+5. Press Edit, change the text, and press Enter. A new line is added in the box. Ctrl+Enter saves, and so does Save. The menu stays open, and the text, including the new line, is updated in the menu and in the window.
 6. Press Edit, change the text, and press Escape. Nothing is saved, the row is unchanged, and the menu stays open.
-7. Press Edit, type a little, then copy something in another app. Nothing freezes, and the editor keeps its text. The new clip shows in the menu after the editor closes.
+7. Press Edit, type a change, and switch to another app. The menu closes. Open it again: the change was saved. Escape while the menu is still open still discards an edit.
+   Press Tag, enter a tag with Enter, type more without pressing Enter, and switch to another app. The entered tag stays. The untyped text does not.
+   On the window Clipboard page, open Edit, type a change, and switch to another app. The popover closes. Open Edit again: the change was saved. Clearing the box and switching away does not save an empty clip; opening Edit again shows what you typed. Escape or Cancel while the window is focused still discards.
+   On the window Clipboard page, open Tag, add a tag with Enter or Add, and switch to another app. The popover closes and the tag stays. Text left in the field is not required to be saved. Escape or Cancel while the window is focused does not store tags added in that popover.
 8. Stop the window with `pkill -f tetherbot.window`. Tag and Edit in the menu still work. `systemctl --user list-units 'tetherbot-window*'` shows no window started, and `dbus-monitor` prints no `OpenWindow` call.
 9. Open clipboard still opens the window on the Clipboard page.
-10. Tag and Edit on the window's Clipboard page work exactly as before.
+10. Tag and Edit on the window's Clipboard page still open, save, and cancel as before. Switching to another app is step 7.
 
 Also check:
 
@@ -2530,7 +2534,7 @@ Also check:
 - Escape in an inline editor cancels it, and the menu stays open. A second Escape closes the menu. On Shell 51, Escape is handled by the menu manager's key controller, so this confirms the editor's controller runs first.
 - In the Edit box, Ctrl+C, Ctrl+V, Ctrl+X, and Ctrl+A work. Up, Down, Home, and End move the caret, and the box scrolls to keep the caret visible.
 - With an input method on Wayland, such as Japanese or the emoji picker, candidates show for the Tag and Edit boxes.
-- Opening Tag on one clip and then Edit on another leaves only the Edit editor open, with nothing saved from the Tag editor.
+- Opening Tag on one clip and then Edit on another leaves only the Edit editor open. A tag already entered with Enter stays saved. A chip toggle that was not saved, and text still in the field, are dropped.
 
 **Reset.** Open TetherBot again when you want the window back.
 

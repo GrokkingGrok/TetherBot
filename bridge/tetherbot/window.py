@@ -32,7 +32,11 @@ from tetherbot.bridge_errors import (  # noqa: E402
     clip_send_message,
     friendly_bridge_message,
 )
-from tetherbot.clipboard_policy import image_label, list_preview  # noqa: E402
+from tetherbot.clipboard_policy import (  # noqa: E402
+    CLIPBOARD_TEXT_MAX,
+    image_label,
+    list_preview,
+)
 from tetherbot.clipboard_search import (  # noqa: E402
     choose_search_template,
     desktop_search_inputs,
@@ -186,7 +190,32 @@ def _build_text_editor(
         save.connect("clicked", _clicked)
         actions.append(save)
         box.append(actions)
+        box.clip_kind = "edit"
+        box.clip_text_view = view
     return box
+
+
+def _clip_edit_rejected(text: str) -> bool:
+    """True when EditClipboard would refuse the text. A draft keeps it."""
+
+    if not text.strip() or "\0" in text:
+        return True
+    return len(text.encode("utf-8")) > CLIPBOARD_TEXT_MAX
+
+
+def _same_clip_tags(left: object, right: object) -> bool:
+    def rows(value: object) -> list[tuple[str, str]] | None:
+        if not isinstance(value, list):
+            return None
+        out: list[tuple[str, str]] = []
+        for tag in value:
+            if not isinstance(tag, dict):
+                return None
+            name = " ".join(str(tag.get("name") or "").split())
+            out.append((name.casefold(), str(tag.get("color") or "")))
+        return out
+
+    return rows(left) == rows(right)
 
 
 def _focus_tag_entry(entry: Gtk.Entry) -> None:
@@ -337,8 +366,13 @@ def _build_tag_editor(
     box.append(none_label)
     box.append(scroller)
     box.append(actions)
+    def read_tags() -> list[dict[str, str]]:
+        return [dict(tag) for tag in working]
+
     box.tag_entry = name_row
     box.release_tag_editor = release_tag_editor
+    box.clip_kind = "tag"
+    box.clip_read_tags = read_tags
     rebuild()
     return box
 
@@ -1110,6 +1144,11 @@ class TodoWindow(Adw.ApplicationWindow):
         self._clip_context_dialog: Gtk.Popover | None = None
         self._popover_reload = False
         self._clip_rebuild_deferred = False
+        self._clip_edit_drafts: dict[str, str] = {}
+        self._clip_tag_drafts: dict[str, list[dict[str, str]]] = {}
+        self._clip_user_cancel = False
+        self._clip_focus_stash: dict[str, Any] | None = None
+        self._clip_focus_save_source = 0
         self._clip_drop_source = 0
         self._clip_close_source = 0
         self._clip_flash_gen = 0
@@ -2539,6 +2578,7 @@ class TodoWindow(Adw.ApplicationWindow):
             return
         if not active:
             self._commit_current_note_draft()
+            self._autosave_open_clip_editor()
 
     def _arm_note_draft_save(self) -> None:
         self._cancel_note_draft_timer()
@@ -2876,6 +2916,7 @@ class TodoWindow(Adw.ApplicationWindow):
         self._commit_current_note_draft()
         self._cancel_note_draft_timer()
         self._detach_all_clip_popovers()
+        self._cancel_clip_focus_save()
         self._clip_rebuild_deferred = False
         pending = list(self._glib_sources)
         self._glib_sources.clear()
@@ -3753,6 +3794,9 @@ class TodoWindow(Adw.ApplicationWindow):
             release()
 
     def _on_clip_popover_closed(self, popover: Gtk.Popover) -> None:
+        if not self._clip_user_cancel:
+            self._remember_clip_popover(popover)
+        self._clip_user_cancel = False
         self._release_popover_tag_editor(popover)
         if self._clip_detaching:
             if self._clip_popover is popover:
@@ -4026,23 +4070,252 @@ class TodoWindow(Adw.ApplicationWindow):
     ) -> None:
         on_save = None
         on_cancel = None
+        shown = text
         if editable and entry_id is not None:
+            draft = self._clip_edit_drafts.get(entry_id)
+            if isinstance(draft, str):
+                shown = draft
 
             def on_save(body: str, ident: str = entry_id) -> None:
                 self._save_clip_text(ident, body)
 
-            on_cancel = self._queue_clip_popover_close
+            on_cancel = self._discard_clip_popover
 
-        self._show_clip_popover(
-            parent,
-            _build_text_editor(
-                title,
-                text,
-                editable=editable,
-                on_save=on_save,
-                on_cancel=on_cancel,
-            ),
+        editor = _build_text_editor(
+            title,
+            shown,
+            editable=editable,
+            on_save=on_save,
+            on_cancel=on_cancel,
         )
+        if editable and entry_id is not None:
+            editor.clip_entry_id = entry_id
+            editor.clip_original = text
+        self._show_clip_popover(parent, editor)
+
+    def _discard_clip_popover(self) -> None:
+        """Escape or Cancel. Drop drafts and close without saving."""
+
+        if not isinstance(self._clip_popover, Gtk.Popover):
+            return
+        self._clip_user_cancel = True
+        self._drop_open_clip_drafts()
+        self._queue_clip_popover_close()
+
+    def _drop_open_clip_drafts(self) -> None:
+        child = self._open_clip_child()
+        entry_id = getattr(child, "clip_entry_id", None) if child is not None else None
+        if isinstance(entry_id, str) and entry_id:
+            self._clip_edit_drafts.pop(entry_id, None)
+            self._clip_tag_drafts.pop(entry_id, None)
+
+    def _open_clip_child(self) -> Gtk.Widget | None:
+        popover = self._clip_popover
+        if not isinstance(popover, Gtk.Popover) or not _widget_usable(popover):
+            return None
+        try:
+            child = popover.get_child()
+        except Exception:
+            return None
+        return child if isinstance(child, Gtk.Widget) else None
+
+    def _autosave_open_clip_editor(self) -> None:
+        if self._clip_user_cancel:
+            return
+        popover = self._clip_popover
+        if isinstance(popover, Gtk.Popover):
+            self._autosave_clip_popover(popover)
+
+    def _autosave_clip_popover(self, popover: Gtk.Popover) -> None:
+        if not _widget_usable(popover):
+            return
+        try:
+            child = popover.get_child()
+        except Exception:
+            return
+        if not isinstance(child, Gtk.Widget) or getattr(child, "clip_autosaved", False):
+            return
+        kind = getattr(child, "clip_kind", "")
+        if kind == "edit":
+            self._autosave_clip_edit(child)
+        elif kind == "tag":
+            self._autosave_clip_tags(child)
+
+    def _autosave_clip_edit(self, child: Gtk.Widget) -> None:
+        child.clip_autosaved = True
+        entry_id = getattr(child, "clip_entry_id", "")
+        original = getattr(child, "clip_original", None)
+        view = getattr(child, "clip_text_view", None)
+        if not isinstance(entry_id, str) or not entry_id or not isinstance(original, str):
+            return
+        if not isinstance(view, Gtk.TextView):
+            return
+        try:
+            buffer = view.get_buffer()
+            body = buffer.get_text(buffer.get_start_iter(), buffer.get_end_iter(), True)
+        except Exception:
+            return
+        if isinstance(body, str):
+            self._persist_clip_edit(entry_id, original, body)
+
+    def _autosave_clip_tags(self, child: Gtk.Widget) -> None:
+        child.clip_autosaved = True
+        entry_id = getattr(child, "clip_entry_id", "")
+        read = getattr(child, "clip_read_tags", None)
+        saved = getattr(child, "clip_saved_tags", None)
+        if not isinstance(entry_id, str) or not entry_id or not callable(read):
+            return
+        try:
+            working = read()
+        except Exception:
+            return
+        if isinstance(working, list):
+            self._persist_clip_tags(entry_id, saved if isinstance(saved, list) else [], working)
+
+    def _remember_clip_popover(self, popover: Gtk.Popover) -> None:
+        """Keep the editor text after the popover closes.
+
+        A click outside leaves the window active, so the stash is dropped.
+        Switching away often closes the popover before ``is-active`` flips,
+        so the save waits one short beat and then checks.
+        """
+
+        if not _widget_usable(popover):
+            return
+        try:
+            child = popover.get_child()
+        except Exception:
+            return
+        if not isinstance(child, Gtk.Widget) or getattr(child, "clip_autosaved", False):
+            return
+        kind = getattr(child, "clip_kind", "")
+        entry_id = getattr(child, "clip_entry_id", "")
+        if not isinstance(entry_id, str) or not entry_id:
+            return
+        stash: dict[str, Any] | None = None
+        if kind == "edit":
+            view = getattr(child, "clip_text_view", None)
+            original = getattr(child, "clip_original", None)
+            if isinstance(view, Gtk.TextView) and isinstance(original, str):
+                try:
+                    buffer = view.get_buffer()
+                    body = buffer.get_text(
+                        buffer.get_start_iter(), buffer.get_end_iter(), True
+                    )
+                except Exception:
+                    return
+                if isinstance(body, str):
+                    stash = {
+                        "kind": "edit",
+                        "entry_id": entry_id,
+                        "original": original,
+                        "body": body,
+                    }
+        elif kind == "tag":
+            read = getattr(child, "clip_read_tags", None)
+            saved = getattr(child, "clip_saved_tags", None)
+            if callable(read):
+                try:
+                    working = read()
+                except Exception:
+                    return
+                if isinstance(working, list):
+                    stash = {
+                        "kind": "tag",
+                        "entry_id": entry_id,
+                        "saved": saved if isinstance(saved, list) else [],
+                        "working": working,
+                    }
+        if stash is None:
+            return
+        child.clip_autosaved = True
+        self._schedule_clip_focus_save(stash)
+
+    def _schedule_clip_focus_save(self, stash: dict[str, Any]) -> None:
+        self._cancel_clip_focus_save()
+        self._clip_focus_stash = stash
+        self._clip_focus_save_source = self._remember_source(
+            GLib.timeout_add(200, self._flush_clip_focus_stash)
+        )
+
+    def _cancel_clip_focus_save(self) -> None:
+        source = self._clip_focus_save_source
+        self._clip_focus_save_source = 0
+        self._clip_focus_stash = None
+        self._forget_source(source)
+
+    def _flush_clip_focus_stash(self) -> bool:
+        source = self._clip_focus_save_source
+        self._clip_focus_save_source = 0
+        self._glib_sources.discard(source)
+        stash = self._clip_focus_stash
+        self._clip_focus_stash = None
+        try:
+            inactive = not bool(self.is_active())
+        except Exception:
+            inactive = False
+        if not inactive or not isinstance(stash, dict):
+            return False
+        kind = stash.get("kind")
+        entry_id = stash.get("entry_id")
+        if not isinstance(entry_id, str):
+            return False
+        if kind == "edit" and isinstance(stash.get("original"), str):
+            body = stash.get("body")
+            if isinstance(body, str):
+                self._persist_clip_edit(entry_id, stash["original"], body)
+        elif kind == "tag" and isinstance(stash.get("working"), list):
+            saved = stash.get("saved")
+            self._persist_clip_tags(
+                entry_id,
+                saved if isinstance(saved, list) else [],
+                stash["working"],
+            )
+        return False
+
+    def _persist_clip_edit(self, entry_id: str, original: str, body: str) -> None:
+        if body == original:
+            self._clip_edit_drafts.pop(entry_id, None)
+            return
+        if _clip_edit_rejected(body) or not hasattr(self.client, "edit_clipboard"):
+            self._clip_edit_drafts[entry_id] = body
+            return
+        try:
+            saved = self.client.edit_clipboard(entry_id, body)
+        except BridgeError:
+            self._clip_edit_drafts[entry_id] = body
+            return
+        if not saved:
+            self._clip_edit_drafts[entry_id] = body
+            return
+        self._clip_edit_drafts.pop(entry_id, None)
+        self._popover_reload = True
+        self._note_clip_rebuild()
+
+    def _persist_clip_tags(
+        self,
+        entry_id: str,
+        saved_tags: list[dict[str, str]],
+        working: list[Any],
+    ) -> None:
+        if _same_clip_tags(working, saved_tags):
+            self._clip_tag_drafts.pop(entry_id, None)
+            return
+        kept = [dict(tag) for tag in working if isinstance(tag, dict)]
+        if not hasattr(self.client, "set_clipboard_tags"):
+            self._clip_tag_drafts[entry_id] = kept
+            return
+        try:
+            ok = self.client.set_clipboard_tags(entry_id, kept)
+        except BridgeError:
+            self._clip_tag_drafts[entry_id] = kept
+            return
+        if not ok:
+            self._clip_tag_drafts[entry_id] = kept
+            return
+        self._clip_tag_drafts.pop(entry_id, None)
+        self._popover_reload = True
+        self._note_clip_rebuild()
 
     def _save_clip_text(self, entry_id: str, text: str) -> None:
         if not hasattr(self.client, "edit_clipboard"):
@@ -4055,6 +4328,7 @@ class TodoWindow(Adw.ApplicationWindow):
         if not saved:
             self._toast("That line could not be edited")
             return
+        self._clip_edit_drafts.pop(entry_id, None)
         self._popover_reload = True
         self._note_clip_rebuild()
         self._queue_clip_popover_close()
@@ -4065,14 +4339,15 @@ class TodoWindow(Adw.ApplicationWindow):
         entry_id: str,
         tags: list[dict[str, str]],
     ) -> None:
-        self._show_clip_popover(
-            parent,
-            _build_tag_editor(
-                tags,
-                lambda working: self._save_clip_tags(entry_id, working),
-                self._queue_clip_popover_close,
-            ),
+        shown = self._clip_tag_drafts.get(entry_id, tags)
+        editor = _build_tag_editor(
+            shown,
+            lambda working: self._save_clip_tags(entry_id, working),
+            self._discard_clip_popover,
         )
+        editor.clip_entry_id = entry_id
+        editor.clip_saved_tags = [dict(tag) for tag in tags]
+        self._show_clip_popover(parent, editor)
 
     def _save_clip_tags(self, entry_id: str, tags: list[dict[str, str]]) -> None:
         if not hasattr(self.client, "set_clipboard_tags"):
@@ -4085,6 +4360,7 @@ class TodoWindow(Adw.ApplicationWindow):
         if not saved:
             self._toast("Tags could not be saved")
             return
+        self._clip_tag_drafts.pop(entry_id, None)
         self._popover_reload = True
         self._queue_clip_popover_close()
 
@@ -4321,7 +4597,7 @@ class TodoWindow(Adw.ApplicationWindow):
             return True
         if keyval == Gdk.KEY_Escape:
             if self._clip_popover is not None:
-                self._close_clip_popover()
+                self._discard_clip_popover()
                 return True
             self.close()
             return True

@@ -32,6 +32,7 @@ from tetherbot.bridge_errors import (  # noqa: E402
     clip_send_message,
     friendly_bridge_message,
 )
+from tetherbot.clip_shortcuts import clip_close_saves, clip_editor_key  # noqa: E402
 from tetherbot.clipboard_policy import (  # noqa: E402
     CLIPBOARD_TEXT_MAX,
     image_label,
@@ -145,6 +146,56 @@ def _sending_retry(item: dict[str, Any] | None) -> bool:
     return isinstance(local, dict) and local.get("sending") == "retry"
 
 
+def _bind_clip_editor_keys(
+    box: Gtk.Widget,
+    kind: str,
+    on_cancel: Callable[[], None],
+    on_save: Callable[[], None],
+    on_commit_tag: Callable[[], None] | None = None,
+) -> None:
+    """One capture controller for Tag and Edit.
+
+    The popover is a separate surface, so the window's key controller never
+    sees these keys. Capture runs before the popover's own Escape binding
+    and before the text view inserts Return.
+    """
+
+    keys = Gtk.EventControllerKey()
+    keys.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+
+    def pressed(
+        _controller: Gtk.EventControllerKey,
+        keyval: int,
+        _keycode: int,
+        state: Gdk.ModifierType,
+    ) -> bool:
+        control = bool(state & Gdk.ModifierType.CONTROL_MASK)
+        shift = bool(state & Gdk.ModifierType.SHIFT_MASK)
+        alt = bool(state & Gdk.ModifierType.ALT_MASK)
+        if alt or shift:
+            return False
+        if keyval == Gdk.KEY_Escape:
+            name = "escape"
+        elif keyval in {Gdk.KEY_Return, Gdk.KEY_KP_Enter}:
+            name = "enter"
+        else:
+            return False
+        action = clip_editor_key(kind, name, control=control)
+        if action == "cancel":
+            on_cancel()
+            return True
+        if action == "save":
+            on_save()
+            return True
+        if action == "commit-tag" and on_commit_tag is not None:
+            on_commit_tag()
+            return True
+        return False
+
+    keys.connect("key-pressed", pressed)
+    box.add_controller(keys)
+
+
 def _build_text_editor(
     title: str,
     text: str,
@@ -192,6 +243,19 @@ def _build_text_editor(
         box.append(actions)
         box.clip_kind = "edit"
         box.clip_text_view = view
+
+        def commit() -> None:
+            buffer = view.get_buffer()
+            on_save(
+                buffer.get_text(buffer.get_start_iter(), buffer.get_end_iter(), True)
+            )
+
+        _bind_clip_editor_keys(
+            box,
+            "edit",
+            on_cancel or (lambda: None),
+            commit,
+        )
     return box
 
 
@@ -241,6 +305,7 @@ def _build_tag_editor(
     tags: list[dict[str, str]],
     on_save: Callable[[list[dict[str, str]]], None],
     on_cancel: Callable[[], None],
+    on_apply: Callable[[list[dict[str, str]]], None],
 ) -> Gtk.Box:
     working = [dict(tag) for tag in tags]
     rows = Gtk.ListBox()
@@ -336,15 +401,25 @@ def _build_tag_editor(
                 pass
             map_id = 0
 
-    def save_tags(_button: Gtk.Button) -> None:
+    def current_tags() -> list[dict[str, str]]:
+        return [dict(tag) for tag in working]
+
+    def save_tags(_button: Gtk.Button | None = None) -> None:
         add_tag(name_row)
-        on_save([dict(tag) for tag in working])
+        on_save(current_tags())
+
+    def commit_typed() -> None:
+        before = len(working)
+        add_tag(name_row)
+        if len(working) == before:
+            return
+        on_apply(current_tags())
 
     def cancel_edit(_button: Gtk.Button) -> None:
         on_cancel()
 
     add.connect("clicked", add_tag)
-    name_row.connect("activate", add_tag)
+    name_row.connect("activate", lambda _entry: commit_typed())
     map_id = name_row.connect("map", _focus_on_map)
     focus_id = GLib.idle_add(_focus_after_open)
     save.connect("clicked", save_tags)
@@ -373,6 +448,7 @@ def _build_tag_editor(
     box.release_tag_editor = release_tag_editor
     box.clip_kind = "tag"
     box.clip_read_tags = read_tags
+    _bind_clip_editor_keys(box, "tag", on_cancel, save_tags, commit_typed)
     rebuild()
     return box
 
@@ -1147,6 +1223,7 @@ class TodoWindow(Adw.ApplicationWindow):
         self._clip_edit_drafts: dict[str, str] = {}
         self._clip_tag_drafts: dict[str, list[dict[str, str]]] = {}
         self._clip_user_cancel = False
+        self._clip_inside_click_at = 0.0
         self._clip_focus_stash: dict[str, Any] | None = None
         self._clip_focus_save_source = 0
         self._clip_drop_source = 0
@@ -1204,6 +1281,13 @@ class TodoWindow(Adw.ApplicationWindow):
         keys.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
         keys.connect("key-pressed", self._on_key)
         self.add_controller(keys)
+        # A click in this window is how a popover tells a click-away from an
+        # app switch. The popover surface is what loses focus on an app
+        # switch, so this window's active property often never changes.
+        presses = Gtk.EventControllerLegacy()
+        presses.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+        presses.connect("event", self._on_window_pointer)
+        self.add_controller(presses)
         if hasattr(client, "set_listener"):
             client.set_listener(self.refresh)
         if hasattr(client, "set_clipboard_listener"):
@@ -2579,6 +2663,8 @@ class TodoWindow(Adw.ApplicationWindow):
         if not active:
             self._commit_current_note_draft()
             self._autosave_open_clip_editor()
+            if self._clip_focus_stash is not None:
+                self._commit_clip_focus_stash_now()
 
     def _arm_note_draft_save(self) -> None:
         self._cancel_note_draft_timer()
@@ -3794,7 +3880,13 @@ class TodoWindow(Adw.ApplicationWindow):
             release()
 
     def _on_clip_popover_closed(self, popover: Gtk.Popover) -> None:
-        if not self._clip_user_cancel:
+        # The popover's surface is unmapped before this signal. Switching
+        # apps does that without a click and without changing is-active,
+        # because keyboard focus was on the popover, not on this window.
+        if not self._clip_detaching and clip_close_saves(
+            cancelled=self._clip_user_cancel,
+            clicked_in_window=self._click_dismissed_popover(),
+        ):
             self._remember_clip_popover(popover)
         self._clip_user_cancel = False
         self._release_popover_tag_editor(popover)
@@ -4123,8 +4215,17 @@ class TodoWindow(Adw.ApplicationWindow):
         if self._clip_user_cancel:
             return
         popover = self._clip_popover
-        if isinstance(popover, Gtk.Popover):
-            self._autosave_clip_popover(popover)
+        if not isinstance(popover, Gtk.Popover):
+            return
+        # Still showing: the popover surface took the keyboard. The user
+        # has not left. Saving here would freeze the original text and
+        # ignore everything typed after that.
+        try:
+            if popover.get_visible():
+                return
+        except Exception:
+            return
+        self._autosave_clip_popover(popover)
 
     def _autosave_clip_popover(self, popover: Gtk.Popover) -> None:
         if not _widget_usable(popover):
@@ -4172,12 +4273,88 @@ class TodoWindow(Adw.ApplicationWindow):
         if isinstance(working, list):
             self._persist_clip_tags(entry_id, saved if isinstance(saved, list) else [], working)
 
-    def _remember_clip_popover(self, popover: Gtk.Popover) -> None:
-        """Keep the editor text after the popover closes.
+    def _on_window_pointer(self, _controller: Gtk.EventController, event: Gdk.Event) -> bool:
+        """Remember a click in this window so a popover close can discard."""
 
-        A click outside leaves the window active, so the stash is dropped.
-        Switching away often closes the popover before ``is-active`` flips,
-        so the save waits one short beat and then checks.
+        try:
+            if event.get_event_type() != Gdk.EventType.BUTTON_PRESS:
+                return False
+        except Exception:
+            return False
+        self._note_clip_inside_click()
+        return False
+
+    def _note_clip_inside_click(self) -> None:
+        self._clip_inside_click_at = time.monotonic()
+        if self._clip_focus_stash is not None:
+            self._cancel_clip_focus_save()
+
+    def _clicked_in_window_recently(self) -> bool:
+        stamp = self._clip_inside_click_at
+        return stamp > 0 and (time.monotonic() - stamp) < 0.25
+
+    def _click_dismissed_popover(self) -> bool:
+        """True when a press inside this window closed the popover.
+
+        Opening the popover moves the keyboard onto the popover's own
+        surface, so this window's active flag is already false while the
+        user is still typing. A press with the pointer over this window is
+        a click-away. Alt+Tab has no button down. A click in another app
+        leaves the pointer over that app.
+        """
+
+        if self._clicked_in_window_recently():
+            return True
+        return self._pointer_button_down() and self._pointer_over_this_window()
+
+    def _pointer_button_down(self) -> bool:
+        device = self._pointer_device()
+        if device is None:
+            return False
+        try:
+            state = device.get_modifier_state()
+        except Exception:
+            return False
+        buttons = (
+            Gdk.ModifierType.BUTTON1_MASK
+            | Gdk.ModifierType.BUTTON2_MASK
+            | Gdk.ModifierType.BUTTON3_MASK
+        )
+        return bool(state & buttons)
+
+    def _pointer_over_this_window(self) -> bool:
+        device = self._pointer_device()
+        if device is None or not hasattr(device, "get_surface_at_position"):
+            return False
+        try:
+            found = device.get_surface_at_position()
+        except Exception:
+            return False
+        surface = found[0] if isinstance(found, tuple) else found
+        if surface is None:
+            return False
+        try:
+            ours = self.get_surface()
+        except Exception:
+            return False
+        return surface == ours
+
+    def _pointer_device(self) -> Gdk.Device | None:
+        try:
+            display = self.get_display()
+            seat = display.get_default_seat() if display is not None else None
+            device = seat.get_pointer() if seat is not None else None
+        except Exception:
+            return None
+        return device if isinstance(device, Gdk.Device) else None
+
+    def _remember_clip_popover(self, popover: Gtk.Popover) -> None:
+        """Snapshot an editor after its popover has closed.
+
+        The snapshot is saved on the next idle. A click in this window
+        before that idle cancels it. ``is-active`` is not the signal:
+        on Wayland it stays true, because the popover surface held the
+        keyboard focus.
         """
 
         if not _widget_usable(popover):
@@ -4235,7 +4412,7 @@ class TodoWindow(Adw.ApplicationWindow):
         self._cancel_clip_focus_save()
         self._clip_focus_stash = stash
         self._clip_focus_save_source = self._remember_source(
-            GLib.timeout_add(200, self._flush_clip_focus_stash)
+            GLib.idle_add(self._commit_clip_focus_stash)
         )
 
     def _cancel_clip_focus_save(self) -> None:
@@ -4244,22 +4421,29 @@ class TodoWindow(Adw.ApplicationWindow):
         self._clip_focus_stash = None
         self._forget_source(source)
 
-    def _flush_clip_focus_stash(self) -> bool:
+    def _commit_clip_focus_stash(self) -> bool:
         source = self._clip_focus_save_source
         self._clip_focus_save_source = 0
         self._glib_sources.discard(source)
+        self._persist_taken_stash(self._clip_focus_stash)
+        self._clip_focus_stash = None
+        return False
+
+    def _commit_clip_focus_stash_now(self) -> None:
+        source = self._clip_focus_save_source
+        self._clip_focus_save_source = 0
+        self._forget_source(source)
         stash = self._clip_focus_stash
         self._clip_focus_stash = None
-        try:
-            inactive = not bool(self.is_active())
-        except Exception:
-            inactive = False
-        if not inactive or not isinstance(stash, dict):
-            return False
+        self._persist_taken_stash(stash)
+
+    def _persist_taken_stash(self, stash: dict[str, Any] | None) -> None:
+        if not isinstance(stash, dict):
+            return
         kind = stash.get("kind")
         entry_id = stash.get("entry_id")
         if not isinstance(entry_id, str):
-            return False
+            return
         if kind == "edit" and isinstance(stash.get("original"), str):
             body = stash.get("body")
             if isinstance(body, str):
@@ -4271,7 +4455,6 @@ class TodoWindow(Adw.ApplicationWindow):
                 saved if isinstance(saved, list) else [],
                 stash["working"],
             )
-        return False
 
     def _persist_clip_edit(self, entry_id: str, original: str, body: str) -> None:
         if body == original:
@@ -4331,7 +4514,13 @@ class TodoWindow(Adw.ApplicationWindow):
         self._clip_edit_drafts.pop(entry_id, None)
         self._popover_reload = True
         self._note_clip_rebuild()
+        self._mark_open_clip_saved()
         self._queue_clip_popover_close()
+
+    def _mark_open_clip_saved(self) -> None:
+        child = self._open_clip_child()
+        if child is not None:
+            child.clip_autosaved = True
 
     def _show_clip_tags(
         self,
@@ -4344,6 +4533,7 @@ class TodoWindow(Adw.ApplicationWindow):
             shown,
             lambda working: self._save_clip_tags(entry_id, working),
             self._discard_clip_popover,
+            lambda working: self._apply_clip_tags(entry_id, working),
         )
         editor.clip_entry_id = entry_id
         editor.clip_saved_tags = [dict(tag) for tag in tags]
@@ -4362,7 +4552,30 @@ class TodoWindow(Adw.ApplicationWindow):
             return
         self._clip_tag_drafts.pop(entry_id, None)
         self._popover_reload = True
+        self._mark_open_clip_saved()
         self._queue_clip_popover_close()
+
+    def _apply_clip_tags(self, entry_id: str, tags: list[dict[str, str]]) -> None:
+        """Store a tag Enter just added and leave the popover open."""
+
+        if not hasattr(self.client, "set_clipboard_tags"):
+            return
+        try:
+            saved = self.client.set_clipboard_tags(entry_id, tags)
+        except BridgeError as exc:
+            self._toast(friendly_bridge_message(exc))
+            return
+        if not saved:
+            self._toast("Tags could not be saved")
+            return
+        self._clip_tag_drafts.pop(entry_id, None)
+        child = self._open_clip_child()
+        if child is not None and getattr(child, "clip_entry_id", None) == entry_id:
+            child.clip_saved_tags = [dict(tag) for tag in tags]
+            entry = getattr(child, "tag_entry", None)
+            if isinstance(entry, Gtk.Entry):
+                _focus_tag_entry(entry)
+        self._note_clip_rebuild()
 
     def _reload_clip_now(self) -> None:
         if self._defer_clip_rebuild():

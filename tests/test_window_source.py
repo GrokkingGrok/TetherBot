@@ -161,11 +161,25 @@ def test_window_sources_do_not_touch_the_network_or_secrets():
     assert "_commit_current_note_draft" in active
     assert "_autosave_open_clip_editor()" in active
     assert "close(" not in active
+    autosave = window.split("def _autosave_open_clip_editor", 1)[1].split(
+        "\n    def ", 1
+    )[0]
+    assert "get_visible()" in autosave
+    assert "_click_dismissed_popover()" in window
     assert "def _discard_clip_popover" in window
     assert "def _autosave_clip_edit" in window
     assert "def _autosave_clip_tags" in window
     assert "clip_kind = \"edit\"" in window
     assert "clip_kind = \"tag\"" in window
+    assert "_commit_clip_focus_stash_now()" in active
+    commit = window.split("def _commit_clip_focus_stash(", 1)[1].split("\n    def ", 1)[0]
+    assert "is_active" not in commit
+    assert "clip_close_saves(" in window
+    assert "EventControllerLegacy" in window
+    assert "_bind_clip_editor_keys(" in text_editor
+    assert "_bind_clip_editor_keys(" in tag_editor
+    assert "on_apply" in tag_editor
+    assert "def _flush_clip_focus_stash" not in window
     assert "_close_if_inactive" not in window
     shifts = window.split("self.edit_start_box = Gtk.Box", 1)[1].split(
         "self.start_entry", 1

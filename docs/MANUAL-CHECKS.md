@@ -2304,10 +2304,10 @@ The roadmap does not add a Paste button. [CLIPBOARD.md](CLIPBOARD.md) says a Pas
 
 **Look for.**
 
-- On the Clipboard page, Edit, Tag, Preview, and Make a todo with context open as popovers pointing at the button you pressed. Preview opens from the row.
-- Clicking away or Escape closes that popover and does not save. Switching to another app closes it too, and then an Edit with changed text is saved, and tags already added are saved. Text still sitting in the tag field is not.
+- On the Clipboard page, Edit and Tag expand that row in place. Preview and Make a todo with context open as popovers pointing at the button you pressed. Preview opens from the row.
+- Switching to another app leaves Edit and Tag open and does not save. Closing the window, hiding it, or leaving the Clipboard page saves an Edit that changed, and keeps tags already entered. Text still sitting in the tag field is not saved. Escape and Cancel discard. A click elsewhere in the window leaves the inline editor open.
 - Save on Edit and Tag saves. Send on Make a todo with context sends, and the row says Sent. Cancel does not.
-- On the Clipboard page, Escape closes the popover. Moving the pointer off it leaves it open. Save and Send still do that action.
+- On the Clipboard page, Escape closes a popover, or the inline editor when one is open. Moving the pointer off a popover leaves it open. Save and Send still do that action.
 - In the panel menu, Edit, Tag, and Make a todo with context open an editor inside the menu. That check is M189.
 - Make a todo and Tell me more still send on one click.
 
@@ -2319,9 +2319,9 @@ The roadmap does not add a Paste button. [CLIPBOARD.md](CLIPBOARD.md) says a Pas
 
 **Look for.**
 
-- On the Clipboard page, Tag opens a popover. The top label is New tag. The value field is under that label, and Add is beside the field. The caret is in the field.
-- Applied tags is under that row. With no tags, the muted line says None yet. After a tag is added, the chip sits under Applied tags and None yet is gone.
-- Save and Cancel are at the bottom. Cancel closes without storing. Enter and Add both add the tag. Typing a tag and clicking Save, without Add, stores that tag and closes the popover.
+- On the Clipboard page, Tag expands the row. The heading is Tags. Chips for tags already on clips are under it, or No tags yet. New tag… is under that, then the hint, then Cancel and Save on the right. The caret is in the field.
+- Enter saves the typed tag, clears the field, and leaves the editor open. Save stores a name still in the field and closes. Cancel closes without storing a name that was only typed.
+- Escape with text in the field clears that text and stays open. Escape on an empty field closes.
 - Tag from the panel menu opens its own editor inside the menu. That check is M189.
 
 **Reset.** None.
@@ -2332,8 +2332,8 @@ The roadmap does not add a Paste button. [CLIPBOARD.md](CLIPBOARD.md) says a Pas
 
 **Look for.**
 
-- Open Tag on the Clipboard page. Move the pointer onto the field, off the popover, and back. The popover stays open. Save then stores the tag and the window stays open.
-- A click outside the popover, Escape, Save, and Cancel each close it once.
+- Open Tag on the Clipboard page. Move the pointer onto the field, off the row, and back. The editor stays open. Save then stores the tag and the window stays open.
+- A click elsewhere in the window leaves the editor open. Escape, Save, and Cancel each close it once. Escape first clears text still in the field.
 - From the panel menu, Tag opens an editor inside the menu. Move the pointer off it and back. It stays open. Escape closes the editor, and the menu stays open.
 
 **Reset.** None.
@@ -2497,8 +2497,8 @@ Obsolete, superseded by N16 option A. The panel menu edits a clip inside the men
 
 **Look for.**
 
-- On the Clipboard page, open Tag and close it with Escape. Open Edit on the other clip, type a word, and switch to another app. The popover closes. Copy something new, then switch back.
-- The word you typed is still on that clip.
+- On the Clipboard page, open Tag. The row expands in place. Close it with Escape. Open Edit on the other clip, type a word, and switch to another app. The editor stays open and the word is still in the box. Copy something new, then switch back.
+- The word is still in that editor. Close the window. Open it again: the word is on that clip.
 - `journalctl --user -u tetherbot-window.service --since "-10 min"` has no `Finalizing GtkButton` line that mentions `GtkPopover`.
 
 **Reset.** None.
@@ -2518,13 +2518,13 @@ dbus-monitor --session "type='method_call',interface='io.github.grokkinggrok.Tet
 3. Press Tag, type a new tag name in New tag…, and press Enter. The tag is saved then, the field clears, and the editor stays open with the caret still in the field. Type a second tag and press Enter again. Both tags are on the clip. The window Clipboard page lists them in its tag filter. `GetTags` lists todo tags only, so a tag used only on clips is not in it. Press Escape with more text still in the field: that text is dropped, the editor closes, the menu stays open, and the tags already entered stay on the clip.
 4. Press Tag five times fast on one clip. Nothing freezes, and one editor is open.
 5. Press Edit, change the text, and press Enter. A new line is added in the box. Ctrl+Enter saves, and so does Save. The menu stays open, and the text, including the new line, is updated in the menu and in the window.
-   On the window Clipboard page, open Edit and press Enter. A new line is added. Ctrl+Enter saves, and so does Save.
-   On the window Clipboard page, open Tag, type a tag, and press Enter. The tag is saved then, the field clears, and the popover stays open with the caret in the field. Ctrl+Enter saves too.
+   On the window Clipboard page, press Edit. The row expands in place, with the same heading, outlined box, hint, and Cancel and Save on the right. Press Enter. A new line is added. Ctrl+Enter saves, and so does Save. While that box has focus, Ctrl+Enter does not mark a todo done.
+   On the window Clipboard page, press Tag. The row expands in place, with readable chips, a New tag field, the hint, and Cancel and Save. Type a tag and press Enter. The tag is saved then, the field clears, and the editor stays open with the caret in the field. Ctrl+Enter saves too.
 6. Press Edit, change the text, and press Escape. Nothing is saved, the row is unchanged, and the menu stays open.
 7. Press Edit, type a change, and switch to another app. The menu closes. Open it again: the change was saved. Escape while the menu is still open still discards an edit.
    Press Tag, enter a tag with Enter, type more without pressing Enter, and switch to another app. The entered tag stays. The untyped text does not.
-   On the window Clipboard page, open Edit, type a change, and switch to another app by clicking that app or with Alt+Tab. The popover closes. Come back and open Edit again: the change was saved. Clearing the box and switching away does not save an empty clip; opening Edit again shows what you typed. A click on another part of the TetherBot window, Escape, and Cancel discard the edit.
-   On the window Clipboard page, open Tag, add a tag with Enter or Add, and switch to another app the same way. The popover closes and the tag stays. Text left in the field is not saved. A click inside the TetherBot window, Escape, or Cancel discards tags that were added but not saved yet. Enter itself already saved the tag, so that one stays.
+   On the window Clipboard page, open Edit, type a change, and switch to another app by clicking that app or with Alt+Tab. The editor stays open and the change is not saved yet. Come back: the words are still in the box. Close the window, or leave the Clipboard page: the change is saved. Open Edit again and it shows the saved text. Clearing the box and closing the window does not save an empty clip; opening Edit again shows what you typed. A click on another part of the TetherBot window leaves the editor open. Escape and Cancel discard the edit.
+   On the window Clipboard page, open Tag, add a tag with Enter, and switch to another app the same way. The editor stays open and the tag stays, because Enter already saved it. Text left in the field is not saved. Escape clears that text and, once the field is empty, closes the editor. Cancel discards tags that were toggled but not saved. A click elsewhere in the window leaves the editor open.
 8. Stop the window with `pkill -f tetherbot.window`. Tag and Edit in the menu still work. `systemctl --user list-units 'tetherbot-window*'` shows no window started, and `dbus-monitor` prints no `OpenWindow` call.
 9. Open clipboard still opens the window on the Clipboard page.
 10. Tag and Edit on the window's Clipboard page still open, save, and cancel as before. Switching to another app is step 7.

@@ -140,16 +140,19 @@ def test_window_sources_do_not_touch_the_network_or_secrets():
         "\ndef _build_context_editor", 1
     )[0]
     assert "EventControllerMotion" not in tag_editor
-    assert '"New tag"' in tag_editor
-    assert '"Applied tags"' in tag_editor
-    assert '"None yet"' in tag_editor
-    assert "add_tag(name_row)" in tag_editor
-    assert "release_tag_editor" in tag_editor
+    assert '"New tag…"' in tag_editor
+    assert '"Tags"' in tag_editor
+    assert '"No tags yet"' in tag_editor
+    assert "Enter saves this tag. Escape closes." in tag_editor
+    assert "release_tag_editor" not in tag_editor
     text_editor = window.split("def _build_text_editor", 1)[1].split(
         "\ndef _focus_tag_entry", 1
     )[0]
-    assert '"Cancel"' in text_editor
-    assert '"Save"' in text_editor
+    assert "_inline_actions" in text_editor
+    actions = window.split("def _inline_actions", 1)[1].split("\ndef ", 1)[0]
+    assert '"Cancel"' in actions
+    assert '"Save"' in actions
+    assert "Enter adds a line. Ctrl+Enter saves. Escape cancels." in text_editor
     assert "_queue_clip_popover_close" in window
     assert "_clip_rebuild_deferred" in window
     assert "_drop_closed_popover" in window
@@ -159,26 +162,25 @@ def test_window_sources_do_not_touch_the_network_or_secrets():
     assert window.count('notify::is-active') == 1
     active = window.split("def _on_window_active", 1)[1].split("\n    def ", 1)[0]
     assert "_commit_current_note_draft" in active
-    assert "_autosave_open_clip_editor()" in active
+    assert "_autosave_inline" not in active
     assert "close(" not in active
-    autosave = window.split("def _autosave_open_clip_editor", 1)[1].split(
-        "\n    def ", 1
-    )[0]
-    assert "get_visible()" in autosave
-    assert "_click_dismissed_popover()" in window
+    visible = window.split("def _on_window_visible", 1)[1].split("\n    def ", 1)[0]
+    assert "_autosave_inline()" in visible
+    assert "def _autosave_inline" in window
+    assert "Gtk.Revealer(" in window
     assert "def _discard_clip_popover" in window
-    assert "def _autosave_clip_edit" in window
-    assert "def _autosave_clip_tags" in window
     assert "clip_kind = \"edit\"" in window
     assert "clip_kind = \"tag\"" in window
-    assert "_commit_clip_focus_stash_now()" in active
-    commit = window.split("def _commit_clip_focus_stash(", 1)[1].split("\n    def ", 1)[0]
-    assert "is_active" not in commit
-    assert "clip_close_saves(" in window
-    assert "EventControllerLegacy" in window
+    assert "clip_close_saves" not in window
+    assert "EventControllerLegacy" not in window
+    assert "_clip_focus_stash" not in window
     assert "_bind_clip_editor_keys(" in text_editor
     assert "_bind_clip_editor_keys(" in tag_editor
     assert "on_apply" in tag_editor
+    keys = window.split("def _on_key(", 1)[1].split("\n    def ", 1)[0]
+    assert "_focus_in_clip_inline" in keys
+    assert keys.index("_focus_in_clip_inline") < keys.index("_done_current")
+    assert "_escape_inline()" in keys
     assert "def _flush_clip_focus_stash" not in window
     assert "_close_if_inactive" not in window
     shifts = window.split("self.edit_start_box = Gtk.Box", 1)[1].split(
@@ -187,13 +189,17 @@ def test_window_sources_do_not_touch_the_network_or_secrets():
     assert shifts.index('"-1m"') < shifts.index('"-5m"')
     for name in (
         "_show_clip_text",
-        "_show_clip_tags",
         "_show_clip_image",
         "_prompt_clip_context",
     ):
         body = window.split(f"    def {name}(", 1)[1].split("\n    def ", 1)[0]
         assert "Gtk.Window(" not in body
         assert "_show_clip_popover" in body
+    for name in ("_on_edit_clip", "_on_tag_clip"):
+        body = window.split(f"    def {name}(", 1)[1].split("\n    def ", 1)[0]
+        assert "_show_clip_popover" not in body
+        assert "_open_inline" in body
+    assert "def _show_clip_tags" not in window
     assert "Not sent" in window
     assert "clip_send_message" in window
     assert "Images are not sent" in window

@@ -1994,14 +1994,19 @@ def test_a_clipboard_rebuild_unparents_open_and_closing_popovers():
 
             def closing() -> None:
                 row = _visible_clip_row(window, "c-11111111")
-                _icon(row, "tetherbot-tag-symbolic").emit("clicked")
+                window._preview_clipboard(row)
                 popover = window._clip_popover
                 assert popover is not None
                 popover.popdown()
                 window._fill_clipboard_rows()
 
-                def check() -> bool:
+                def inline() -> bool:
                     try:
+                        tagged = _visible_clip_row(window, "c-11111111")
+                        _icon(tagged, "tetherbot-tag-symbolic").emit("clicked")
+                        assert window._clip_inline is not None
+                        window._fill_clipboard_rows()
+                        assert window._clip_inline is None
                         assert not any(
                             "Finalizing GtkButton" in message for message in warnings
                         )
@@ -2012,11 +2017,11 @@ def test_a_clipboard_rebuild_unparents_open_and_closing_popovers():
                         app.quit()
                     return False
 
-                GLib.timeout_add(200, check)
+                GLib.timeout_add(200, inline)
 
             def opened() -> None:
                 row = _visible_clip_row(window, "c-11111111")
-                _icon(row, "tetherbot-tag-symbolic").emit("clicked")
+                window._preview_clipboard(row)
                 assert window._clip_popover is not None
                 assert window._clip_popover.get_visible()
                 window._fill_clipboard_rows()
@@ -2057,7 +2062,7 @@ def test_page_edit_replaces_an_open_tag_popover():
     try:
         gi.require_version("Gtk", "4.0")
         gi.require_version("Adw", "1")
-        from gi.repository import GLib, Gtk
+        from gi.repository import GLib
     except ValueError as exc:
         pytest.skip(str(exc))
     if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
@@ -2069,8 +2074,19 @@ def test_page_edit_replaces_an_open_tag_popover():
     )
     holder: dict = {}
 
-    def _titles(window) -> list[str]:
-        return [_popover_title(popover) for popover in _open_popovers(window, Gtk)]
+    def _heading(window) -> str:
+        state = window._clip_inline
+        if not isinstance(state, dict):
+            return ""
+        return str(getattr(state.get("editor"), "clip_heading", ""))
+
+    def _one(window) -> bool:
+        shown = [
+            row
+            for row in _clip_rows(window)
+            if getattr(getattr(row, "clip_revealer", None), "get_reveal_child", lambda: False)()
+        ]
+        return len(shown) == 1 and window._clip_popover is None
 
     def finish() -> bool:
         try:
@@ -2087,11 +2103,18 @@ def test_page_edit_replaces_an_open_tag_popover():
 
             def open_edit_same() -> None:
                 def settled() -> None:
-                    assert len(_open_popovers(window, Gtk)) == 1
-                    window._close_clip_popover()
+                    assert _one(window)
+                    assert _heading(window) == "Edit"
+                    window._discard_inline()
                     _pump_quit(app, holder, GLib)
 
-                _poll(GLib, lambda: _titles(window) == ["Edit"], settled, failed, left=70)
+                _poll(
+                    GLib,
+                    lambda: _heading(window) == "Edit" and _one(window),
+                    settled,
+                    failed,
+                    left=70,
+                )
 
             def open_tag_same() -> None:
                 def again() -> None:
@@ -2102,11 +2125,17 @@ def test_page_edit_replaces_an_open_tag_popover():
                         failed,
                     )
 
-                _poll(GLib, lambda: _titles(window) == ["New tag"], again, failed, left=70)
+                _poll(
+                    GLib,
+                    lambda: _heading(window) == "Tags" and _one(window),
+                    again,
+                    failed,
+                    left=70,
+                )
 
             def open_edit_other() -> None:
                 def again() -> None:
-                    assert len(_open_popovers(window, Gtk)) == 1
+                    assert _one(window)
                     _after_responsive(
                         GLib,
                         lambda: _press_clip(window, "c-11111111", "tetherbot-tag-symbolic"),
@@ -2114,7 +2143,13 @@ def test_page_edit_replaces_an_open_tag_popover():
                         failed,
                     )
 
-                _poll(GLib, lambda: _titles(window) == ["Edit"], again, failed, left=70)
+                _poll(
+                    GLib,
+                    lambda: _heading(window) == "Edit" and _one(window),
+                    again,
+                    failed,
+                    left=70,
+                )
 
             def open_tag() -> None:
                 def again() -> None:
@@ -2125,7 +2160,13 @@ def test_page_edit_replaces_an_open_tag_popover():
                         failed,
                     )
 
-                _poll(GLib, lambda: _titles(window) == ["New tag"], again, failed, left=70)
+                _poll(
+                    GLib,
+                    lambda: _heading(window) == "Tags" and _one(window),
+                    again,
+                    failed,
+                    left=70,
+                )
 
             _poll(
                 GLib,
@@ -2191,20 +2232,13 @@ def test_tag_editor_layout_and_save_keeps_typed_text():
 
             def check() -> bool:
                 try:
-                    popover = window._clip_popover
-                    assert popover is not None
-                    box = popover.get_child()
-                    labels = _direct_labels(box)
-                    assert labels[:1] == ["New tag"]
-                    assert "Applied tags" in labels
-                    assert labels.index("New tag") < labels.index("Applied tags")
+                    box = _inline_editor(window)
+                    assert box.clip_heading == "Tags"
+                    assert window._clip_popover is None
                     entry = box.tag_entry
-                    entry_row = entry.get_parent()
-                    assert _find_button(entry_row, "Add") is not None
-                    none = _find_button(box, "None yet")
-                    assert none is not None
-                    assert none.get_visible()
-                    assert "dim-label" in none.get_css_classes()
+                    assert entry.get_placeholder_text() == "New tag…"
+                    assert _find_button(box, "Cancel") is not None
+                    assert _find_button(box, "Save") is not None
                     focus = window.get_focus()
                     assert focus is not None
                     assert focus is entry or focus.is_ancestor(entry)
@@ -2212,37 +2246,33 @@ def test_tag_editor_layout_and_save_keeps_typed_text():
                     entry.set_text("Later")
                     entry.emit("activate")
                     assert entry.get_text() == ""
-                    assert not none.get_visible()
-                    assert _label_text(box, "Later") is not None
-                    entry.set_text("  Soon  ")
-                    add = _find_button(entry_row, "Add")
-                    assert add is not None
-                    add.emit("clicked")
-                    assert _label_text(box, "Soon") is not None
+                    assert window._clip_inline is not None
+                    assert client.saved == [("c-11111111", [{"name": "Later"}])]
                     entry.set_text("Skip")
-                    cancel = _find_button(box, "Cancel")
-                    assert cancel is not None
-                    cancel.emit("clicked")
+                    window._on_key(None, Gdk.KEY_Escape, 0, Gdk.ModifierType(0))
+                    assert entry.get_text() == ""
+                    assert window._clip_inline is not None
+                    window._on_key(None, Gdk.KEY_Escape, 0, Gdk.ModifierType(0))
 
                     def canceled() -> bool:
                         try:
-                            assert window._clip_popover is None
-                            assert client.saved == []
+                            assert window._clip_inline is None
+                            assert client.saved == [("c-11111111", [{"name": "Later"}])]
                             row = _clip_rows(window)[0]
                             _icon(row, "tetherbot-tag-symbolic").emit("clicked")
-                            again = window._clip_popover
-                            assert again is not None
-                            again.get_child().tag_entry.set_text("  Kept  ")
+                            again = _inline_editor(window)
+                            again.tag_entry.set_text("  Kept  ")
                             save = _find_button(again, "Save")
                             assert save is not None
                             save.emit("clicked")
-                            assert client.saved == [
-                                ("c-11111111", [{"name": "Kept", "color": "red"}])
-                            ]
+                            assert client.saved[-1] == (
+                                "c-11111111",
+                                [{"name": "Later"}, {"name": "Kept"}],
+                            )
 
                             def closed() -> bool:
                                 try:
-                                    assert window._clip_popover is None
+                                    assert window._clip_inline is None
                                     assert window.get_visible()
                                     assert _clip_rows(window)
                                     _pump_quit(app, holder, GLib)
@@ -2302,9 +2332,8 @@ def test_tag_popover_stays_open_when_the_pointer_leaves():
             window._set_page("clipboard")
             plain = _clip_rows(window)[0]
             _icon(plain, "tetherbot-tag-symbolic").emit("clicked")
-            popover = window._clip_popover
-            assert popover is not None
-            entry = popover.get_child().tag_entry
+            editor = _inline_editor(window)
+            entry = editor.tag_entry
             seen = {"enter": 0, "leave": 0}
             motion = Gtk.EventControllerMotion()
             motion.connect("enter", lambda *_args: seen.__setitem__("enter", seen["enter"] + 1))
@@ -2314,17 +2343,17 @@ def test_tag_popover_stays_open_when_the_pointer_leaves():
             motion.emit("leave")
             assert seen == {"enter": 1, "leave": 1}
             entry.remove_controller(motion)
-            assert window._clip_popover is popover
-            assert popover.get_visible()
+            assert window._clip_inline is not None
+            assert editor.get_visible()
             entry.set_text("  Later  ")
-            save = _find_button(popover, "Save")
+            save = _find_button(editor, "Save")
             assert save is not None
             save.emit("clicked")
-            assert client.saved == [("c-11111111", [{"name": "Later", "color": "red"}])]
+            assert client.saved == [("c-11111111", [{"name": "Later"}])]
 
             def check() -> bool:
                 try:
-                    assert window._clip_popover is None
+                    assert window._clip_inline is None
                     assert window.get_visible()
                     assert _clip_rows(window)
                     _pump_quit(app, holder, GLib)
@@ -2522,9 +2551,18 @@ def _visible_clip_row(window, entry_id: str):
     return found
 
 
+def _inline_editor(window):
+    state = window._clip_inline
+    assert isinstance(state, dict), "inline editor is not open"
+    editor = state.get("editor")
+    assert editor is not None
+    return editor
+
+
 def _editor_settled(window) -> bool:
     return (
-        window._clip_popover is None
+        window._clip_inline is None
+        and window._clip_popover is None
         and window._closed_popover is None
         and not window._clip_close_queued
         and not window._clip_popover_closing
@@ -2611,18 +2649,17 @@ def test_first_pinned_edit_closes_without_crashing():
     def save(window) -> None:
         row = _visible_clip_row(window, "c-11111111")
         _icon(row, "document-edit-symbolic").emit("clicked")
-        popover = window._clip_popover
-        assert popover is not None
-        button = _find_button(popover, "Save")
+        editor = _inline_editor(window)
+        editor.clip_text_view.get_buffer().set_text("Pinned line")
+        button = _find_button(editor, "Save")
         assert button is not None
         button.emit("clicked")
 
     def cancel(window) -> None:
         row = _visible_clip_row(window, "c-11111111")
         _icon(row, "document-edit-symbolic").emit("clicked")
-        popover = window._clip_popover
-        assert popover is not None
-        button = _find_button(popover, "Cancel")
+        editor = _inline_editor(window)
+        button = _find_button(editor, "Cancel")
         assert button is not None
         before = len(client.edits)
         button.emit("clicked")
@@ -2631,7 +2668,7 @@ def test_first_pinned_edit_closes_without_crashing():
     def escape(window) -> None:
         row = _visible_clip_row(window, "c-11111111")
         _icon(row, "document-edit-symbolic").emit("clicked")
-        assert window._clip_popover is not None
+        assert window._clip_inline is not None
         before = len(client.edits)
         window._on_key(None, Gdk.KEY_Escape, 0, Gdk.ModifierType(0))
         assert len(client.edits) == before
@@ -2659,10 +2696,9 @@ def test_tag_and_pinned_edit_survive_a_long_run():
     def tag_once(window) -> None:
         row = _visible_clip_row(window, "c-11111111")
         _icon(row, "tetherbot-tag-symbolic").emit("clicked")
-        popover = window._clip_popover
-        assert popover is not None
-        popover.get_child().tag_entry.set_text("Later")
-        save = _find_button(popover, "Save")
+        editor = _inline_editor(window)
+        editor.tag_entry.set_text("Later")
+        save = _find_button(editor, "Save")
         assert save is not None
         save.emit("clicked")
 
@@ -2670,15 +2706,15 @@ def test_tag_and_pinned_edit_survive_a_long_run():
         def act(window) -> None:
             row = _visible_clip_row(window, "c-11111111")
             _icon(row, "document-edit-symbolic").emit("clicked")
-            popover = window._clip_popover
-            assert popover is not None
+            editor = _inline_editor(window)
             if mode == "save":
-                button = _find_button(popover, "Save")
+                editor.clip_text_view.get_buffer().set_text("Pinned line")
+                button = _find_button(editor, "Save")
                 assert button is not None
                 button.emit("clicked")
                 return
             if mode == "cancel":
-                button = _find_button(popover, "Cancel")
+                button = _find_button(editor, "Cancel")
                 assert button is not None
                 button.emit("clicked")
                 return

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 //
-// GNOME Shell 50, ESM. This file may talk to the bridge only through the
+// GNOME Shell 50 and 51, ESM. This file may talk to the bridge only through the
 // session bus. Do not import Soup, open a socket, spawn a network process,
 // or store a secret here.
 
@@ -70,7 +70,6 @@ import {
     snoozeIso,
     todoFilter,
     isMainWindow,
-    isClipEditor,
     topRightFrame,
     actionResultNotice,
     panelSnapIndexes,
@@ -86,6 +85,19 @@ import {
     menuLabel,
     pickImageMime,
 } from './clipboard.js';
+import {
+    ClipEditorSlot,
+    EDIT_SAVE_ERROR,
+    TAG_SAVE_ERROR,
+    contextBots,
+    contextSend,
+    editPlan,
+    historyTags,
+    tagChips,
+    tagTone,
+    tagsPayload,
+} from './clip_inline.js';
+import {ContextEditor, EditEditor, TagEditor} from './clip_editors.js';
 
 function _windowIdentity(metaWindow) {
     let gtkId;
@@ -336,6 +348,13 @@ export default class TetherBotExtension extends Extension {
         this._unwatchClipboard();
         this._indicator?.destroy();
         this._indicator = null;
+        this._clipEditors?.dispose();
+        this._clipEditors = null;
+        if (this._clipRebuildSource) {
+            GLib.source_remove(this._clipRebuildSource);
+            this._clipRebuildSource = 0;
+        }
+        this._clipRowItems = null;
         this._clipIndicator?.destroy();
         this._clipIndicator = null;
         this._clipSection = null;
@@ -447,14 +466,8 @@ export default class TetherBotExtension extends Extension {
             if (!this._enabled)
                 return;
             const identity = _windowIdentity(metaWindow);
-            if (isClipEditor(identity)) {
-                drop();
-                return;
-            }
             if (!isMainWindow(identity))
                 return;
-            // The editor shares this application id. Wait until its title
-            // is set so this placer does not grab it.
             if (!identity.title)
                 return;
             drop();
@@ -2574,8 +2587,380 @@ export default class TetherBotExtension extends Extension {
         const openItem = new PopupMenu.PopupMenuItem('Open clipboard');
         openItem.connect('activate', () => this._openClipboardWindow());
         this._clipIndicator.menu.addMenuItem(openItem);
+        this._clipRowItems = new Map();
+        this._clipRebuildSource = 0;
+        this._clipMenuMotion = null;
+        this._clipEditors = new ClipEditorSlot({
+            mount: (kind, entry, token) => this._mountClipEditor(kind, entry, token),
+            unmount: editor => {
+                this._releaseClipMenuMotion();
+                editor.destroy();
+            },
+            rebuild: () => this._queueClipRebuild(),
+        });
+        this._installClipMenuGuard(this._clipIndicator.menu.actor);
+        this._clipEditDrafts = new Map();
+        this._tagSaveBusy = false;
+        this._tagSavePending = null;
+        this._clipIndicator.menu.connect('open-state-changed', (_menu, open) => {
+            if (!open)
+                this._dismissClipEditor();
+        });
         this._fillClipboardMenu();
         Main.panel.addToStatusArea(`${this.uuid}-clipboard`, this._clipIndicator, 1);
+    }
+
+    // Escape and pointer crossing while an editor is open.
+    //
+    // Shell 50: the menu manager connects captured-event when the button is
+    // added to the panel. This guard is connected first, so EVENT_STOP keeps
+    // the manager from closing the menu or switching to another one.
+    //
+    // Shell 51: the manager adds a capture-phase key controller when the menu
+    // opens, and that runs before captured-event. The key controller here is
+    // added first, so it runs before the manager's and can stop Escape. The
+    // manager's motion controller switches menus and always propagates, so
+    // stopping its signal does nothing. It is turned off while an editor is
+    // open. captured-event still runs for an enter the motion controller
+    // propagated, which keeps a hovered row from taking key focus.
+    _installClipMenuGuard(actor) {
+        if (typeof Clutter.KeyController === 'function' &&
+            Clutter.EventPhase &&
+            typeof actor.add_action_full === 'function') {
+            const keys = new Clutter.KeyController();
+            keys.connect('key-press', controller => this._onClipMenuKey(controller));
+            actor.add_action_full(
+                'tetherbot-inline-menu-keys',
+                Clutter.EventPhase.CAPTURE,
+                keys);
+        }
+        actor.connect('captured-event', (_menuActor, event) => {
+            return this._onClipMenuEvent(event);
+        });
+    }
+
+    _onClipMenuKey(controller) {
+        if (!this._clipEditors?.isOpen)
+            return Clutter.EVENT_PROPAGATE;
+        const [handling, symbol] = controller.get_key();
+        if (!handling || symbol !== Clutter.KEY_Escape)
+            return Clutter.EVENT_PROPAGATE;
+        this._cancelClipEditor();
+        return Clutter.EVENT_STOP;
+    }
+
+    _holdClipMenuMotion() {
+        const actor = this._clipIndicator?.menu?.actor;
+        if (!actor || typeof actor.get_action !== 'function')
+            return;
+        const motion = actor.get_action('popup-manager-motion-controller');
+        if (!motion)
+            return;
+        motion.enabled = false;
+        this._clipMenuMotion = motion;
+    }
+
+    _releaseClipMenuMotion() {
+        const motion = this._clipMenuMotion;
+        this._clipMenuMotion = null;
+        if (!motion)
+            return;
+        try {
+            motion.enabled = true;
+        } catch {
+            // The menu already removed the controller.
+        }
+    }
+
+    // With an inline editor open, Escape closes the editor and not the menu.
+    // Crossing into anything outside the editor is dropped: another panel
+    // button would switch menus, and a hovered row would take key focus.
+    _onClipMenuEvent(event) {
+        const editor = this._clipEditors?.current?.handle;
+        if (!editor)
+            return Clutter.EVENT_PROPAGATE;
+        const type = event.type();
+        if (type === Clutter.EventType.KEY_PRESS &&
+            event.get_key_symbol() === Clutter.KEY_Escape) {
+            this._cancelClipEditor();
+            return Clutter.EVENT_STOP;
+        }
+        if (type === Clutter.EventType.ENTER) {
+            const target = global.stage.get_event_actor(event);
+            if (target && !editor.item.contains(target))
+                return Clutter.EVENT_STOP;
+        }
+        return Clutter.EVENT_PROPAGATE;
+    }
+
+    // Rows are rebuilt on the next idle, so a press handler never destroys
+    // its own button. The slot holds the rebuild while an editor is open.
+    _queueClipRebuild() {
+        if (this._clipRebuildSource)
+            return;
+        this._clipRebuildSource = GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
+            this._clipRebuildSource = 0;
+            if (!this._enabled)
+                return GLib.SOURCE_REMOVE;
+            if (this._clipEditors?.isOpen)
+                this._clipEditors.requestRebuild();
+            else
+                this._fillClipboardMenu();
+            return GLib.SOURCE_REMOVE;
+        });
+    }
+
+    _mountClipEditor(kind, entry, token) {
+        const row = this._clipRowItems?.get(entry.id);
+        if (!row || !this._clipSection)
+            return null;
+        const rowItem = row.item;
+        let editor = null;
+        if (kind === 'tag')
+            editor = this._tagEditor(entry, token);
+        else if (kind === 'context')
+            editor = this._contextEditor(entry, token, row.label);
+        else if (kind === 'edit')
+            editor = this._editEditor(entry, token);
+        if (!editor)
+            return null;
+        const index = this._clipSection._getMenuItems().indexOf(rowItem);
+        if (index < 0) {
+            editor.destroy();
+            return null;
+        }
+        this._clipSection.addMenuItem(editor.item, index + 1);
+        editor.returnFocusTo(rowItem);
+        editor.focusSoon();
+        this._holdClipMenuMotion();
+        return editor;
+    }
+
+    _tagEditor(entry, token) {
+        const editor = new TagEditor({
+            chips: tagChips({
+                clipTags: entry.tags,
+                otherTags: historyTags(this._clipEntries),
+            }),
+            onApply: chips => this._saveClipTags(entry.id, chips, token, editor, false),
+            onSave: chips => this._saveClipTags(entry.id, chips, token, editor, true),
+            onCancel: () => this._cancelClipEditor(token),
+        });
+        if (this._proxy && this._proxy.GetTagsRemote) {
+            try {
+                this._proxy.GetTagsRemote((result, error) => {
+                    if (!this._enabled || error || !result)
+                        return;
+                    if (!this._clipEditors?.isCurrent(token))
+                        return;
+                    let rows;
+                    try {
+                        rows = JSON.parse(typeof result[0] === 'string' ? result[0] : '[]');
+                    } catch {
+                        rows = [];
+                    }
+                    editor.mergeKnown(Array.isArray(rows) ? rows : []);
+                });
+            } catch {
+                console.debug('TetherBot: tags were not read');
+            }
+        }
+        return editor;
+    }
+
+    // Enter saves and leaves the editor open. Save closes it after the same
+    // call. A second Enter while the first call is out replaces the payload,
+    // so an older reply cannot write over the newer tags.
+    _saveClipTags(entryId, chips, token, editor, closeOnSuccess) {
+        this._tagSavePending = {
+            entryId,
+            chips,
+            token,
+            editor,
+            closeOnSuccess: closeOnSuccess === true,
+        };
+        if (this._tagSaveBusy)
+            return;
+        this._tagSaveBusy = true;
+        const send = () => {
+            const job = this._tagSavePending;
+            this._tagSavePending = null;
+            if (!job || !this._proxy || !this._proxy.SetClipboardTagsRemote) {
+                this._tagSaveBusy = false;
+                if (job && this._clipEditors?.isCurrent(job.token) && job.editor && !job.editor._destroyed)
+                    job.editor.setError(`${TAG_SAVE_ERROR}: Bridge not running`);
+                return;
+            }
+            const showing = this._clipEditors?.isCurrent(job.token) &&
+                job.editor && !job.editor._destroyed;
+            if (showing) {
+                job.editor.setError('');
+                if (job.closeOnSuccess)
+                    job.editor.setBusy(true);
+            }
+            this._proxy.SetClipboardTagsRemote(
+                job.entryId,
+                tagsPayload(job.chips),
+                (result, error) => {
+                    if (this._tagSavePending) {
+                        send();
+                        return;
+                    }
+                    this._tagSaveBusy = false;
+                    if (!this._enabled || !this._clipEditors?.isCurrent(job.token))
+                        return;
+                    if (!job.editor || job.editor._destroyed)
+                        return;
+                    job.editor.setBusy(false);
+                    if (error) {
+                        job.editor.setError(this._friendlyBridgeMessage(error.message, TAG_SAVE_ERROR));
+                        return;
+                    }
+                    const value = Array.isArray(result) ? result[0] : result;
+                    if (value !== true) {
+                        job.editor.setError(TAG_SAVE_ERROR);
+                        return;
+                    }
+                    if (job.closeOnSuccess)
+                        this._clipEditors.close(job.token);
+                    else
+                        job.editor.focus();
+                });
+        };
+        send();
+    }
+
+    _cancelClipEditor(token) {
+        const current = this._clipEditors?.current;
+        if (!current || (token !== undefined && current.token !== token))
+            return;
+        if (current.kind === 'edit')
+            this._clipEditDrafts.delete(current.id);
+        this._clipEditors?.close(token);
+    }
+
+    // The menu closed, or a non-editor button was pressed. An open Edit is
+    // saved. Escape uses _cancelClipEditor and keeps what was not entered.
+    _dismissClipEditor() {
+        this._autosaveOpenEdit();
+        this._clipEditors?.close();
+    }
+
+    _autosaveOpenEdit() {
+        const current = this._clipEditors?.current;
+        const editor = current?.handle;
+        if (!current || current.kind !== 'edit' || !editor?.alive)
+            return;
+        this._autosaveClipEdit(current.id, editor.original, editor.text);
+    }
+
+    _autosaveClipEdit(entryId, original, text) {
+        const plan = editPlan(original, text);
+        if (!plan.call) {
+            if (plan.error)
+                this._clipEditDrafts.set(entryId, text);
+            else
+                this._clipEditDrafts.delete(entryId);
+            return;
+        }
+        this._clipEditDrafts.set(entryId, text);
+        if (!this._proxy || !this._proxy.EditClipboardRemote)
+            return;
+        this._proxy.EditClipboardRemote(entryId, text, (result, error) => {
+            if (!this._enabled || error)
+                return;
+            const value = Array.isArray(result) ? result[0] : result;
+            if (value === true)
+                this._settleClipDrafts();
+        });
+    }
+
+    // A saved draft stays until the clipboard list is carrying that text, so
+    // reopening the menu before the refresh still shows what was typed.
+    _settleClipDrafts() {
+        if (!this._clipEditDrafts?.size)
+            return;
+        const entries = Array.isArray(this._clipEntries) ? this._clipEntries : [];
+        for (const [entryId, draft] of this._clipEditDrafts) {
+            const entry = entries.find(item => item && item.id === entryId);
+            if (entry && entry.text === draft)
+                this._clipEditDrafts.delete(entryId);
+        }
+    }
+
+    _editEditor(entry, token) {
+        if (entry.masked === true || entry.kind === 'image' || typeof entry.text !== 'string')
+            return null;
+        const original = entry.text;
+        const draft = this._clipEditDrafts.get(entry.id);
+        const shown = typeof draft === 'string' ? draft : original;
+        const editor = new EditEditor({
+            text: shown,
+            original,
+            onSave: text => this._saveClipEdit(entry.id, original, text, token, editor),
+            onCancel: () => this._cancelClipEditor(token),
+        });
+        return editor;
+    }
+
+    _saveClipEdit(entryId, original, text, token, editor) {
+        const plan = editPlan(original, text);
+        if (plan.error) {
+            editor.setError(plan.error);
+            return;
+        }
+        if (!plan.call) {
+            this._clipEditDrafts.delete(entryId);
+            this._clipEditors?.close(token);
+            return;
+        }
+        if (!this._proxy || !this._proxy.EditClipboardRemote) {
+            editor.setError(`${EDIT_SAVE_ERROR}: Bridge not running`);
+            return;
+        }
+        editor.setError('');
+        editor.setBusy(true);
+        this._clipEditDrafts.set(entryId, text);
+        this._proxy.EditClipboardRemote(entryId, text, (result, error) => {
+            if (!this._enabled || !this._clipEditors?.isCurrent(token))
+                return;
+            editor.setBusy(false);
+            if (error) {
+                editor.setError(this._friendlyBridgeMessage(error.message, EDIT_SAVE_ERROR));
+                return;
+            }
+            const value = Array.isArray(result) ? result[0] : result;
+            if (value !== true) {
+                editor.setError(EDIT_SAVE_ERROR);
+                return;
+            }
+            this._clipEditDrafts.set(entryId, text);
+            this._settleClipDrafts();
+            this._clipEditors.close(token);
+        });
+    }
+
+    _contextEditor(entry, token, label) {
+        let effort;
+        try {
+            effort = this._settings.get_string('context-effort');
+        } catch {
+            effort = 'low';
+        }
+        return new ContextEditor({
+            bots: contextBots(this._bots, this._items),
+            effort,
+            onSend: bot => {
+                const [entryId, action, target] = contextSend(entry.id, bot);
+                this._clipEditors?.close(token);
+                this._sendClipboard(entryId, action, label, target);
+            },
+            onCancel: () => this._clipEditors?.close(token),
+        });
+    }
+
+    _openClipEditor(kind, entry) {
+        this._clipEditors?.press(kind, entry);
     }
 
     _keepLeftmost() {
@@ -2863,13 +3248,19 @@ export default class TetherBotExtension extends Extension {
                 parsed = [];
             }
             this._clipEntries = Array.isArray(parsed) ? parsed : [];
-            this._fillClipboardMenu();
+            this._settleClipDrafts();
+            if (this._clipEditors)
+                this._clipEditors.requestRebuild();
+            else
+                this._fillClipboardMenu();
         });
     }
 
     _fillClipboardMenu() {
         if (!this._clipSection)
             return;
+        this._clipEditors?.dispose();
+        this._clipRowItems = new Map();
         this._clipSection.removeAll();
         const entries = Array.isArray(this._clipEntries) ? this._clipEntries : [];
         const shown = entries.filter(entry => {
@@ -2942,14 +3333,14 @@ export default class TetherBotExtension extends Extension {
             };
             const columns = [
                 ['document-edit-symbolic', 'Edit', !masked && !isImage, () => {
-                    this._openClipAction('clip-edit', entry.id);
-                }],
+                    this._openClipEditor('edit', entry);
+                }, true],
                 ['view-pin-symbolic', pinned ? 'Unpin' : 'Pin', true, () => {
                     this._pinClipboard(entry.id, !pinned);
                 }],
                 ['tetherbot-tag-symbolic', 'Tag', !masked, () => {
-                    this._openClipAction('clip-tag', entry.id);
-                }],
+                    this._openClipEditor('tag', entry);
+                }, true],
                 ['edit-copy-symbolic', 'Copy', true, copyBack],
                 ['system-search-symbolic', 'Search the web', !masked && !isImage, () => {
                     this._searchClipboard(entry.id);
@@ -2958,8 +3349,8 @@ export default class TetherBotExtension extends Extension {
                     this._sendClipboard(entry.id, 'clip-todo', label);
                 }],
                 ['tetherbot-square-check-symbolic', 'Make a todo with context', canSend, () => {
-                    this._openClipAction('clip-context', entry.id);
-                }],
+                    this._openClipEditor('context', entry);
+                }, true],
                 ['tetherbot-circle-help-symbolic', 'Tell me more', canSend, () => {
                     this._sendClipboard(entry.id, 'clip-ask', label);
                 }],
@@ -2987,7 +3378,7 @@ export default class TetherBotExtension extends Extension {
                 return Clutter.EVENT_STOP;
             });
             let placed = false;
-            columns.forEach(([iconName, tip, enabled, onPress]) => {
+            columns.forEach(([iconName, tip, enabled, onPress, opensEditor]) => {
                 if (!enabled)
                     return;
                 if (placed) {
@@ -3000,6 +3391,8 @@ export default class TetherBotExtension extends Extension {
                 const button = this._clipIconButton(iconName, tip);
                 button.connect('button-press-event', () => {
                     holdClipClick();
+                    if (!opensEditor)
+                        this._dismissClipEditor();
                     onPress();
                     return Clutter.EVENT_STOP;
                 });
@@ -3015,6 +3408,7 @@ export default class TetherBotExtension extends Extension {
                 copyBack();
             });
             this._clipSection.addMenuItem(item);
+            this._clipRowItems.set(entry.id, {item, label});
             this._fitClipboardRow(textBox, actions);
         }
     }
@@ -3137,12 +3531,12 @@ export default class TetherBotExtension extends Extension {
         return cleaned;
     }
 
-    _sendClipboard(entryId, action, label) {
+    _sendClipboard(entryId, action, label, targetBot = 'primary') {
         if (!entryId || !this._proxy || !this._proxy.SendClipboardRemote) {
             this._showClipResult(label, 'Not sent: Bridge not running');
             return;
         }
-        this._proxy.SendClipboardRemote(entryId, action, 'primary', (result, error) => {
+        this._proxy.SendClipboardRemote(entryId, action, targetBot, (result, error) => {
             if (!this._enabled)
                 return;
             if (error) {
@@ -3298,12 +3692,6 @@ export default class TetherBotExtension extends Extension {
         this._callOpenWindow('clipboard', 'clips');
     }
 
-    _openClipAction(action, entryId) {
-        if (!entryId)
-            return;
-        this._callOpenWindow(`${action}:${entryId}`, 'clips');
-    }
-
     _searchClipboard(entryId) {
         if (!entryId || !this._proxy || !this._proxy.SearchClipboardRemote)
             return;
@@ -3396,18 +3784,6 @@ function chipLabel(text, tone) {
     });
 }
 
-const CLIP_DOT_TONES = {
-    red: true,
-    orange: true,
-    yellow: true,
-    green: true,
-    teal: true,
-    blue: true,
-    purple: true,
-    pink: true,
-    gray: true,
-};
-
 function clipDots(tags) {
     const box = new St.BoxLayout({
         y_align: Clutter.ActorAlign.CENTER,
@@ -3417,7 +3793,7 @@ function clipDots(tags) {
     for (const tag of list) {
         if (!tag || typeof tag.name !== 'string' || !tag.name)
             continue;
-        const tone = CLIP_DOT_TONES[tag.color] ? tag.color : 'gray';
+        const tone = tagTone(tag.color);
         const dot = new St.Widget({
             style_class: `tetherbot-clip-dot tetherbot-clip-dot-${tone}`,
             y_align: Clutter.ActorAlign.CENTER,

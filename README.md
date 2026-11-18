@@ -57,7 +57,7 @@ Desktop to bot uses a documented routine webhook: an authenticated HTTP POST. Bo
 
 The human checklist is [docs/SETUP.md](docs/SETUP.md). The copy-paste checks are [docs/MANUAL-CHECKS.md](docs/MANUAL-CHECKS.md).
 
-1. GNOME Shell 50 on Wayland. Fedora 44 is the reference system.
+1. GNOME Shell 50 or 51 on Wayland. Fedora with Shell 51 is the current reference system. Fedora 44 with Shell 50 still works.
 2. Python 3.13 or newer, the OS package `python3-gobject` (PyGObject), the libsecret typelib (`Secret-1`), and `git`.
 3. Grok Bot, signed in, plus a routine whose trigger is a webhook. [docs/prompts/bot-setup.md](docs/prompts/bot-setup.md) is the prompt to paste into the bot.
 4. The webhook URL and key, stored in the desktop secret service by a bridge command. They never go in a chat, a config file, or this repository.

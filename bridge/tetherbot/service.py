@@ -66,9 +66,6 @@ _CLIP_ACTIONS = frozenset({"clip-todo", "clip-todo-context", "clip-ask"})
 _CLIP_TEXT_MAX = 8000
 _CLIP_GAP_SECONDS = 5
 _CLIP_ID = re.compile(r"^c-[0-9a-f]{8}$")
-_CLIP_WINDOW = re.compile(
-    r"^(?:clip-edit|clip-tag|clip-context):c-[0-9a-f]{8}$"
-)
 _BOT_ID = re.compile(r"^[a-z0-9-]{1,64}$")
 _CLIP_EFFORTS = frozenset({"low", "medium", "high"})
 _LOG = logging.getLogger("tetherbot")
@@ -1575,8 +1572,6 @@ def _recently_done(item: Any, now: datetime, seconds: int) -> bool:
 
 def _window_key_ok(item_key: str) -> bool:
     if item_key in _WINDOW_TARGETS or item_key == "":
-        return True
-    if _CLIP_WINDOW.fullmatch(item_key):
         return True
     return not _bad_item_key(item_key)
 

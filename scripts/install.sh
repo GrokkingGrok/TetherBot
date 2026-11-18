@@ -155,11 +155,11 @@ if command -v gnome-shell >/dev/null 2>&1; then
   if [[ -n "${shell_version}" ]]; then
     echo "${shell_version}"
   fi
-  if [[ ! "${shell_version}" =~ GNOME\ Shell\ 50([.[:space:]]|$) ]]; then
-    echo "warning: the extension targets GNOME Shell 50" >&2
+  if [[ ! "${shell_version}" =~ GNOME\ Shell\ (50|51)([.[:space:]]|$) ]]; then
+    echo "warning: the extension targets GNOME Shell 50 and 51" >&2
   fi
 else
-  echo "warning: gnome-shell is not on PATH (the extension targets GNOME Shell 50)" >&2
+  echo "warning: gnome-shell is not on PATH (the extension targets GNOME Shell 50 and 51)" >&2
 fi
 
 user_systemd=0

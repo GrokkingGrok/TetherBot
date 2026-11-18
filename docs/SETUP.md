@@ -1,6 +1,6 @@
 # Setup
 
-Target machine: Fedora 44, GNOME Shell 50, Wayland, Python 3.13+. Other distributions with the same shell and Python can work. The checks below say so when they only warn.
+Target machine: Fedora, GNOME Shell 50 or 51, Wayland, Python 3.13+. Shell 51 is the current desktop. Fedora 44 with Shell 50 still works. Other distributions with the same shell and Python can work. The checks below say so when they only warn.
 
 `scripts/install.sh` installs the bridge for your user. After `systemctl --user enable --now tetherbot` (or `scripts/install.sh --enable`), the bridge exports `io.github.grokkinggrok.TetherBot1` on the session bus. `tetherbotctl` is status, enable, secret set, and webhook test. `tetherbotctl repo setup` is not a command: enabling the repo adapter clones the remote itself. `ssh-deploy-key` is accepted in config and does not run git yet. The step-by-step checks are in [MANUAL-CHECKS.md](MANUAL-CHECKS.md).
 

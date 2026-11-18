@@ -22,8 +22,6 @@ import {
     parseStartClock,
     todoActivation,
     isMainWindow,
-    isClipEditor,
-    clipEditorFrame,
     topRightFrame,
     WINDOW_APP_ID,
     indicatorView,
@@ -58,7 +56,6 @@ import {
     windowServicePlan,
     pingResult,
     dbusTimedOut,
-    planQuickOpens,
     claimNewestOpen,
     extraWindowUnits,
     isTemplatedWindowUnit,
@@ -257,23 +254,8 @@ export function runViewChecks() {
     assert(pingResult({answered: false, restarted: true}) === 'error', 'one restart then the menu line');
     assert(dbusTimedOut({message: 'Timeout was reached'}) === true, 'a timeout is a timeout');
     assert(dbusTimedOut({message: 'refused'}) === false, 'a refusal is an answer');
-    const burst = planQuickOpens([
-        'clip-tag:c-11111111',
-        'clip-tag:c-22222222',
-        'clip-tag:c-33333333',
-        'clip-tag:c-44444444',
-        'clip-tag:c-55555555',
-    ], {owned: false});
-    assert(burst.activations === 1, 'five presses start the window once');
-    assert(burst.maxInFlight === 1, 'one open is in flight');
-    assert(burst.sent.join(',') === 'clip-tag:c-55555555', 'the last key is the one sent');
-    assert(planQuickOpens(['clip-edit:c-11111111'], {owned: true}).activations === 0,
-        'an owned window is not started');
-    const replaced = claimNewestOpen(
-        'clip-tag:c-11111111',
-        {key: 'clip-edit:c-22222222', close: 'clips'}
-    );
-    assert(replaced.key === 'clip-edit:c-22222222', 'a newer press replaces the queued key');
+    const replaced = claimNewestOpen('', {key: 'clipboard', close: 'clips'});
+    assert(replaced.key === 'clipboard', 'a newer press replaces the queued key');
     assert(extraWindowUnits([
         {name: 'app-io.github.grokkinggrok.TetherBot@0.service', pid: 10},
         {name: 'app-io.github.grokkinggrok.TetherBot@1.service', pid: 11},
@@ -982,24 +964,6 @@ export function runViewChecks() {
     assert(isMainWindow({wmClass: 'tetherbot-window', title: 'TetherBot'}), 'the startup class counts');
     assert(isMainWindow({title: 'TetherBot'}) === false, 'settings shares the title');
     assert(isMainWindow({wmClass: 'org.gnome.Shell', title: 'TetherBot'}) === false, 'the shell window stays put');
-    assert(isMainWindow({gtkId: WINDOW_APP_ID, title: 'Edit clip'}) === false, 'an editor is not the main window');
-    assert(isMainWindow({gtkId: WINDOW_APP_ID, title: 'Tag clip'}) === false, 'a tag editor is not the main window');
-    assert(isMainWindow({gtkId: WINDOW_APP_ID, title: 'Make a todo with context'}) === false, 'a context editor is not the main window');
-    assert(isClipEditor({gtkId: WINDOW_APP_ID, title: 'Edit clip'}), 'the editor shares the app id');
-    assert(isClipEditor({wmClass: 'tetherbot-window', title: 'Tag clip'}), 'the startup class can be the editor');
-    assert(isClipEditor({wmClass: 'TetherBot', title: 'Make a todo with context'}), 'the wm class can be the editor');
-    assert(isClipEditor({title: 'Edit clip'}) === false, 'a title alone is not the editor');
-    assert(isClipEditor({wmClass: 'org.gnome.Shell', title: 'Edit clip'}) === false, 'the shell window is not the editor');
-    const area = {x: 0, y: 40, width: 1000, height: 800};
-    const frame = {width: 480, height: 320};
-    const placed = clipEditorFrame(area, frame, {x: 100, y: 200});
-    assert(placed.x === 100 && placed.y === 200, 'the editor opens at the pointer');
-    const shifted = clipEditorFrame(area, frame, {x: 900, y: 700});
-    assert(shifted.x === 520 && shifted.y === 520, 'the editor shifts back onto the work area');
-    const clamped = clipEditorFrame(area, frame, {x: -10, y: 0});
-    assert(clamped.x === 0 && clamped.y === 40, 'the editor stays inside the work area');
-    const huge = clipEditorFrame(area, {width: 2000, height: 2000}, {x: 100, y: 200});
-    assert(huge.x === 0 && huge.y === 40, 'a large editor keeps the work area origin');
     const parked = topRightFrame({x: 0, y: 29, width: 1920, height: 1171}, {width: 1280, height: 800});
     assert(parked.x === 640 && parked.y === 29, 'opens at the upper right of the work area');
     assert(parked.width === 1280 && parked.height === 800, 'a short window keeps its height');
